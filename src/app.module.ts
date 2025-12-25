@@ -8,7 +8,8 @@ import { AuthModule } from '@modules/auth/auth.module';
 import { InventoryModule } from '@modules/inventory/inventory.module';
 import { OrderModule } from '@modules/order/order.module';
 import { resolve } from 'path';
-
+console.log('当前运行环境:', process.env.NODE_ENV);
+console.log('当前工作目录:', process.cwd());
 @Module({
   imports: [
     // Load environment config
