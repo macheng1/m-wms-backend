@@ -3,9 +3,14 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
-# 安装依赖
+# 安装依赖 - 指定兼容的 pnpm 版本
 COPY package.json pnpm-lock.yaml ./
-RUN npm install -g pnpm && pnpm install --frozen-lockfile
+# 方案1A：指定到具体小版本
+RUN npm install -g pnpm@8.15.9 && pnpm install --frozen-lockfile
+# 或方案1B：只指定大版本
+# RUN npm install -g pnpm@8 && pnpm install --frozen-lockfile
+# 或方案1C：通过 pnpm 自己安装（更稳定）
+# RUN corepack enable pnpm && pnpm install --frozen-lockfile
 
 # 拷贝源码
 COPY . .
