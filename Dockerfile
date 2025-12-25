@@ -1,28 +1,30 @@
-# 基础镜像
-FROM node:18-alpine AS builder
+# 使用与本地相同的 Node 版本
+FROM node:20.15.0-alpine AS builder
 
 WORKDIR /app
 
-# 安装依赖 - 使用与本地完全相同的版本
-COPY package.json pnpm-lock.yaml ./
-RUN npm install -g pnpm@9.15.9 && pnpm install --frozen-lockfile
+# 安装依赖 - 使用 npm
+COPY package.json package-lock.json ./
+RUN npm ci
 
 # 拷贝源码
 COPY . .
 
 # 构建项目
-RUN pnpm run build
+RUN npm run build
 
 # 生产环境镜像
-FROM node:18-alpine
+FROM node:20.15.0-alpine
 
 WORKDIR /app
 
+# 只复制必要的文件
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./
-COPY --from=builder /app/pnpm-lock.yaml ./
-COPY --from=builder /app/node_modules ./node_modules
 
-ENV NODE_ENV=deployment
+# 安装生产依赖
+RUN npm ci --only=production
+
+ENV NODE_ENV=production
 EXPOSE 3001 
 CMD ["node", "dist/main.js"]
