@@ -1,0 +1,5 @@
+// This file is a placeholder for database migrations
+// Run the following command to generate a migration:
+// npm run migration:generate -- src/database/migrations/InitialMigration
+
+export {};
