@@ -52,7 +52,7 @@ m-wms-backend/
 
 ## 技术栈
 
-- **框架**: NestJS 10
+- **框架**: NestJS 11
 - **数据库**: MySQL 8.0 + TypeORM 0.3
 - **认证**: JWT + Passport
 - **验证**: class-validator + class-transformer
