@@ -23,8 +23,8 @@ COPY --from=builder /app/package.json ./
 COPY --from=builder /app/pnpm-lock.yaml ./
 COPY --from=builder /app/node_modules ./node_modules
 
-ENV NODE_ENV=production
+ENV NODE_ENV=deployment
 
-EXPOSE 3000
+EXPOSE 3001 
 
 CMD ["node", "dist/main.js"]
