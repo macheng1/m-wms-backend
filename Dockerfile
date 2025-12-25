@@ -19,6 +19,7 @@ RUN pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com
 
 # 3. 拷贝源码并构建
 COPY . .
+COPY envs ./envs
 RUN pnpm run build
 
 # 4. 【关键优化】清理开发依赖，只保留生产环境必需的包
