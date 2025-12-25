@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from '@common/filters';
 import { TransformInterceptor, LoggingInterceptor } from '@common/interceptors';
+import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -40,6 +41,16 @@ async function bootstrap() {
 
   // Global interceptors
   app.useGlobalInterceptors(new TransformInterceptor(), new LoggingInterceptor());
+
+  // Swagger 集成
+  const swaggerConfig = new DocumentBuilder()
+    .setTitle('M-WMS API')
+    .setDescription('M-WMS 后端接口文档')
+    .setVersion('1.0')
+    .addBearerAuth()
+    .build();
+  const document = SwaggerModule.createDocument(app, swaggerConfig);
+  SwaggerModule.setup('api-docs', app, document);
 
   await app.listen(port);
   console.log(`🚀 Application is running on: http://localhost:${port}/${apiPrefix}`);

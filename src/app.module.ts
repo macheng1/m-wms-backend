@@ -14,10 +14,7 @@ import { resolve } from 'path';
     // Load environment config
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: resolve(
-        process.cwd(),
-        `envs/.env.${process.env.NODE_ENV || 'development'}`,
-      ),
+      envFilePath: resolve(process.cwd(), 'envs', `.env.${process.env.NODE_ENV || 'development'}`),
       load: [appConfig, databaseConfig, jwtConfig],
     }),
 
