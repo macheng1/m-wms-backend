@@ -38,7 +38,7 @@ ENV NODE_ENV=development
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
-
+COPY --from=builder /app/envs ./envs
 # 2. 暴露端口 (根据你的 NestJS 配置，通常是 3000 或 3001)
 EXPOSE 3001
 
