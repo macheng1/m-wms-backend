@@ -40,7 +40,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/envs ./envs
 # 2. 暴露端口 (根据你的 NestJS 配置，通常是 3000 或 3001)
-EXPOSE 3001
+EXPOSE 3002
 
 # 3. 启动应用
 # 注意：NestJS 编译产物入口通常是 dist/main.js
