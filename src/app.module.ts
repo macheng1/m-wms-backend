@@ -8,6 +8,7 @@ import { AuthModule } from '@modules/auth/auth.module';
 import { InventoryModule } from '@modules/inventory/inventory.module';
 import { OrderModule } from '@modules/order/order.module';
 import { resolve } from 'path';
+import { HealthModule } from './modules/health/health.module';
 console.log('当前运行环境:', process.env.NODE_ENV);
 console.log('当前工作目录:', process.cwd());
 @Module({
@@ -42,6 +43,7 @@ console.log('当前工作目录:', process.cwd());
     AuthModule,
     InventoryModule,
     OrderModule,
+    HealthModule,
   ],
 })
 export class AppModule implements NestModule {

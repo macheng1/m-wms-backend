@@ -1,31 +1,15 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  UpdateDateColumn,
-} from 'typeorm';
+// src/modules/tenants/entities/tenant.entity.ts
+import { BaseEntity } from '@/database/base.entity';
+import { Entity, Column } from 'typeorm';
 
 @Entity('tenants')
-export class Tenant {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
-
-  @Column({ unique: true, length: 100 })
+export class Tenant extends BaseEntity {
+  @Column({ unique: true, comment: '工厂/租户名称' })
   name: string;
 
-  @Column({ unique: true, length: 50 })
-  code: string;
+  @Column({ default: 'heating_element', comment: '所属行业' })
+  industry: string;
 
-  @Column({ type: 'text', nullable: true })
-  description: string;
-
-  @Column({ default: true })
+  @Column({ default: true, comment: '账号是否激活' })
   isActive: boolean;
-
-  @CreateDateColumn()
-  createdAt: Date;
-
-  @UpdateDateColumn()
-  updatedAt: Date;
 }
