@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
@@ -37,11 +37,11 @@ export class AuthService {
 
     // 1. 查找用户逻辑（根据 tenantCode 区分平台管理员或工厂员工）
     const user = await this.findUserForLogin(username, tenantCode);
-    if (!user) throw new UnauthorizedException('账号或企业编码错误');
+    if (!user) throw new BadRequestException('账号或企业编码错误');
 
     // 2. 校验密码
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) throw new UnauthorizedException('密码错误');
+    if (!isMatch) throw new BadRequestException('密码错误');
 
     // 3. 签发 JWT (载荷只包含核心 ID，不包含权限列表，防止 Token 过大)
     const payload = {

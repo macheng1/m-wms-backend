@@ -1,41 +1,50 @@
 // src/modules/auth/guards/jwt-auth.guard.ts
-import { ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
+import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { Reflector } from '@nestjs/core'; // 必须导入 Reflector
+import { ConfigService } from '@nestjs/config';
+import { IS_PUBLIC_KEY } from 'src/common/decorators/public.decorator';
 
-/**
- * JWT 认证守卫
- * 继承自 passport-jwt 的 AuthGuard，策略名称默认为 'jwt'
- */
 @Injectable()
-export class JwtAuthGuard extends AuthGuard('jwt') {
-  /**
-   * 验证逻辑入口
-   */
-  canActivate(context: ExecutionContext) {
-    // 这里可以添加一些自定义逻辑，比如：
-    // 如果是开发环境且带了特定的万能密钥，可以直接放行（慎用）
-    return super.canActivate(context);
+export class JwtAuthGuard implements CanActivate {
+  constructor(
+    private jwtService: JwtService,
+    private reflector: Reflector, // 注入反射器
+    private configService: ConfigService,
+  ) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    // 1. 【核心优化】使用 Reflector 检查当前接口或类是否带有 @Public() 装饰器
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
+    // 如果是公开接口，直接绿灯放行
+    if (isPublic) return true;
+
+    // 2. 以下是原有的 JWT 校验逻辑...
+    const request = context.switchToHttp().getRequest();
+    const token = this.extractTokenFromHeader(request);
+
+    if (!token) throw new UnauthorizedException('请先登录');
+
+    try {
+      const payload = await this.jwtService.verifyAsync(token, {
+        secret: this.configService.get('jwt.secret'),
+      });
+
+      // 挂载租户信息，方便后续引出棒业务逻辑进行数据隔离
+      request['user'] = payload;
+    } catch {
+      throw new UnauthorizedException('验证失败');
+    }
+
+    return true;
   }
 
-  /**
-   * 身份验证完成后的回调
-   * @param err 错误信息
-   * @param user JwtStrategy 中 validate 方法返回的用户对象
-   * @param info 错误详情（如 Token 过期等）
-   */
-  handleRequest(err: any, user: any, info: any) {
-    console.log('🚀 ~ JwtAuthGuard ~ handleRequest ~ info:', info);
-    // 1. 如果有错误或者找不到用户（Token 无效/过期）
-    if (err || !user) {
-      throw err || new UnauthorizedException('登录状态已失效，请重新登录');
-    }
-
-    // 2. 检查用户是否被禁用 (对应我们之前在 User 实体里加的 isActive)
-    if (user.isActive === false) {
-      throw new UnauthorizedException('您的账号已被禁用，请联系管理员');
-    }
-
-    // 3. 验证通过，返回 user 对象，它会被 NestJS 挂载到 Request.user 上
-    return user;
+  private extractTokenFromHeader(request: any): string | undefined {
+    const [type, token] = request.headers.authorization?.split(' ') ?? [];
+    return type === 'Bearer' ? token : undefined;
   }
 }

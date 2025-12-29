@@ -8,6 +8,10 @@ import { InventoryModule } from '@modules/inventory/inventory.module';
 import { OrderModule } from '@modules/order/order.module';
 import { resolve } from 'path';
 import { HealthModule } from './modules/health/health.module';
+import { UsersModule } from './modules/users/users.module';
+import { APP_GUARD } from '@nestjs/core';
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { JwtModule } from '@nestjs/jwt';
 console.log('当前运行环境:', process.env.NODE_ENV);
 console.log('当前工作目录:', process.cwd());
 @Module({
@@ -41,13 +45,29 @@ console.log('当前工作目录:', process.cwd());
         },
       }),
     }),
-
+    JwtModule.registerAsync({
+      global: true,
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        secret: configService.get('jwt.secret'),
+        signOptions: { expiresIn: configService.get('jwt.expiresIn') },
+      }),
+    }),
     // Business modules
     TenantModule,
     AuthModule,
     InventoryModule,
     OrderModule,
+    UsersModule,
     HealthModule,
+  ],
+  providers: [
+    {
+      // 声明全局守卫
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
   ],
 })
 export class AppModule implements NestModule {
