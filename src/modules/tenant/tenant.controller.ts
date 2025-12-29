@@ -1,8 +1,9 @@
 // src/modules/tenants/tenants.controller.ts
 import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
-import { TenantsService } from './tenants.service';
+
 import { CreateTenantDto } from './dto/create-tenant.dto';
+import { TenantsService } from './tenants.service';
 
 @ApiTags('租户管理 (SaaS)') // 更加清晰的 Swagger 分类
 @Controller('tenants')

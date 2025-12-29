@@ -1,7 +1,8 @@
 // src/modules/users/entities/user.entity.ts
 import { TenantBaseEntity } from '@/database/base.entity';
 import { Role } from '@/modules/roles/entities/role.entity';
-import { Column, Entity, JoinTable, ManyToMany } from 'typeorm';
+import { Tenant } from '@/modules/tenant/entities/tenant.entity';
+import { Column, Entity, JoinColumn, JoinTable, ManyToMany, ManyToOne } from 'typeorm';
 
 @Entity('users')
 export class User extends TenantBaseEntity {
@@ -13,7 +14,8 @@ export class User extends TenantBaseEntity {
 
   @Column({ nullable: true, comment: '用户昵称' })
   nickname: string;
-
+  @Column({ nullable: true, comment: '头像地址' })
+  avatar: string; // <--- 补上这个字段
   /**
    * 新增：平台超级管理员标识
    * true: 可以跨租户管理所有工厂数据（用于你自己或运维）
@@ -33,4 +35,8 @@ export class User extends TenantBaseEntity {
 
   @Column({ default: true, comment: '账号是否激活' })
   isActive: boolean;
+  // 建立与租户的关系，这样 getProfile 里的 user.tenant 才有值
+  @ManyToOne(() => Tenant)
+  @JoinColumn({ name: 'tenantId' })
+  tenant: Tenant;
 }
