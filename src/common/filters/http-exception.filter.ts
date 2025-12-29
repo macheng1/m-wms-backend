@@ -1,3 +1,4 @@
+// src/common/filters/http-exception.filter.ts
 import { ExceptionFilter, Catch, ArgumentsHost, HttpException } from '@nestjs/common';
 import { Response } from 'express';
 
@@ -6,22 +7,14 @@ export class HttpExceptionFilter implements ExceptionFilter {
   catch(exception: HttpException, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
-    const request = ctx.getRequest();
     const status = exception.getStatus();
-    const exceptionResponse = exception.getResponse();
+    const exceptionResponse: any = exception.getResponse();
 
-    const errorResponse = {
-      statusCode: status,
-      timestamp: new Date().toISOString(),
-      path: request.url,
-      method: request.method,
-      message:
-        typeof exceptionResponse === 'string'
-          ? exceptionResponse
-          : (exceptionResponse as any).message || 'Unknown error',
-      ...(typeof exceptionResponse === 'object' && { ...(exceptionResponse as object) }),
-    };
-
-    response.status(status).json(errorResponse);
+    // 强制异常请求的 HTTP 状态码也返回 200
+    response.status(200).json({
+      code: status, // 业务码通常对应原始 HTTP 状态码，如 401, 403
+      data: null,
+      message: exceptionResponse.message || exception.message || '请求失败',
+    });
   }
 }

@@ -24,6 +24,6 @@ import { Column, Index } from 'typeorm';
 
 export abstract class TenantBaseEntity extends BaseEntity {
   @Index() // 强制所有业务查询走租户索引
-  @Column({ comment: 'SaaS 租户唯一标识' })
-  tenantId: string;
+  @Column({ nullable: true, comment: '租户ID，如果是平台管理员则为空' })
+  tenantId: string | null;
 }

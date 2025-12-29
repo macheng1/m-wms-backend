@@ -2,6 +2,11 @@ import { ApiProperty } from '@nestjs/swagger';
 import { IsNotEmpty, IsString, MinLength } from 'class-validator';
 
 export class LoginDto {
+  @ApiProperty({ example: 'XH001', description: '企业编码/租户标识' })
+  @IsNotEmpty({ message: '企业编码不能为空' })
+  @IsString()
+  tenantCode: string; // 或者使用 tenantId
+
   @ApiProperty({ example: 'admin', description: '用户名' })
   @IsNotEmpty({ message: '用户名不能为空' })
   @IsString()

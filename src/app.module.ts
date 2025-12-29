@@ -2,7 +2,6 @@ import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { appConfig, databaseConfig, jwtConfig } from '@config/index';
-import { TenantMiddleware } from '@common/middleware';
 import { TenantModule } from '@modules/tenant/tenant.module';
 import { AuthModule } from '@modules/auth/auth.module';
 import { InventoryModule } from '@modules/inventory/inventory.module';
@@ -35,6 +34,11 @@ console.log('当前工作目录:', process.cwd());
         logging: configService.get('database.logging'),
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
         autoLoadEntities: true,
+        extra: {
+          connectionLimit: 10, // 增加连接池大小
+          connectTimeout: 20000, // 连接超时设置（毫秒）
+          waitForConnections: true,
+        },
       }),
     }),
 
@@ -48,6 +52,6 @@ console.log('当前工作目录:', process.cwd());
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(TenantMiddleware).forRoutes('*');
+    // consumer.apply(TenantMiddleware).forRoutes('*');
   }
 }
