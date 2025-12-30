@@ -8,9 +8,9 @@ export class SmsService {
 
   constructor(private configService: ConfigService) {
     this.client = new Core({
-      accessKeyId: 'LTAI5tELJkqHKd7X96oTLZuK',
-      accessKeySecret: 'TsXjegLgFZo3EzLNyzyEpGouqHmhPZ',
-      endpoint: 'https://dysmsapi.aliyuncs.com',
+      accessKeyId: this.configService.get<string>('ALIYUN_SMS_ACCESS_KEY_ID'),
+      accessKeySecret: this.configService.get<string>('ALIYUN_SMS_ACCESS_KEY_SECRET'),
+      endpoint: this.configService.get<string>('ALIYUN_SMS_ENDPOINT'),
       apiVersion: '2017-05-25',
     });
   }
