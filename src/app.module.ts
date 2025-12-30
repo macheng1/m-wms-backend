@@ -13,6 +13,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { JwtModule } from '@nestjs/jwt';
 import { SmsModule } from './modules/aliyun/sms/sms.module';
+import { UploadModule } from './modules/upload/upload.module';
 console.log('当前运行环境:', process.env.NODE_ENV);
 console.log('当前工作目录:', process.cwd());
 @Module({
@@ -62,6 +63,7 @@ console.log('当前工作目录:', process.cwd());
     OrderModule,
     UsersModule,
     SmsModule,
+    UploadModule,
     HealthModule,
   ],
   providers: [
