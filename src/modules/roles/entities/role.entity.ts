@@ -9,7 +9,8 @@ import { TenantBaseEntity } from '@/database/base.entity';
 export class Role extends TenantBaseEntity {
   @Column({ comment: '角色名称' })
   name: string;
-
+  @Column({ type: 'tinyint', default: 1, comment: '角色状态：1 启用，0 禁用' })
+  isActive: number; // <--- 状态字段 1启用 0禁用
   @Column({ nullable: true, comment: '角色模板编码' })
   code: string;
 

@@ -33,10 +33,11 @@ export class AuthService {
 
   // src/modules/auth/auth.service.ts
   async login(loginDto: LoginDto) {
-    const { username, password, tenantCode } = loginDto;
+    const { username, password, code } = loginDto;
 
     // 1. 查找用户逻辑（根据 tenantCode 区分平台管理员或工厂员工）
-    const user = await this.findUserForLogin(username, tenantCode);
+    const user = await this.findUserForLogin(username, code);
+    console.log('🚀 ~ AuthService ~ login ~ user:', user);
     if (!user) throw new BadRequestException('账号或企业编码错误');
 
     // 2. 校验密码
@@ -46,6 +47,7 @@ export class AuthService {
     // 3. 签发 JWT (载荷只包含核心 ID，不包含权限列表，防止 Token 过大)
     const payload = {
       sub: user.id,
+      userId: user.id,
       username: user.username,
       tenantId: user.tenantId,
       isAdmin: user.isPlatformAdmin,
@@ -60,16 +62,17 @@ export class AuthService {
   /**
    * 核心身份识别逻辑：根据用户名和企业编码定位用户
    * @param username 用户名
-   * @param tenantCode 企业编码（可选）
+   * @param code 企业编码（可选）
    */
-  private async findUserForLogin(username: string, tenantCode?: string): Promise<User | null> {
+  private async findUserForLogin(username: string, code?: string): Promise<User | null> {
+    console.log('🚀 ~ AuthService ~ findUserForLogin ~ tenantCode:', code);
     // 1. 创建基础查询器
     const query = this.userRepository
       .createQueryBuilder('user')
       .addSelect('user.password') // 关键：手动抓取实体中 select: false 的密码字段
       .leftJoinAndSelect('user.tenant', 'tenant'); // 关联查询租户信息，方便后续逻辑使用
 
-    if (!tenantCode) {
+    if (!code) {
       /**
        * 场景 A：未提供企业编码
        * 逻辑：仅查找“平台超级管理员” (isPlatformAdmin = true)
@@ -84,7 +87,8 @@ export class AuthService {
        * 逻辑：先锁定租户，再在该租户范围内查找用户
        */
       // 先根据 code 找到租户 ID
-      const tenant = await this.tenantRepository.findOne({ where: { code: tenantCode } });
+      const tenant = await this.tenantRepository.findOne({ where: { code: code } });
+      console.log('🚀 ~ AuthService ~ findUserForLogin ~ tenant:', tenant);
       if (!tenant) return null;
 
       query

@@ -6,6 +6,12 @@ import { TenantModule } from '@modules/tenant/tenant.module';
 import { AuthModule } from '@modules/auth/auth.module';
 import { InventoryModule } from '@modules/inventory/inventory.module';
 import { OrderModule } from '@modules/order/order.module';
+import { User } from './modules/users/entities/user.entity';
+import { Tenant } from './modules/tenant/entities/tenant.entity';
+import { Permission } from './modules/auth/entities/permission.entity';
+import { Role } from './modules/roles/entities/role.entity';
+import { Inventory } from './modules/inventory/entities/inventory.entity';
+import { Order } from './modules/order/entities/order.entity';
 import { resolve } from 'path';
 import { HealthModule } from './modules/health/health.module';
 import { UsersModule } from './modules/users/users.module';
@@ -14,6 +20,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { JwtModule } from '@nestjs/jwt';
 import { SmsModule } from './modules/aliyun/sms/sms.module';
 import { UploadModule } from './modules/upload/upload.module';
+import { RolesModule } from './modules/roles/roles.module';
 console.log('当前运行环境:', process.env.NODE_ENV);
 console.log('当前工作目录:', process.cwd());
 @Module({
@@ -36,7 +43,7 @@ console.log('当前工作目录:', process.cwd());
         username: configService.get('database.username'),
         password: configService.get('database.password'),
         database: configService.get('database.database'),
-        synchronize: configService.get('database.synchronize'),
+        synchronize: true,
         logging: configService.get('database.logging'),
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
         autoLoadEntities: true,
@@ -56,6 +63,8 @@ console.log('当前工作目录:', process.cwd());
         signOptions: { expiresIn: configService.get('jwt.expiresIn') },
       }),
     }),
+    // 全局注册所有实体的 repository
+    TypeOrmModule.forFeature([User, Tenant, Permission, Role, Inventory, Order]),
     // Business modules
     TenantModule,
     AuthModule,
@@ -64,6 +73,7 @@ console.log('当前工作目录:', process.cwd());
     UsersModule,
     SmsModule,
     UploadModule,
+    RolesModule,
     HealthModule,
   ],
   providers: [

@@ -3,7 +3,10 @@ import { Injectable, OnApplicationBootstrap, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
+
 import { User } from '../../users/entities/user.entity';
+import { Permission } from './permission.entity';
+import { flattenPermissions } from '@/common/constants/permissions.constant';
 
 @Injectable()
 export class SystemSeedService implements OnApplicationBootstrap {
@@ -12,10 +15,42 @@ export class SystemSeedService implements OnApplicationBootstrap {
   constructor(
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
+    @InjectRepository(Permission)
+    private readonly permissionRepo: Repository<Permission>,
   ) {}
 
   async onApplicationBootstrap() {
+    await this.initPermissions();
     await this.initPlatformAdmin();
+  }
+
+  /**
+   * 初始化权限表，自动同步 PERMISSION_CONFIG
+   */
+  private async initPermissions() {
+    const all = flattenPermissions();
+    for (const item of all) {
+      let exist = await this.permissionRepo.findOne({ where: { code: item.code } });
+      if (!exist) {
+        exist = this.permissionRepo.create({
+          code: item.code,
+          name: item.name,
+          description: item.description || '',
+          type: item.isMenu ? 'MENU' : 'API',
+          parentId: 0, // 如有 parentCode 可自行扩展
+        });
+        await this.permissionRepo.save(exist);
+        this.logger.log(`插入权限: ${item.code} - ${item.name}`);
+      } else {
+        // 可选：自动更新 name/desc/type
+        exist.name = item.name;
+        exist.description = item.description || '';
+        exist.type = item.isMenu ? 'MENU' : 'API';
+        await this.permissionRepo.save(exist);
+        this.logger.log(`更新权限: ${item.code} - ${item.name}`);
+      }
+    }
+    this.logger.log('权限表初始化/同步完成');
   }
 
   private async initPlatformAdmin() {

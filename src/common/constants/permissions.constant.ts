@@ -19,36 +19,37 @@ export interface PermissionGroup {
  * 使用 as const 保证类型推导为具体值而非 string
  */
 export const PERMISSION_CONFIG = {
-  // --- 仓库管理模块 ---
+  DASHBOARD: {
+    module: '工作台',
+    actions: [{ code: 'wms:dashboard', name: '工作台', isMenu: true }],
+  },
   WAREHOUSE: {
     module: '仓库管理',
     actions: [
-      { code: 'wh:menu', name: '仓库模块入口', isMenu: true },
-      { code: 'wh:inbound', name: '扫码入库', description: '操作常规品或非标品入库' },
-      { code: 'wh:outbound', name: '扫码出库', description: '处理自提核销或物流发货' },
-      { code: 'wh:transfer', name: '库存移库', description: '库位间货物调拨' },
-      { code: 'wh:audit', name: '库存盘点', description: '校对账面与实物库存' },
+      { code: 'wms:warehouse', name: '仓库管理', isMenu: true },
+      { code: 'wms:warehouse:list', name: '仓库列表', isMenu: true },
+      { code: 'wms:warehouse:area', name: '库区管理', isMenu: true },
     ],
   },
-
-  // --- 生产与订单模块 ---
-  PRODUCTION: {
-    module: '生产排单',
+  INVENTORY: {
+    module: '库存管理',
     actions: [
-      { code: 'prod:menu', name: '生产模块入口', isMenu: true },
-      { code: 'prod:order:create', name: '非标排单录入', description: '手动录入非标定制参数' },
-      { code: 'prod:progress:view', name: '进度监控', description: '查看生产线实时状态' },
+      { code: 'wms:inventory', name: '库存管理', isMenu: true },
+      { code: 'wms:inventory:list', name: '库存查询', isMenu: true },
+      { code: 'wms:inventory:inbound', name: '入库管理', isMenu: true },
+      { code: 'wms:inventory:outbound', name: '出库管理', isMenu: true },
     ],
   },
-
-  // --- 系统设置模块 ---
-  SYSTEM: {
+  USERS: {
+    module: '员工管理',
+    actions: [{ code: 'wms:users', name: '员工管理', isMenu: true }],
+  },
+  SETTINGS: {
     module: '系统设置',
     actions: [
-      { code: 'sys:menu', name: '系统设置入口', isMenu: true },
-      { code: 'sys:tenant:config', name: '行业属性配置', description: '定义非标动态参数模板' },
-      { code: 'sys:user:manage', name: '员工管理', description: '新增员工及分配角色' },
-      { code: 'sys:role:manage', name: '角色权限', description: '自定义工厂内部角色权限' },
+      { code: 'wms:settings', name: '系统设置', isMenu: true },
+      { code: 'wms:settings:roles', name: '角色管理', isMenu: true },
+      { code: 'wms:settings:permissions', name: '权限管理', isMenu: true },
     ],
   },
 } as const;

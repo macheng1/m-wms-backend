@@ -33,6 +33,7 @@ export class JwtAuthGuard implements CanActivate {
       const payload = await this.jwtService.verifyAsync(token, {
         secret: this.configService.get('jwt.secret'),
       });
+      console.log('🚀 ~ JwtAuthGuard ~ canActivate ~ payload:', payload);
 
       // 挂载租户信息，方便后续引出棒业务逻辑进行数据隔离
       request['user'] = payload;

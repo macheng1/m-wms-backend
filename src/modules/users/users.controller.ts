@@ -1,4 +1,4 @@
-import { Controller, Get, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Header, Req, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
 
 import { UsersService } from './users.service';
@@ -16,6 +16,7 @@ export class UsersController {
    */
   @Get('getUserInfo') // 路径从 'me' 改为 'getUserInfo'
   @UseGuards(JwtAuthGuard)
+  @Header('Cache-Control', 'no-cache, no-store, must-revalidate')
   @ApiOperation({
     summary: '获取当前用户信息',
     description: '通过 Token 识别身份，返回用户画像、所属租户及权限 Code 列表',
@@ -25,7 +26,8 @@ export class UsersController {
   async getUserInfo(@Req() req) {
     // 方法名同步改为 getUserInfo
     // 从 JwtAuthGuard 挂载到 req.user 的 payload 中提取 userId
-    const userId = req.user.userId;
+    const userId = req.user.sub;
+
     return await this.usersService.getProfile(userId);
   }
 }

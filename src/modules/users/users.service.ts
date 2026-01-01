@@ -22,6 +22,7 @@ export class UsersService {
       where: { id: userId },
       relations: ['roles', 'roles.permissions', 'tenant'], // 同时也拉出租户详情
     });
+    console.log('🚀 ~ UsersService ~ getProfile ~ user:', user);
 
     if (!user) {
       throw new NotFoundException('该用户不存在或已被删除');

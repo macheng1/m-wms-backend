@@ -5,10 +5,11 @@ import {
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
-import { DataSource, In, EntityManager } from 'typeorm';
+import { DataSource, EntityManager, In } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 
 import { ROLE_TEMPLATES } from '@/common/constants/role-templates.constant';
+import { flattenPermissions } from '@/common/constants/permissions.constant';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { Tenant } from './entities/tenant.entity';
 import { Role } from '../roles/entities/role.entity';
@@ -98,37 +99,33 @@ export class TenantsService {
   private async initTenantRoles(manager: EntityManager, tenantId: string) {
     let adminRole: Role;
 
-    // 1. 一次性获取所有非管理员角色需要的权限 Code
-    const allRequiredCodes = Object.values(ROLE_TEMPLATES)
-      .filter((t) => t.code !== 'ADMIN')
-      .flatMap((t) => t.permissionCodes);
+    // 1. 获取所有权限（直接用常量，保证和菜单一致）
+    const allPermissions = flattenPermissions();
 
-    // 2. 一次性查出所有权限实体
-    const allPerms =
-      allRequiredCodes.length > 0
-        ? await manager.find(Permission, { where: { code: In(allRequiredCodes) } })
-        : [];
-
-    // 3. 循环创建角色（此时已无数据库查询）
+    // 2. 循环创建角色
     for (const tpl of Object.values(ROLE_TEMPLATES)) {
       const isSuperAdmin = tpl.code === 'ADMIN';
-
-      // 从已查出的列表中筛选
+      // admin 角色分配所有权限，其他角色按模板分配
       const perms = isSuperAdmin
-        ? []
-        : allPerms.filter((p) => (tpl.permissionCodes as any).includes(p.code));
+        ? allPermissions
+        : allPermissions.filter((p) => (tpl.permissionCodes as any).includes(p.code));
+      console.log('🚀 ~ TenantsService ~ initTenantRoles ~ perms:', perms);
+      // 注意：这里只是用常量生成权限对象，实际入库时仍需用 Permission 实体
+      // 你可以根据 code 查询 Permission 实体，或直接用 code 关联
+      // 这里假设 Permission 实体已初始化，且 code 唯一
+      const permissionEntities = await manager.find(Permission, {
+        where: { code: In(perms.map((p) => p.code)) },
+      });
       const role = manager.create(Role, {
         tenantId,
         name: tpl.name,
         code: tpl.code,
         isSystem: true,
-        permissions: perms,
+        permissions: permissionEntities,
       });
-
       const savedRole = await manager.save(role);
       if (isSuperAdmin) adminRole = savedRole;
     }
-
     return { adminRole };
   }
   /**

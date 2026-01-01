@@ -4,8 +4,6 @@ import { IsNotEmpty, IsString, MinLength, IsOptional, Matches } from 'class-vali
 
 export class CreateTenantDto {
   @ApiProperty({ example: 'XH001', description: '企业唯一编码（用于登录）' })
-  @IsNotEmpty({ message: '企业编码不能为空' })
-  @IsString()
   @MinLength(3)
   @Matches(/^[a-zA-Z0-9]+$/, { message: '企业编码只能包含字母和数字' })
   code: string; // <--- 新增核心字段

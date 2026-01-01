@@ -10,18 +10,22 @@ export const ROLE_TEMPLATES = {
     // 自动提取所有权限 code
     permissionCodes: Object.values(PERMISSION_CONFIG).flatMap((g) => g.actions.map((a) => a.code)),
   },
-  // 仓库主管：仅仓库模块
   WH_MANAGER: {
     name: '仓库主管',
     code: 'WH_MANAGER',
-    description: '负责出入库、盘点及移库管理',
-    permissionCodes: ['wh:menu', 'wh:inbound', 'wh:outbound', 'wh:transfer', 'wh:audit'],
+    description: '负责仓库管理',
+    permissionCodes: ['wms:warehouse', 'wms:warehouse:list', 'wms:warehouse:area'],
   },
-  // 生产组长：仅排单和进度查看
+  // 生产组长：仅库存模块
   PROD_LEADER: {
     name: '生产组长',
     code: 'PROD_LEADER',
-    description: '负责非标订单录入与生产监控',
-    permissionCodes: ['prod:menu', 'prod:order:create', 'prod:progress:view'],
+    description: '负责库存管理',
+    permissionCodes: [
+      'wms:inventory',
+      'wms:inventory:list',
+      'wms:inventory:inbound',
+      'wms:inventory:outbound',
+    ],
   },
 } as const;

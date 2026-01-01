@@ -4,6 +4,7 @@ import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { TenantsService } from './tenants.service';
+import { Public } from '@/common/decorators/public.decorator';
 
 @ApiTags('租户管理 (SaaS)') // 更加清晰的 Swagger 分类
 @Controller('tenants')
@@ -19,6 +20,7 @@ export class TenantController {
   @HttpCode(HttpStatus.OK) // 确保成功时返回 200 而非 201
   @ApiOperation({ summary: '新工厂/租户入驻' })
   @ApiResponse({ status: 200, description: '入驻成功，返回生成的租户及管理员信息' })
+  @Public()
   async onboard(@Body() createTenantDto: CreateTenantDto) {
     // 直接返回 Service 的执行结果
     // 拦截器会自动将其包装为 { code: 200, data: result, message: '请求成功' }
