@@ -58,4 +58,14 @@ export class RolesController {
     const { tenantId } = req.user;
     return this.rolesService.updateStatus(id, statusDto.isActive, tenantId);
   }
+  // 查询所有激活的角色（不分页，select 用）
+  /**
+   * 查询所有激活的角色（不分页，select 用）
+   * GET /roles/selectRoleLists
+   */
+  @Post('selectRoleLists')
+  async getActiveRoleList(@Req() req) {
+    // 返回当前租户下所有启用状态的角色列表
+    return this.rolesService.selectRoleList(req.user.tenantId);
+  }
 }

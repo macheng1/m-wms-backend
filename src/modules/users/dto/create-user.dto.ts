@@ -1,23 +1,29 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsNotEmpty, IsString, IsArray, IsOptional, IsBoolean, Length } from 'class-validator';
 
 export class CreateUserDto {
-  @ApiProperty({ example: 'warehouse_mgr', description: '登录名' })
-  @IsNotEmpty()
+  @ApiProperty({ description: '登录用户名' })
+  @IsNotEmpty({ message: '用户名不能为空' })
   @IsString()
   username: string;
 
-  @ApiProperty({ example: '张主管', description: '昵称/姓名' })
-  @IsOptional()
-  @IsString()
-  nickname?: string;
-
-  @ApiProperty({ example: '123456', description: '初始密码' })
-  @IsNotEmpty()
-  @MinLength(6)
+  @ApiProperty({ description: '初始化密码' })
+  @IsNotEmpty({ message: '密码不能为空' })
+  @Length(6, 20, { message: '密码长度需在6-20位之间' })
   password: string;
 
-  @ApiProperty({ example: ['role-uuid-1'], description: '角色ID数组' })
-  @IsArray()
-  roleIds: string[];
+  @ApiProperty({ description: '真实姓名' })
+  @IsOptional()
+  @IsString()
+  realName?: string;
+
+  @ApiProperty({ description: '关联角色ID数组' })
+  @IsArray({ message: '角色ID必须是数组' })
+  @IsString({ each: true })
+  roleIds: string[]; // 绑定你在 Role 模块创建的 ID
+
+  @ApiProperty({ description: '是否启用', default: true })
+  @IsOptional()
+  @IsBoolean()
+  isActive: boolean = true;
 }

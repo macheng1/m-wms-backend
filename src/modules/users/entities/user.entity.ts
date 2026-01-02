@@ -12,8 +12,8 @@ export class User extends TenantBaseEntity {
   @Column({ select: false, comment: '哈希后的密码' })
   password: string;
 
-  @Column({ nullable: true, comment: '用户昵称' })
-  nickname: string;
+  @Column({ nullable: true, comment: '真实姓名' })
+  realName: string;
   @Column({ nullable: true, comment: '头像地址' })
   avatar: string; // <--- 补上这个字段
   /**

@@ -13,7 +13,8 @@ export class Role extends TenantBaseEntity {
   isActive: number; // <--- 状态字段 1启用 0禁用
   @Column({ nullable: true, comment: '角色模板编码' })
   code: string;
-
+  @Column({ nullable: true, comment: '备注' })
+  remark: string;
   @Column({ default: false, comment: '是否为系统初始化角色' })
   isSystem: boolean;
 

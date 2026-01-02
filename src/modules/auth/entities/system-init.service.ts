@@ -69,7 +69,7 @@ export class SystemSeedService implements OnApplicationBootstrap {
       const superAdmin = this.userRepo.create({
         username: rootUsername,
         password: hashedPassword,
-        nickname: '系统创始人',
+        realName: '默认',
         isPlatformAdmin: true, // 标记为平台级
         tenantId: null, // 平台级管理员不属于任何租户
         isActive: true,

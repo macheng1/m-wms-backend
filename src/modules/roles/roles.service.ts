@@ -68,7 +68,7 @@ export class RolesService {
       where,
       skip: (page - 1) * pageSize,
       take: pageSize,
-      order: { id: 'DESC' },
+      order: { id: 'ASC' },
       relations: ['permissions'],
     };
 
@@ -96,8 +96,13 @@ export class RolesService {
 
     const [list, total] = await this.roleRepository.findAndCount(findOptions);
 
+    // 增加 permissionsNames 字段
+    const listWithNames = list.map((role) => ({
+      ...role,
+      permissionsNames: (role.permissions || []).map((p) => p.name).join(', '),
+    }));
     return {
-      list,
+      list: listWithNames,
       total,
       page,
       pageSize,
@@ -168,11 +173,29 @@ export class RolesService {
   }
   // 辅助方法：确保查询时不跨租户
   async findOne(id: string, tenantId: string) {
+    console.log('🚀 ~ RolesService ~ findOne ~ tenantId:', tenantId);
     const role = await this.roleRepository.findOne({
       where: { id, tenantId },
       relations: ['permissions'],
     });
     if (!role) throw new BusinessException('角色不存在或无权操作');
-    return role;
+    // 增加 permissionCodes 字段
+    return {
+      ...role,
+      permissionCodes: (role.permissions || []).map((p) => p.code),
+    };
+  }
+  // 查询所有激活的角色（不分页）
+  async selectRoleList(tenantId: string) {
+    console.log('🚀 ~ RolesService ~ selectRoleList ~ tenantId:', tenantId);
+    const list = await this.roleRepository.find({
+      where: { tenantId, isActive: 1 },
+      order: { createdAt: 'ASC' },
+      relations: ['permissions'],
+    });
+    // 增加 permissionsNames 字段
+    return list.map((role) => ({
+      ...role,
+    }));
   }
 }
