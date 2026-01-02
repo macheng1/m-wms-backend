@@ -1,0 +1,47 @@
+import { Controller, Get, Post, Body, Query, Req } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { AttributesService } from '../service/attributes.service';
+import { SaveAttributeDto } from '../entities/dto/save-attribute.dto';
+import { QueryAttributeDto } from '../entities/dto/query-attribute.dto';
+
+@ApiTags('产品管理-属性管理')
+@Controller('attributes')
+export class AttributesController {
+  constructor(private readonly attributesService: AttributesService) {}
+
+  @Get('page')
+  async findPage(@Query() query: QueryAttributeDto, @Req() req) {
+    return this.attributesService.findPage(query, req.user.tenantId);
+  }
+
+  @Post('save')
+  async save(@Body() dto: SaveAttributeDto, @Req() req) {
+    return this.attributesService.save(dto, req.user.tenantId);
+  }
+
+  /**
+   * 更新属性接口
+   * 路径规范: PUT /attributes/update
+   */
+  @Post('update')
+  async update(@Body() dto: SaveAttributeDto, @Req() req) {
+    // 复用 save 方法，要求 dto.id 必须存在
+    if (!dto.id) throw new Error('缺少属性ID，无法更新');
+    return this.attributesService.update(dto, req.user.tenantId);
+  }
+
+  @Get('detail')
+  async getDetail(@Query('id') id: string, @Req() req) {
+    return this.attributesService.getDetail(id, req.user.tenantId);
+  }
+
+  @Post('delete')
+  async delete(@Body('id') id: string, @Req() req) {
+    return this.attributesService.delete(id, req.user.tenantId);
+  }
+
+  @Post('status')
+  async updateStatus(@Body() body: { id: string; isActive: number }, @Req() req) {
+    return this.attributesService.updateStatus(body.id, body.isActive, req.user.tenantId);
+  }
+}
