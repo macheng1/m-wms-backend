@@ -126,9 +126,19 @@ export class OptionsService {
 
     return {
       id: option.id,
+      attributeId: option.attributeId,
       value: option.value,
       sort: option.sort,
       isActive: option.isActive,
     };
+  }
+  /** 更新规格值 */
+  async update(dto: SaveOptionDto, tenantId: string) {
+    if (!dto.id) throw new BusinessException('缺少规格ID，无法更新');
+    const option = await this.optionRepo.findOne({ where: { id: dto.id, tenantId } });
+    if (!option) throw new BusinessException('规格不存在或无权操作');
+    Object.assign(option, dto);
+    await this.optionRepo.save(option);
+    return option;
   }
 }

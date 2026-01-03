@@ -1,5 +1,5 @@
 import { JwtAuthGuard } from '@/common/guards/jwt-auth.guard';
-import { UseGuards, Controller, Get, Query, Req, Post, Body } from '@nestjs/common';
+import { UseGuards, Controller, Get, Query, Req, Post, Body, Header } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { QueryOptionDto } from '../entities/dto/query-option.dto';
 import { SaveOptionDto } from '../entities/dto/save-option.dto';
@@ -13,6 +13,9 @@ export class OptionsController {
   constructor(private readonly optionsService: OptionsService) {}
 
   @Get('page')
+  @Header('Cache-Control', 'no-cache, no-store, must-revalidate')
+  @Header('Pragma', 'no-cache')
+  @Header('Expires', '0')
   async findPage(@Query() query: QueryOptionDto, @Req() req) {
     return this.optionsService.findPage(query, req.user.tenantId);
   }
@@ -25,9 +28,12 @@ export class OptionsController {
   @Post('update')
   async update(@Body() dto: SaveOptionDto, @Req() req) {
     // 动作驱动：Update 逻辑与 Save 类似，但 DTO 里带了 ID
-    return this.optionsService.save(dto, req.user.tenantId);
+    return this.optionsService.update(dto, req.user.tenantId);
   }
   @Get('detail')
+  @Header('Cache-Control', 'no-cache, no-store, must-revalidate')
+  @Header('Pragma', 'no-cache')
+  @Header('Expires', '0')
   async getDetail(@Query('id') id: string, @Req() req) {
     return this.optionsService.getDetail(id, req.user.tenantId);
   }

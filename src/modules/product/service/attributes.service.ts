@@ -1,31 +1,105 @@
 // src/modules/product/service/attributes.service.ts
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like, Not } from 'typeorm';
-import { Attribute } from '../entities/attribute.entity';
-import { AttributeOption } from '../entities/attribute-option.entity'; // 1. 必须引入选项实体
+import { Repository, Like, Not, DataSource } from 'typeorm';
 
+import { Attribute } from '../entities/attribute.entity';
+import { AttributeOption } from '../entities/attribute-option.entity';
 import { BusinessException } from '@/common/filters/business.exception';
 import { QueryAttributeDto } from '../entities/dto/query-attribute.dto';
 import { SaveAttributeDto } from '../entities/dto/save-attribute.dto';
+import pinyin from 'pinyin';
 
 @Injectable()
 export class AttributesService {
   constructor(
     @InjectRepository(Attribute)
     private readonly attributeRepo: Repository<Attribute>,
-
     @InjectRepository(AttributeOption)
-    private readonly optionRepo: Repository<AttributeOption>, // 2. 注入选项 Repo 解决类型报错
+    private readonly optionRepo: Repository<AttributeOption>,
+    private readonly dataSource: DataSource, // 引入 API 事务管理
   ) {}
 
   /**
+   * 内部工具：生成业务编码
+   * 规则：ATTR_简拼_4位大写随机码
+   */
+  private generateCode(name: string): string {
+    const initials =
+      pinyin(name, { style: pinyin.STYLE_FIRST_LETTER })
+        .map((arr) => arr[0].toUpperCase())
+        .join('') || 'X';
+    // 使用 padStart 确保随机码始终为 4 位
+    const random = Math.random().toString(36).substring(2, 6).toUpperCase().padEnd(4, '0');
+    return `ATTR_${initials}_${random}`;
+  }
+
+  /**
+   * 保存/更新属性 (统一入口)
+   * 采用“先清空再重建”策略处理规格项，彻底杜绝外键置空报错
+   */
+  async save(dto: SaveAttributeDto, tenantId: string) {
+    // 1. 编码自动填充
+    if (!dto.code) {
+      dto.code = this.generateCode(dto.name);
+    }
+
+    // 2. 唯一性校验
+    const exists = await this.attributeRepo.findOne({
+      where: { code: dto.code, tenantId, ...(dto.id ? { id: Not(dto.id) } : {}) },
+    });
+    if (exists) throw new BusinessException('属性编码已存在');
+
+    // 3. 事务处理：保证属性与规格同步更新的原子性
+    return await this.dataSource.transaction(async (manager) => {
+      let entity: Attribute;
+
+      if (dto.id) {
+        // 【更新模式】
+        entity = await manager.findOne(Attribute, {
+          where: { id: dto.id, tenantId },
+          relations: ['options'],
+        });
+        if (!entity) throw new BusinessException('属性不存在或无权操作');
+
+        // A. 物理删除旧选项，防止产生孤儿数据
+        await manager.delete(AttributeOption, { attributeId: entity.id });
+
+        // B. 合并基础字段
+        const { options, ...baseInfo } = dto;
+        Object.assign(entity, baseInfo);
+      } else {
+        // 【新增模式】
+        entity = manager.create(Attribute, { ...dto, tenantId });
+      }
+
+      // 4. 保存主表获取 ID
+      const savedAttribute = await manager.save(entity);
+
+      // 5. 重建从表数据
+      if (dto.options && Array.isArray(dto.options)) {
+        const newOptions = dto.options.map((opt) =>
+          manager.create(AttributeOption, {
+            ...opt,
+            id: undefined, // 强制视为新数据插入
+            attributeId: savedAttribute.id,
+            tenantId,
+          }),
+        );
+        await manager.save(AttributeOption, newOptions);
+      }
+
+      // 6. 返回最新详情，确保前端一键回显
+      return this.getDetail(savedAttribute.id, tenantId);
+    });
+  }
+
+  /**
    * 分页查询：按创建时间正序 (ASC)
-   * 路径规范: GET /attributes/page
    */
   async findPage(query: QueryAttributeDto, tenantId: string) {
     const { page = 1, pageSize = 20, name, code, isActive } = query;
-    const where: any = { tenantId }; // 始终携带租户隔离
+    const where: any = { tenantId };
 
     if (name) where.name = Like(`%${name}%`);
     if (code) where.code = Like(`%${code}%`);
@@ -36,58 +110,64 @@ export class AttributesService {
       skip: (page - 1) * pageSize,
       take: pageSize,
       order: { createdAt: 'ASC' }, // 满足排序需求
-      relations: ['options'], // 级联带出选项
+      relations: ['options'],
     });
 
     return { list, total, page, pageSize };
   }
 
   /**
-   * 新增/更新属性：解决 TS2322 类型报错
-   * 路径规范: POST /attributes/save
+   * 获取详情：完全匹配 SaveAttributeDto 结构
    */
-  async save(dto: SaveAttributeDto, tenantId: string) {
-    // 1. 唯一性校验 (排除自身 ID)
-    const exists = await this.attributeRepo.findOne({
-      where: { code: dto.code, tenantId, ...(dto.id ? { id: Not(dto.id) } : {}) },
+  async getDetail(id: string, tenantId: string) {
+    const attr = await this.attributeRepo.findOne({
+      where: { id, tenantId },
+      relations: ['options'],
+      order: { options: { sort: 'ASC' } },
     });
-    if (exists) throw new BusinessException('属性编码已存在');
 
-    let entity: Attribute;
+    if (!attr) throw new BusinessException('属性不存在或无权操作');
 
-    if (dto.id) {
-      // 更新逻辑：加载现有数据
-      entity = await this.attributeRepo.findOne({
-        where: { id: dto.id, tenantId },
-        relations: ['options'],
-      });
-      if (!entity) throw new BusinessException('属性不存在或无权操作');
-
-      // 合并基础字段，排除 options 手动处理
-      const { options, ...baseInfo } = dto;
-      Object.assign(entity, baseInfo);
-    } else {
-      // 新增逻辑
-      entity = this.attributeRepo.create({ ...dto, tenantId });
-    }
-
-    // 2. 核心优化：处理 options 级联转化，解决 TS2322 报错
-    if (dto.options && Array.isArray(dto.options)) {
-      entity.options = dto.options.map((opt) => {
-        // 使用 optionRepo.create 将 Plain Object 转化为 Entity Instance
-        return this.optionRepo.create({
-          ...opt,
-          tenantId, // 强制注入子表租户 ID
-          attributeId: entity.id,
-        });
-      });
-    }
-
-    // 3. 利用实体配置的 cascade: true 自动同步保存主从表
-    return await this.attributeRepo.save(entity);
+    return {
+      id: attr.id,
+      name: attr.name,
+      code: attr.code,
+      type: attr.type,
+      unit: attr.unit,
+      isActive: attr.isActive,
+      // 保持 options 数组的简洁对称
+      options: (attr.options || []).map((opt) => ({
+        id: opt.id,
+        value: opt.value,
+        sort: opt.sort,
+        isActive: opt.isActive,
+      })),
+    };
   }
-  // src/modules/attributes/attributes.service.ts
 
+  /**
+   * 伪删除：同步标记子表 (可选优化)
+   */
+  async delete(id: string, tenantId: string) {
+    const attr = await this.attributeRepo.findOne({
+      where: { id, tenantId },
+      relations: ['options'],
+    });
+    if (!attr) throw new BusinessException('数据不存在');
+
+    // 伪删除主表，TypeORM 会处理带有 @DeleteDateColumn 的字段
+    await this.attributeRepo.softRemove(attr);
+    return { message: '已移入回收站' };
+  }
+
+  /**
+   * 状态变更
+   */
+  async updateStatus(id: string, isActive: number, tenantId: string) {
+    const res = await this.attributeRepo.update({ id, tenantId }, { isActive });
+    if (res.affected === 0) throw new BusinessException('属性不存在或无权操作');
+    return { message: isActive ? '已启用' : '已禁用' };
+  }
   async update(dto: SaveAttributeDto, tenantId: string) {
     if (!dto.id) throw new BusinessException('缺少属性ID，无法更新');
 
@@ -126,64 +206,5 @@ export class AttributesService {
       // 5. 返回最新的详情，保持“入参即出参”对称
       return this.getDetail(entity.id, tenantId);
     });
-  }
-  /**
-   * 伪删除：从 remove 优化为 softRemove
-   * 路径规范: POST /attributes/delete
-   */
-  async delete(id: string, tenantId: string) {
-    const attr = await this.attributeRepo.findOne({
-      where: { id, tenantId },
-      relations: ['options'],
-    });
-    if (!attr) throw new BusinessException('数据不存在');
-
-    // 使用 softRemove 实现伪删除，保留数据轨迹
-    await this.attributeRepo.softRemove(attr);
-    return { message: '已移入回收站' };
-  }
-
-  /**
-   * 更改属性状态
-   * 路径规范: POST /attributes/status
-   */
-  async updateStatus(id: string, isActive: number, tenantId: string) {
-    const attr = await this.attributeRepo.findOne({ where: { id, tenantId } });
-    if (!attr) throw new BusinessException('数据不存在');
-
-    attr.isActive = isActive; // 建议统一使用 boolean
-    await this.attributeRepo.save(attr);
-    return { message: isActive ? '已启用' : '已禁用' };
-  }
-  // src/modules/product/service/attributes.service.ts
-
-  /**
-   * 获取属性详情：出参结构对齐 SaveAttributeDto
-   * 路径规范: GET /attributes/detail
-   */
-  async getDetail(id: string, tenantId: string) {
-    const attr = await this.attributeRepo.findOne({
-      where: { id, tenantId },
-      relations: ['options'],
-      // 规格选项按 sort 排序，保证前端显示顺序一致
-      order: { options: { sort: 'ASC' } },
-    });
-
-    if (!attr) throw new BusinessException('属性不存在或无权操作');
-
-    // 核心：手动映射，确保返回字段名、结构与 SaveAttributeDto 一一对应
-    return {
-      id: attr.id,
-      name: attr.name,
-      code: attr.code,
-      type: attr.type,
-      unit: attr.unit,
-      isActive: attr.isActive,
-      // 带上 attributeId 字段
-      options: attr.options.map((opt) => ({
-        value: opt.value,
-        sort: opt.sort,
-      })),
-    };
   }
 }

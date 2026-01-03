@@ -44,6 +44,16 @@ export const PERMISSION_CONFIG = {
     module: '员工管理',
     actions: [{ code: 'wms:users', name: '员工管理', isMenu: true }],
   },
+  CATEGORY: {
+    module: '类目管理',
+    actions: [
+      { code: 'wms:category', name: '类目管理', isMenu: true },
+      { code: 'wms:category:list', name: '类目列表', isMenu: true },
+      { code: 'wms:category:add', name: '新增类目' },
+      { code: 'wms:category:edit', name: '编辑类目' },
+      { code: 'wms:category:delete', name: '删除类目' },
+    ],
+  },
   SETTINGS: {
     module: '系统设置',
     actions: [

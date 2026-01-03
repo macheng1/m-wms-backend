@@ -47,10 +47,10 @@ export class SaveAttributeDto {
   @IsString()
   name: string;
 
-  @ApiProperty({ description: '业务编码', example: 'material' })
-  @IsNotEmpty({ message: '属性编码不能为空' })
+  @ApiProperty({ description: '业务编码', example: 'material', required: false })
+  @IsOptional()
   @IsString()
-  code: string;
+  code?: string;
 
   @ApiProperty({ description: '输入类型', enum: ['select', 'input', 'number'], default: 'select' })
   @IsEnum(['select', 'input', 'number'])

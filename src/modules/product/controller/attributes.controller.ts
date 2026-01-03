@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, Req } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Req, Header } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AttributesService } from '../service/attributes.service';
 import { SaveAttributeDto } from '../entities/dto/save-attribute.dto';
@@ -10,6 +10,9 @@ export class AttributesController {
   constructor(private readonly attributesService: AttributesService) {}
 
   @Get('page')
+  @Header('Cache-Control', 'no-cache, no-store, must-revalidate')
+  @Header('Pragma', 'no-cache')
+  @Header('Expires', '0')
   async findPage(@Query() query: QueryAttributeDto, @Req() req) {
     return this.attributesService.findPage(query, req.user.tenantId);
   }
@@ -31,6 +34,9 @@ export class AttributesController {
   }
 
   @Get('detail')
+  @Header('Cache-Control', 'no-cache, no-store, must-revalidate')
+  @Header('Pragma', 'no-cache')
+  @Header('Expires', '0')
   async getDetail(@Query('id') id: string, @Req() req) {
     return this.attributesService.getDetail(id, req.user.tenantId);
   }
