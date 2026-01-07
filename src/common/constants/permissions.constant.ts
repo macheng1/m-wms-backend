@@ -23,6 +23,20 @@ export const PERMISSION_CONFIG = {
     module: '工作台',
     actions: [{ code: 'wms:dashboard', name: '工作台', isMenu: true }],
   },
+
+  BASE: {
+    module: '基本信息',
+    actions: [
+      {
+        code: 'wms:base',
+        name: '基本信息',
+        isMenu: true,
+        // itemKey: '/base', // 前端自定义字段
+        // icon: <IconAppCenter />,
+      },
+    ],
+  },
+
   WAREHOUSE: {
     module: '仓库管理',
     actions: [
