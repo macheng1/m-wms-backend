@@ -103,10 +103,10 @@ export class CreateTenantDto {
   businessLicenseNo?: string;
 
   @ApiProperty({
-    example: '2030-12-31',
+    example: new Date('2030-12-31'),
     description: '营业执照有效期',
     required: false,
-    type: String,
+    type: Date,
   })
   @IsOptional()
   businessLicenseExpire?: Date;
@@ -134,10 +134,10 @@ export class CreateTenantDto {
   qualificationNo?: string;
 
   @ApiProperty({
-    example: '2030-12-31',
+    example: new Date('2030-12-31'),
     description: '资质证书有效期',
     required: false,
-    type: String,
+    type: Date,
   })
   @IsOptional()
   qualificationExpire?: Date;
@@ -154,7 +154,12 @@ export class CreateTenantDto {
   fax?: string;
 
   // 企业基本信息
-  @ApiProperty({ example: '2020-01-01', description: '成立日期', required: false, type: String })
+  @ApiProperty({
+    example: new Date('2020-01-01'),
+    description: '成立日期',
+    required: false,
+    type: Date,
+  })
   @IsOptional()
   foundDate?: Date;
 

@@ -15,9 +15,13 @@ export class DictionariesService {
   /**
    * 根据类型获取字典列表 (核心：返回 {label, value} 格式)
    */
-  async getOptionsByType(type: string, tenantId: string) {
+  async getOptionsByType(type: string, tenantId?: string) {
+    const where: any = { type, isActive: 1 };
+    if (tenantId) {
+      where.tenantId = tenantId;
+    }
     const list = await this.dictRepo.find({
-      where: { type, tenantId, isActive: 1 },
+      where,
       order: { sort: 'ASC' },
     });
 

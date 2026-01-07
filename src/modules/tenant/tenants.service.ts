@@ -91,7 +91,7 @@ export class TenantsService {
     // 查行业名称
     let industryName = '';
     if (tenant.industryCode) {
-      const dict = await this.dictionariesService.getOptionsByType('INDUSTRY', tenant.id);
+      const dict = await this.dictionariesService.getOptionsByType('INDUSTRY');
       const found = dict.find((item) => item.value === tenant.industryCode);
       industryName = found ? found.label : '';
     }
@@ -143,7 +143,7 @@ export class TenantsService {
     // 只允许更新白名单字段，防止脏数据
     const allowFields = [
       'name',
-      'industry',
+      'industryCode',
       'contactPerson',
       'contactPhone',
       'address',
