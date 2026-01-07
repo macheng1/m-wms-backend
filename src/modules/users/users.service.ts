@@ -44,6 +44,7 @@ export class UsersService {
     return {
       id: user.id,
       username: user.username,
+      avatar: user.avatar,
       realName: user.realName,
       isPlatformAdmin: user.isPlatformAdmin,
       tenantId: user.tenantId,
@@ -182,6 +183,7 @@ export class UsersService {
     return {
       id: user.id,
       username: user.username,
+      avatar: user.avatar,
       realName: user.realName,
       isPlatformAdmin: user.isPlatformAdmin,
       tenantId: user.tenantId,

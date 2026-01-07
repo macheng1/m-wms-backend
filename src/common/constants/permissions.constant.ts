@@ -36,7 +36,14 @@ export const PERMISSION_CONFIG = {
       },
     ],
   },
-
+  PRODUCT: {
+    module: '产品管理',
+    actions: [
+      { code: 'wms:product:attr', name: '属性管理', isMenu: true },
+      { code: 'wms:product:spec', name: '规格管理', isMenu: true },
+      { code: 'wms:product:list', name: '产品列表', isMenu: true },
+    ],
+  },
   WAREHOUSE: {
     module: '仓库管理',
     actions: [
@@ -45,6 +52,7 @@ export const PERMISSION_CONFIG = {
       { code: 'wms:warehouse:area', name: '库区管理', isMenu: true },
     ],
   },
+
   INVENTORY: {
     module: '库存管理',
     actions: [
@@ -57,6 +65,16 @@ export const PERMISSION_CONFIG = {
   USERS: {
     module: '员工管理',
     actions: [{ code: 'wms:users', name: '员工管理', isMenu: true }],
+  },
+  TENANTS: {
+    module: '租户管理',
+    actions: [
+      { code: 'wms:tenants', name: '租户管理', isMenu: true },
+      { code: 'wms:tenants:list', name: '租户列表', isMenu: true },
+      { code: 'wms:tenants:add', name: '新增租户' },
+      { code: 'wms:tenants:edit', name: '编辑租户' },
+      { code: 'wms:tenants:delete', name: '删除租户' },
+    ],
   },
   CATEGORY: {
     module: '类目管理',

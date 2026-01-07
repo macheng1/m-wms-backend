@@ -7,6 +7,7 @@ import * as bcrypt from 'bcrypt';
 import { User } from '../../users/entities/user.entity';
 import { Permission } from './permission.entity';
 import { flattenPermissions } from '@/common/constants/permissions.constant';
+import { Dictionary } from '@/modules/system/entities/dictionary.entity';
 
 @Injectable()
 export class SystemSeedService implements OnApplicationBootstrap {
@@ -17,11 +18,79 @@ export class SystemSeedService implements OnApplicationBootstrap {
     private readonly userRepo: Repository<User>,
     @InjectRepository(Permission)
     private readonly permissionRepo: Repository<Permission>,
+    @InjectRepository(Dictionary)
+    private readonly dictRepo: Repository<Dictionary>,
   ) {}
 
   async onApplicationBootstrap() {
     await this.initPermissions();
     await this.initPlatformAdmin();
+    await this.initIndustryDicts();
+  }
+  /**
+   * 初始化行业分类字典（仅首次插入）
+   */
+  private async initIndustryDicts() {
+    const industryDicts = [
+      {
+        type: 'INDUSTRY',
+        label: '金属制品业 (不锈钢、引出棒、紧固件)',
+        value: 'C33',
+        sort: 1,
+        isActive: 1,
+      },
+      {
+        type: 'INDUSTRY',
+        label: '电气机械和器材制造 (电热元件、电加热管)',
+        value: 'C38',
+        sort: 2,
+        isActive: 1,
+      },
+      {
+        type: 'INDUSTRY',
+        label: '通用设备制造业 (数控机床、机械零部件)',
+        value: 'C34',
+        sort: 3,
+        isActive: 1,
+      },
+      {
+        type: 'INDUSTRY',
+        label: '专用设备制造业 (化工机械、食品机械)',
+        value: 'C35',
+        sort: 4,
+        isActive: 1,
+      },
+      {
+        type: 'INDUSTRY',
+        label: '黑色金属冶炼和压延加工 (不锈钢型材)',
+        value: 'C32',
+        sort: 5,
+        isActive: 1,
+      },
+      {
+        type: 'INDUSTRY',
+        label: '专业技术服务业 (工业设计、技术研发)',
+        value: 'M74',
+        sort: 6,
+        isActive: 1,
+      },
+      {
+        type: 'INDUSTRY',
+        label: '批发业 (钢材贸易、物料分销)',
+        value: 'F51',
+        sort: 7,
+        isActive: 1,
+      },
+      { type: 'INDUSTRY', label: '其他行业', value: 'OTHER', sort: 8, isActive: 1 },
+    ];
+    for (const dict of industryDicts) {
+      const exist = await this.dictRepo.findOne({ where: { type: dict.type, value: dict.value } });
+      if (!exist) {
+        await this.dictRepo.save(this.dictRepo.create(dict));
+        this.logger.log(`插入行业字典: ${dict.label}`);
+      }
+    }
+    this.logger.log('行业分类字典初始化/同步完成');
   }
 
   /**

@@ -26,4 +26,9 @@ export class CreateUserDto {
   @IsOptional()
   @IsBoolean()
   isActive: boolean = true;
+
+  @ApiProperty({ description: '头像', required: false })
+  @IsOptional()
+  @IsString()
+  avatar?: string;
 }
