@@ -79,7 +79,7 @@ export class CategoriesService {
       skip: (page - 1) * pageSize,
       take: pageSize,
       order: { createdAt: 'ASC' },
-      relations: ['attributes'], // 关键：带出属性关联
+      relations: ['attributes', 'attributes.options'], // 关键：带出属性关联
     });
     // 映射每个类目，带上 attributeIds 数组
     const resultList = list.map((item) => ({
@@ -94,7 +94,7 @@ export class CategoriesService {
   async getDetail(id: string, tenantId: string) {
     const category = await this.categoryRepo.findOne({
       where: { id, tenantId },
-      relations: ['attributes'],
+      relations: ['attributes', 'attributes.options'],
     });
     if (!category) throw new BusinessException('数据不存在');
 

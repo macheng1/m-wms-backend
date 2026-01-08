@@ -1,7 +1,7 @@
 // src/modules/product/service/attributes.service.ts
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like, Not, DataSource } from 'typeorm';
+import { Repository, Like, DataSource } from 'typeorm';
 
 import { Attribute } from '../entities/attribute.entity';
 import { AttributeOption } from '../entities/attribute-option.entity';
@@ -39,49 +39,78 @@ export class AttributesService {
    * 采用“先清空再重建”策略处理规格项，彻底杜绝外键置空报错
    */
   async save(dto: SaveAttributeDto, tenantId: string) {
-    // 1. 编码自动填充
+    // 新增时禁止传 id
+    if (dto.id) throw new BusinessException('新增时不能传属性ID');
     if (!dto.code) {
       dto.code = this.generateCode(dto.name);
     }
-
-    // 2. 唯一性校验
-    const exists = await this.attributeRepo.findOne({
-      where: { code: dto.code, tenantId, ...(dto.id ? { id: Not(dto.id) } : {}) },
-    });
+    // 编码唯一性校验
+    const exists = await this.attributeRepo.findOne({ where: { code: dto.code, tenantId } });
     if (exists) throw new BusinessException('属性编码已存在');
-
-    // 3. 事务处理：保证属性与规格同步更新的原子性
     return await this.dataSource.transaction(async (manager) => {
-      let entity: Attribute;
-
-      if (dto.id) {
-        // 【更新模式】
-        entity = await manager.findOne(Attribute, {
-          where: { id: dto.id, tenantId },
-          relations: ['options'],
-        });
-        if (!entity) throw new BusinessException('属性不存在或无权操作');
-
-        // A. 物理删除旧选项，防止产生孤儿数据
-        await manager.delete(AttributeOption, { attributeId: entity.id });
-
-        // B. 合并基础字段
-        const { options, ...baseInfo } = dto;
-        Object.assign(entity, baseInfo);
-      } else {
-        // 【新增模式】
-        entity = manager.create(Attribute, { ...dto, tenantId });
+      const entity = manager.create(Attribute, {
+        name: dto.name,
+        code: dto.code,
+        type: dto.type,
+        unit: dto.unit,
+        isActive: dto.isActive,
+        tenantId,
+      });
+      const savedAttribute = await manager.save(entity);
+      if (savedAttribute.type === 'select') {
+        if (dto.options && Array.isArray(dto.options) && dto.options.length > 0) {
+          const newOptions = dto.options.map((opt) =>
+            manager.create(AttributeOption, {
+              ...opt,
+              id: undefined,
+              attributeId: savedAttribute.id,
+              tenantId,
+            }),
+          );
+          await manager.save(AttributeOption, newOptions);
+        }
       }
+      return { message: '创建成功', id: savedAttribute.id };
+    });
+  }
 
-      // 4. 保存主表获取 ID
+  async update(dto: SaveAttributeDto, tenantId: string) {
+    if (!dto.id) throw new BusinessException('更新时必须传属性ID');
+
+    if (dto.type === 'select') {
+      if (!dto.options || !Array.isArray(dto.options) || dto.options.length === 0) {
+        throw new BusinessException('select 类型的属性必须提供至少一个选项');
+      }
+    }
+
+    return await this.dataSource.transaction(async (manager) => {
+      // 1. 获取现有属性（不需要查 relations，避免内存污染）
+      const entity = await manager.findOne(Attribute, {
+        where: { id: dto.id, tenantId },
+      });
+      if (!entity) throw new BusinessException(`属性不存在或无权操作`);
+
+      // 2. 执行硬删除旧规格
+      // 建议直接用 manager.delete 替代原生 SQL，更安全
+      await manager.delete(AttributeOption, { attributeId: entity.id, tenantId });
+
+      // 3. 更新基础信息
+      Object.assign(entity, {
+        name: dto.name,
+        code: dto.code || this.generateCode(dto.name),
+        type: dto.type,
+        unit: dto.unit,
+        isActive: dto.isActive,
+      });
       const savedAttribute = await manager.save(entity);
 
-      // 5. 重建从表数据
-      if (dto.options && Array.isArray(dto.options)) {
+      // 4. 只有 select 类型才重建选项
+      if (savedAttribute.type === 'select') {
         const newOptions = dto.options.map((opt) =>
           manager.create(AttributeOption, {
-            ...opt,
-            id: undefined, // 强制视为新数据插入
+            value: opt.value,
+            sort: opt.sort ?? 0,
+            isActive: opt.isActive ?? 1,
             attributeId: savedAttribute.id,
             tenantId,
           }),
@@ -89,11 +118,9 @@ export class AttributesService {
         await manager.save(AttributeOption, newOptions);
       }
 
-      // 6. 返回最新详情，确保前端一键回显
-      return this.getDetail(savedAttribute.id, tenantId);
+      return { message: '更新成功' };
     });
   }
-
   /**
    * 分页查询：按创建时间正序 (ASC)
    */
@@ -167,44 +194,5 @@ export class AttributesService {
     const res = await this.attributeRepo.update({ id, tenantId }, { isActive });
     if (res.affected === 0) throw new BusinessException('属性不存在或无权操作');
     return { message: isActive ? '已启用' : '已禁用' };
-  }
-  async update(dto: SaveAttributeDto, tenantId: string) {
-    if (!dto.id) throw new BusinessException('缺少属性ID，无法更新');
-
-    // 使用事务确保“删除”和“插入”的原子性
-    return await this.attributeRepo.manager.transaction(async (manager) => {
-      // 1. 查找父实体
-      const entity = await manager.findOne(Attribute, {
-        where: { id: dto.id, tenantId },
-      });
-      if (!entity) throw new BusinessException('属性不存在或无权操作');
-
-      // 2. 物理删除数据库中该属性下的所有旧选项
-      // 这样彻底断开关联，不会再报 Column 'attributeId' cannot be null
-      await manager.delete(AttributeOption, { attributeId: entity.id });
-
-      // 3. 更新父实体的基础字段
-      const { options, ...baseInfo } = dto;
-      Object.assign(entity, baseInfo);
-      await manager.save(entity);
-
-      // 4. 重建选项：将其全部视为新记录插入
-      if (Array.isArray(options) && options.length > 0) {
-        const newOptions = options.map((opt) => {
-          // 关键：剔除前端传回的旧 id，确保全部作为全新记录 INSERT
-          const { id, ...data } = opt;
-          return manager.create(AttributeOption, {
-            ...data,
-            attributeId: entity.id, // 明确绑定外键
-            tenantId,
-          });
-        });
-        // 批量保存新选项
-        await manager.save(AttributeOption, newOptions);
-      }
-
-      // 5. 返回最新的详情，保持“入参即出参”对称
-      return this.getDetail(entity.id, tenantId);
-    });
   }
 }

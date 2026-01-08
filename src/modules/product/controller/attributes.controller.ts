@@ -24,12 +24,12 @@ export class AttributesController {
 
   /**
    * 更新属性接口
-   * 路径规范: PUT /attributes/update
+   * 路径规范: POST /attributes/update
+   * 注意：实际调用 save 方法，通过 dto.id 判断是新增还是更新
    */
   @Post('update')
   async update(@Body() dto: SaveAttributeDto, @Req() req) {
-    // 复用 save 方法，要求 dto.id 必须存在
-    if (!dto.id) throw new Error('缺少属性ID，无法更新');
+    // 统一使用 save 方法，通过 dto.id 自动判断是新增还是更新
     return this.attributesService.update(dto, req.user.tenantId);
   }
 

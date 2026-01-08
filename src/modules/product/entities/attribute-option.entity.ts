@@ -1,10 +1,30 @@
 // src/modules/attributes/entities/attribute-option.entity.ts
-import { Entity, Column, ManyToOne, JoinColumn } from 'typeorm';
+import {
+  Entity,
+  Column,
+  ManyToOne,
+  JoinColumn,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
+  Index,
+} from 'typeorm';
 import { Attribute } from './attribute.entity';
-import { TenantBaseEntity } from '@/database/base.entity';
 
 @Entity('attribute_options')
-export class AttributeOption extends TenantBaseEntity {
+export class AttributeOption {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @CreateDateColumn({ comment: '创建时间' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ comment: '最后更新时间' })
+  updatedAt: Date;
+
+  @Index()
+  @Column({ nullable: true, comment: '租户ID' })
+  tenantId: string | null;
   @Column()
   attributeId: string;
 
