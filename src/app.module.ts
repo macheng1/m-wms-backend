@@ -23,6 +23,7 @@ import { UploadModule } from './modules/upload/upload.module';
 import { RolesModule } from './modules/roles/roles.module';
 import { ProductModule } from './modules/product/product.module';
 import { SystemModule } from './modules/system/system.module';
+import { PortalModule } from './modules/portal/portal.module';
 console.log('当前运行环境:', process.env.NODE_ENV);
 console.log('当前工作目录:', process.cwd());
 @Module({
@@ -79,6 +80,7 @@ console.log('当前工作目录:', process.cwd());
     HealthModule,
     ProductModule,
     SystemModule,
+    PortalModule,
   ],
   providers: [
     {

@@ -17,6 +17,7 @@ import { Permission } from '../auth/entities/permission.entity';
 import { User } from '../users/entities/user.entity';
 import pinyin from 'pinyin';
 import { DictionariesService } from '../system/service/dictionaries.service';
+import { PortalConfig } from '../portal/entities/portal-config.entity';
 
 @Injectable()
 export class TenantsService {
@@ -137,46 +138,57 @@ export class TenantsService {
    * 修改租户信息
    */
   async update(id: string, updateTenantDto: Partial<Tenant>) {
-    const repo = this.dataSource.getRepository(Tenant);
-    const tenant = await repo.findOne({ where: { id } });
-    if (!tenant) throw new ConflictException('租户不存在');
-    // 只允许更新白名单字段，防止脏数据
-    const allowFields = [
-      'name',
-      'industryCode',
-      'contactPerson',
-      'contactPhone',
-      'address',
-      'factoryAddress',
-      'registerAddress',
-      'website',
-      'remark',
-      'taxNo',
-      'taxpayerType',
-      'creditCode',
-      'bankName',
-      'bankAccount',
-      'businessLicenseNo',
-      'businessLicenseExpire',
-      'legalPerson',
-      'registeredCapital',
-      'industryType',
-      'qualificationNo',
-      'qualificationExpire',
-      'email',
-      'fax',
-      'foundDate',
-      'staffCount',
-      'mainProducts',
-      'annualCapacity',
-      'isActive',
-    ];
-    for (const key of allowFields) {
-      if (key in updateTenantDto) {
-        tenant[key] = updateTenantDto[key];
+    return await this.dataSource.transaction(async (manager) => {
+      const repo = manager.getRepository(Tenant);
+      const tenant = await repo.findOne({ where: { id } });
+      if (!tenant) throw new ConflictException('租户不存在');
+
+      // 只允许更新白名单字段，防止脏数据
+      const allowFields = [
+        'name',
+        'industryCode',
+        'contactPerson',
+        'contactPhone',
+        'address',
+        'factoryAddress',
+        'registerAddress',
+        'website',
+        'remark',
+        'taxNo',
+        'taxpayerType',
+        'creditCode',
+        'bankName',
+        'bankAccount',
+        'businessLicenseNo',
+        'businessLicenseExpire',
+        'legalPerson',
+        'registeredCapital',
+        'industryType',
+        'qualificationNo',
+        'qualificationExpire',
+        'email',
+        'fax',
+        'foundDate',
+        'staffCount',
+        'mainProducts',
+        'annualCapacity',
+        'isActive',
+      ];
+      for (const key of allowFields) {
+        if (key in updateTenantDto) {
+          tenant[key] = updateTenantDto[key];
+        }
       }
-    }
-    return await repo.save(tenant);
+      const savedTenant = await repo.save(tenant);
+
+      // 删除原 PortalConfig
+      const portalConfigRepo = manager.getRepository(PortalConfig);
+      await portalConfigRepo.delete({ tenantId: savedTenant.id });
+      // 重新生成 PortalConfig
+      await this.initPortalConfig(manager, savedTenant);
+
+      return savedTenant;
+    });
   }
   private generateEnterpriseCode(enterpriseName: string): string {
     // 1. 提取企业名称简拼
@@ -218,28 +230,63 @@ export class TenantsService {
       throw new ConflictException(`用户名 ${dto.adminUser} 已被占用`);
     }
   }
-  /**
-   * 逻辑拆分 2：创建租户
-   */
+
   private async createTenant(manager: EntityManager, dto: CreateTenantDto): Promise<Tenant> {
-    // 自动生成 code（企业编码）
-    let code = dto.code;
-    if (!code) {
-      code = this.generateEnterpriseCode(dto.name);
-    }
-    // 检查 code 是否已存在（防止数据库报错前先进行业务拦截）
-    const existing = await manager.findOne(Tenant, { where: { code } });
-    if (existing) {
-      throw new ConflictException(`企业编码 ${code} 已被占用`);
-    }
-    // 自动映射所有 dto 字段到 Tenant
+    // 1. 生成企业编码和官网链接 (沿用之前的逻辑)
+    const code = dto.code || this.generateEnterpriseCode(dto.name);
+    const baseUrl = 'https://pinmalink.com';
+    const urlSlug = code
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '-');
+    const website = `${baseUrl}/portal/${urlSlug}/zh`;
+
+    // 2. 创建并保存租户
     const tenant = manager.create(Tenant, {
       ...dto,
-      code,
-      industry: dto.industry || 'heating_element',
+      code: code.trim(),
+      website,
+      industryType: dto.industryType || '未分类',
     });
-    return await manager.save(tenant);
+    const savedTenant = await manager.save(tenant);
+
+    // 💡 3. 自动初始化网站通用配置
+    await this.initPortalConfig(manager, savedTenant);
+
+    return savedTenant;
   }
+
+  /**
+   * 💡 初始化网站通用配置
+   */
+  private async initPortalConfig(manager: EntityManager, tenant: Tenant) {
+    const defaultConfig = manager.create(PortalConfig, {
+      tenantId: tenant.id,
+      title: tenant.name, // 默认使用公司名称作为网站标题
+      logo: '', // 留空，由用户后续上传
+      slogan: '致力于提供最优质的产品与服务',
+      description: `${tenant.name}欢迎您的访问。我们专注于行业领先的技术与解决方案。`,
+
+      // 初始化默认页脚
+      footerInfo: {
+        address: tenant.factoryAddress || tenant.address || '请完善工厂地址',
+        phone: tenant.contactPhone || '请完善联系电话',
+        icp: '苏ICP备2024067044号',
+        copyright: `© ${new Date().getFullYear()} ${tenant.name}`,
+      },
+
+      // 初始化默认 SEO 设置
+      seoConfig: {
+        keywords: `${tenant.name}, ${tenant.industryType}, 产品中心`,
+        description: `${tenant.name}官方网站，为您提供最新的产品资讯与行业动态。`,
+      },
+
+      isActive: 1, // 默认开启站点
+    });
+    return await manager.save(defaultConfig);
+  }
+
+  // ...existing code...
   /**
    * 优化后的逻辑拆分 3：初始化角色（极致性能版）
    */

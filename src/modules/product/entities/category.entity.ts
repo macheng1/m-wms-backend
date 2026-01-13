@@ -1,8 +1,9 @@
 // src/modules/product/entities/category.entity.ts
 
 import { TenantBaseEntity } from '@/database/base.entity';
-import { Entity, Column, ManyToMany, JoinTable } from 'typeorm';
+import { Entity, Column, ManyToMany, JoinTable, OneToMany } from 'typeorm';
 import { Attribute } from './attribute.entity';
+import { Product } from '../product.entity';
 
 @Entity('categories')
 export class Category extends TenantBaseEntity {
@@ -20,4 +21,6 @@ export class Category extends TenantBaseEntity {
   @ManyToMany(() => Attribute)
   @JoinTable({ name: 'category_attributes' }) // 自动创建中间表
   attributes: Attribute[];
+  @OneToMany(() => Product, (product) => product.category)
+  products: Product[];
 }
