@@ -196,12 +196,39 @@ export class PortalService {
   }
 
   /**
-   * 获取询盘列表
+   * 获取询盘列表（分页+条件）
+   * @param tenantId 租户ID
+   * @param page 页码（默认1）
+   * @param pageSize 每页数量（默认20）
+   * @param filters 查询条件
    */
-  async getInquiries(tenantId: string) {
-    return this.inquiryRepo.find({
-      where: { tenantId },
-      order: { createdAt: 'DESC' },
-    });
+  async getInquiries(
+    tenantId: string,
+    page = 1,
+    pageSize = 20,
+    filters?: {
+      name?: string;
+    },
+  ) {
+    const qb = this.inquiryRepo
+      .createQueryBuilder('inquiry')
+      .where('inquiry.tenantId = :tenantId', { tenantId });
+
+    if (filters?.name) {
+      qb.andWhere('inquiry.name LIKE :name', { name: `%${filters.name}%` });
+    }
+
+    qb.orderBy('inquiry.createdAt', 'DESC')
+      .skip((page - 1) * pageSize)
+      .take(pageSize);
+
+    const [list, total] = await qb.getManyAndCount();
+    return {
+      list,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    };
   }
 }

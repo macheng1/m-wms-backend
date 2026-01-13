@@ -16,10 +16,10 @@ export class Inquiry extends TenantBaseEntity {
   @Column({
     type: 'varchar',
     length: 20,
-    default: 'pending',
-    comment: '处理状态：pending-待处理, processed-已联系, ignored-忽略',
+    default: 'unread',
+    comment: '处理状态：unread-未读, read-已读, replied-已回复',
   })
-  status: string;
+  status: string; // valueEnum: { unread: { text: "未读", color: "amber" }, read: { text: "已读", color: "blue" }, replied: { text: "已回复", color: "green" } }
 
   @Column({ type: 'text', nullable: true, comment: '后台管理员备注' })
   adminRemark: string;

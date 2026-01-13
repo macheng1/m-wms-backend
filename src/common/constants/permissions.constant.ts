@@ -36,6 +36,11 @@ export const PERMISSION_CONFIG = {
       },
     ],
   },
+  WEBSITE: {
+    module: '网站管理',
+    actions: [{ code: 'wms:website:inquiry', name: '询价管理', isMenu: true }],
+  },
+
   PRODUCT: {
     module: '产品管理',
     actions: [

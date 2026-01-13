@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Body, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Patch, Body, UseGuards, Req, Query } from '@nestjs/common';
 import { PortalService } from './portal.service';
 
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
@@ -7,7 +7,7 @@ import { UpdatePortalConfigDto } from './dto/update-portal-config.dto';
 
 @ApiTags('管理后台 - 网站管理')
 @ApiBearerAuth()
-@Controller('admin/portal')
+@Controller('portal')
 @UseGuards(JwtAuthGuard) // 💡 强制鉴权，只有登录用户能修改配置
 export class AdminPortalController {
   constructor(private readonly portalService: PortalService) {}
@@ -39,8 +39,13 @@ export class AdminPortalController {
    */
   @Get('inquiries')
   @ApiOperation({ summary: '获取访客询盘列表' })
-  async getInquiries(@Req() req) {
+  async getInquiries(
+    @Req() req,
+    @Query('page') page?: number,
+    @Query('pageSize') pageSize?: number,
+    @Query('name') name?: string,
+  ) {
     const tenantId = req.user.tenantId;
-    return this.portalService.getInquiries(tenantId);
+    return this.portalService.getInquiries(tenantId, page, pageSize, { name });
   }
 }
