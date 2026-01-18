@@ -55,6 +55,7 @@ export class PortalService {
 
     // 3. 准备快捷变量
     const footerInfo = config?.footerInfo || {};
+    console.log('🚀 ~ PortalService ~ getPortalInitData ~ footerInfo:', footerInfo);
     const seoConfig = config?.seoConfig || {};
 
     // 4. 核心：转换动态规格的产品列表
@@ -93,13 +94,9 @@ export class PortalService {
       // --- 1. 基础全局信息 ---
       name: tenant.name,
       code: tenant.code,
-      contactPerson: footerInfo.contactPerson || '业务部',
+      contactPerson: tenant.contactPerson || footerInfo.contactPerson || '业务部',
       phone: footerInfo.phone || '请完善联系电话',
-      address: footerInfo.address || '请完善工厂地址',
-      addressLatLng: {
-        lat: 32.9111, // 建议以后在 Tenant 增加这两个字段
-        lng: 119.8502,
-      },
+      address: footerInfo.address || tenant.factoryAddress || tenant.address || '请完善工厂地址',
       intro: config?.description || '深耕制造业，提供高品质工业解决方案。',
       slogan: config?.slogan || '赋能制造律动，链接工业未来',
 

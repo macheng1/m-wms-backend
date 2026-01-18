@@ -8,6 +8,8 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { User } from '../users/entities/user.entity';
 import { Tenant } from '../tenant/entities/tenant.entity';
+import { SmsService } from '../aliyun/sms/sms.service';
+import { BusinessException } from '@/common/filters/business.exception';
 
 @Injectable()
 export class AuthService {
@@ -17,18 +19,53 @@ export class AuthService {
     @InjectRepository(Tenant)
     private tenantRepository: Repository<Tenant>,
     private jwtService: JwtService,
+    private smsService: SmsService,
   ) {}
 
   async register(registerDto: RegisterDto, tenantId: string): Promise<User> {
+    // 1. 验证短信验证码
+    const isValidCode = await this.smsService.verifyCode(registerDto.phone, registerDto.smsCode);
+    if (!isValidCode) {
+      throw new BadRequestException('验证码错误或已过期');
+    }
+
+    // 2. 检查用户名是否已存在
+    const existingUser = await this.userRepository.findOne({
+      where: { username: registerDto.username },
+    });
+    if (existingUser) {
+      throw new BusinessException('用户名已被使用');
+    }
+
+    // 3. 检查手机号是否已注册
+    const existingPhone = await this.userRepository
+      .createQueryBuilder('user')
+      .where('user.phone = :phone', { phone: registerDto.phone })
+      .getOne();
+    if (existingPhone) {
+      throw new BusinessException('该手机号已注册');
+    }
+
+    // 4. 加密密码
     const hashedPassword = await bcrypt.hash(registerDto.password, 10);
 
+    // 5. 创建用户
     const user = this.userRepository.create({
-      ...registerDto,
+      username: registerDto.username,
+      phone: registerDto.phone,
       password: hashedPassword,
+      email: registerDto.email,
+      firstName: registerDto.firstName,
+      lastName: registerDto.lastName,
       tenantId,
     });
 
-    return this.userRepository.save(user);
+    const savedUser = await this.userRepository.save(user);
+
+    // 6. 验证成功后删除验证码
+    await this.smsService.deleteCode(registerDto.phone);
+
+    return savedUser;
   }
 
   // src/modules/auth/auth.service.ts

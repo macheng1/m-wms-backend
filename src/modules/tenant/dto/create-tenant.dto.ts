@@ -1,6 +1,6 @@
 // src/modules/tenants/dto/create-tenant.dto.ts
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, MinLength, IsOptional } from 'class-validator';
+import { IsNotEmpty, IsString, MinLength, IsOptional, IsPhoneNumber } from 'class-validator';
 
 export class CreateTenantDto {
   @ApiProperty({ example: 'XH001', description: '企业唯一编码（用于登录）' })
@@ -11,6 +11,16 @@ export class CreateTenantDto {
   @IsString()
   name: string;
 
+  @ApiProperty({ example: '13800138000', description: '手机验证码' })
+  @IsNotEmpty({ message: '验证码不能为空' })
+  @IsString()
+  smsCode: string;
+
+  @ApiProperty({ example: '13800138000', description: '联系电话（需验证）' })
+  @IsNotEmpty({ message: '联系电话不能为空' })
+  @IsString()
+  contactPhone: string; // <--- 改为必填，需要验证
+
   @ApiProperty({ example: 'heating_element', description: '行业标识', required: false })
   @IsOptional()
   industry?: string;
@@ -19,11 +29,6 @@ export class CreateTenantDto {
   @IsOptional()
   @IsString()
   contactPerson?: string; // <--- 建议新增
-
-  @ApiProperty({ example: '13800000000', description: '联系电话', required: false })
-  @IsOptional()
-  @IsString()
-  contactPhone?: string; // <--- 建议新增
 
   @ApiProperty({ example: 'admin', description: '初始管理员账号' })
   @IsNotEmpty({ message: '管理员账号不能为空' })
