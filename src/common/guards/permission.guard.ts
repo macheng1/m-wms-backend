@@ -12,7 +12,7 @@ export class PermissionGuard implements CanActivate {
     const user = request.user;
 
     // 1. 如果是平台超级管理员，直接放行所有接口
-    if (user.isPlatformAdmin) return true;
+    if (user.isPlatformAdmin === 1) return true;
 
     // 2. 如果是租户管理员（拥有 ADMIN 角色），也放行该租户下的所有接口
     const roles = user.roles?.map((r) => r.code);

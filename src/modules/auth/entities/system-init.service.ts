@@ -126,9 +126,18 @@ export class SystemSeedService implements OnApplicationBootstrap {
     const rootUsername = 'platform_admin'; // 你可以自定义上帝账号
 
     // 1. 检查是否已经存在
-    const exists = await this.userRepo.findOne({
+    let exists = await this.userRepo.findOne({
       where: { username: rootUsername },
     });
+
+    // 如果存在但 isPlatformAdmin 不正确，删除重建
+    if (exists && exists.isPlatformAdmin !== 1) {
+      this.logger.warn(
+        `⚠️ 检测到 ${rootUsername} 的 isPlatformAdmin 值异常 (${exists.isPlatformAdmin})，正在重新创建...`,
+      );
+      await this.userRepo.delete({ username: rootUsername });
+      exists = null;
+    }
 
     if (!exists) {
       this.logger.log('--- 🛡️ 正在初始化平台超级管理员 ---');
@@ -139,13 +148,14 @@ export class SystemSeedService implements OnApplicationBootstrap {
         username: rootUsername,
         password: hashedPassword,
         realName: '默认',
-        isPlatformAdmin: true, // 标记为平台级
+        isPlatformAdmin: 1, // 标记为平台级
         tenantId: null, // 平台级管理员不属于任何租户
-        isActive: true,
+        isActive: 1,
       });
 
-      await this.userRepo.save(superAdmin);
+      const saved = await this.userRepo.save(superAdmin);
       this.logger.log(`✅ 平台管理员初始化成功: ${rootUsername} / Admin123456`);
+      this.logger.log(`🔍 验证 isPlatformAdmin 值: ${saved.isPlatformAdmin} (类型: ${typeof saved.isPlatformAdmin})`);
       this.logger.warn('请务必在首次登录后修改初始密码！');
     }
   }

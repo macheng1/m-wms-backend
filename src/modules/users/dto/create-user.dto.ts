@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, IsArray, IsOptional, IsBoolean, Length } from 'class-validator';
+import { IsNotEmpty, IsString, IsArray, IsOptional, IsNumber, Length } from 'class-validator';
 
 export class CreateUserDto {
   @ApiProperty({ description: '登录用户名' })
@@ -22,10 +22,10 @@ export class CreateUserDto {
   @IsString({ each: true })
   roleIds: string[]; // 绑定你在 Role 模块创建的 ID
 
-  @ApiProperty({ description: '是否启用', default: true })
+  @ApiProperty({ description: '是否启用 (1启用/0禁用)', default: 1 })
   @IsOptional()
-  @IsBoolean()
-  isActive: boolean = true;
+  @IsNumber()
+  isActive: number = 1;
 
   @ApiProperty({ description: '头像', required: false })
   @IsOptional()

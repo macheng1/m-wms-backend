@@ -117,7 +117,7 @@ export class AuthService {
        */
       query
         .where('user.username = :username', { username })
-        .andWhere('user.isPlatformAdmin = :isAdmin', { isAdmin: true });
+        .andWhere('user.isPlatformAdmin = :isAdmin', { isAdmin: 1 });
     } else {
       /**
        * 场景 B：提供了企业编码
@@ -131,7 +131,7 @@ export class AuthService {
       query
         .where('user.username = :username', { username })
         .andWhere('user.tenantId = :tenantId', { tenantId: tenant.id })
-        .andWhere('user.isPlatformAdmin = :isAdmin', { isAdmin: false });
+        .andWhere('user.isPlatformAdmin = :isAdmin', { isAdmin: 0 });
     }
 
     return await query.getOne();
