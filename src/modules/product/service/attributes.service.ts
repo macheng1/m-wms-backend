@@ -178,13 +178,12 @@ export class AttributesService {
   async delete(id: string, tenantId: string) {
     const attr = await this.attributeRepo.findOne({
       where: { id, tenantId },
-      relations: ['options'],
     });
     if (!attr) throw new BusinessException('数据不存在');
 
-    // 伪删除主表，TypeORM 会处理带有 @DeleteDateColumn 的字段
-    await this.attributeRepo.softRemove(attr);
-    return { message: '已移入回收站' };
+    // 硬删除，关联的 AttributeOption 会通过数据库外键级联删除
+    await this.attributeRepo.remove(attr);
+    return { message: '删除成功' };
   }
 
   /**

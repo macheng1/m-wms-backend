@@ -9,6 +9,8 @@ import { AttributeOption } from './entities/attribute-option.entity';
 import { Attribute } from './entities/attribute.entity';
 import { AttributesController } from './controller/attributes.controller';
 import { AttributesService } from './service/attributes.service';
+import { AttributeImportService } from './service/attribute-import.service';
+import { ProductImportService } from './service/product-import.service';
 
 // --- 新增：类目相关导入 ---
 import { Category } from './entities/category.entity';
@@ -32,8 +34,10 @@ import { ProductsService } from './product.service';
   providers: [
     OptionsService,
     AttributesService,
+    AttributeImportService,
     CategoriesService, // 3. 注册类目服务
     ProductsService,
+    ProductImportService,
   ],
   exports: [
     OptionsService,

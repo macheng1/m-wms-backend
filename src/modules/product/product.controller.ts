@@ -1,11 +1,22 @@
-import { Controller, Post, Body, Get, Query, Req, Header } from '@nestjs/common';
+import { Controller, Post, Body, Get, Query, Req, Header, Res, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { BusinessException } from '@/common/filters/business.exception';
+import { ApiTags, ApiConsumes, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Request, Response } from 'express';
 import { QueryProductDto } from './entities/dto/query-product.dto';
 import { SaveProductDto } from './entities/dto/save-product.dto';
+import { ImportProductDto } from './entities/dto/import-product.dto';
 import { ProductsService } from './product.service';
+import { ProductImportService } from './service/product-import.service';
 
+@ApiTags('产品管理-产品管理')
+@ApiBearerAuth()
 @Controller('products')
 export class ProductsController {
-  constructor(private readonly productsService: ProductsService) {}
+  constructor(
+    private readonly productsService: ProductsService,
+    private readonly importService: ProductImportService,
+  ) {}
 
   @Post('save')
   async save(@Body() dto: SaveProductDto, @Req() req) {
@@ -42,5 +53,45 @@ export class ProductsController {
   @Post('delete')
   async delete(@Body('id') id: string, @Req() req) {
     return this.productsService.delete(id, req.user.tenantId);
+  }
+
+  /**
+   * 下载导入模板
+   * @param categoryCode 类目编码，提供则下载该类目专属模板（属性展开为列）
+   */
+  @Get('template')
+  @Header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+  async downloadTemplate(@Query('categoryCode') categoryCode: string, @Req() req, @Res() res) {
+    const buffer = await this.importService.generateTemplate(categoryCode, req.user.tenantId);
+    const filename = categoryCode
+      ? `product-template-${categoryCode}.xlsx`
+      : 'product-import-template.xlsx';
+    res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+    res.end(buffer);
+  }
+
+  /**
+   * 导入产品数据
+   */
+  @Post('import')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: '上传产品导入 Excel 文件',
+    type: ImportProductDto,
+  })
+  async importProducts(@UploadedFile() file: Express.Multer.File, @Req() req) {
+    const result = await this.importService.import(file, req.user.tenantId);
+
+    // 如果有失败记录，抛出业务异常
+    if (result.failCount > 0) {
+      throw new BusinessException(
+        `导入完成，成功${result.successCount}条，失败${result.failCount}条`,
+        10001, // 业务错误码
+        result.errors, // 错误详情
+      );
+    }
+
+    return result;
   }
 }
