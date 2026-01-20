@@ -1,8 +1,7 @@
-import { Injectable, NestInterceptor, ExecutionContext, CallHandler, Logger } from '@nestjs/common';
+import { Injectable, NestInterceptor, ExecutionContext, CallHandler } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { Request, Response } from 'express';
-import { randomUUID } from 'crypto';
 
 interface RequestLog {
   timestamp: string;
@@ -29,19 +28,18 @@ interface ResponseLog {
 
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
-  private readonly logger = new Logger(LoggingInterceptor.name);
-
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     const request = context.switchToHttp().getRequest<Request>();
     const response = context.switchToHttp().getResponse<Response>();
 
     const { method, url, body, query, params, headers, ip } = request;
-    const tenantId = (headers['x-tenant-id'] as string) || 'N/A';
+    // 优先从请求头获取，其次从 JWT payload 获取，最后默认值
+    const tenantId = headers['x-tenant-id'] as string;
     const userAgent = (headers['user-agent'] as string) || 'N/A';
     const clientIp = Array.isArray(ip) ? ip[0] : ip;
 
-    // 获取或生成 traceId
-    const traceId = (headers['x-trace-id'] as string) || randomUUID();
+    // 获取 traceId（前端必须传入，否则使用默认值）
+    const traceId = (headers['x-trace-id'] as string) || 'MISSING_TRACE_ID';
 
     // 将 traceId 添加到响应头
     response.setHeader('x-trace-id', traceId);
@@ -61,17 +59,17 @@ export class LoggingInterceptor implements NestInterceptor {
     };
 
     // 只有当 body/query/params 不为空时才记录
-    if (Object.keys(body).length > 0) {
+    if (body && typeof body === 'object' && Object.keys(body).length > 0) {
       requestLog.body = this.sanitizeData(body);
     }
-    if (Object.keys(query).length > 0) {
+    if (query && Object.keys(query).length > 0) {
       requestLog.query = query;
     }
-    if (Object.keys(params).length > 0) {
+    if (params && Object.keys(params).length > 0) {
       requestLog.params = params;
     }
 
-    this.logger.log(`📥 请求 => ${JSON.stringify(requestLog)}`);
+    console.log(`📥 请求 => ${JSON.stringify(requestLog)}`);
 
     return next.handle().pipe(
       tap({
@@ -90,12 +88,7 @@ export class LoggingInterceptor implements NestInterceptor {
             traceId,
           };
 
-          this.logger.log(`📤 响应 => ${JSON.stringify(responseLog)}`);
-
-          // 调试模式下记录响应数据
-          if (process.env.NODE_ENV === 'development' && data) {
-            this.logger.debug(`📦 响应数据 => ${JSON.stringify(data).substring(0, 500)}...`);
-          }
+          console.log(`📤 响应 => ${JSON.stringify(responseLog)}`);
         },
         error: (error) => {
           const responseTime = Date.now() - startTime;
@@ -112,7 +105,7 @@ export class LoggingInterceptor implements NestInterceptor {
             traceId,
           };
 
-          this.logger.error(`❌ 错误 => ${JSON.stringify(responseLog)}`);
+          console.error(`❌ 错误 => ${JSON.stringify(responseLog)}`);
         },
       }),
     );
@@ -127,7 +120,14 @@ export class LoggingInterceptor implements NestInterceptor {
     }
 
     const sanitized = { ...data };
-    const sensitiveFields = ['password', 'oldPassword', 'newPassword', 'confirmPassword', 'secret', 'token'];
+    const sensitiveFields = [
+      'password',
+      'oldPassword',
+      'newPassword',
+      'confirmPassword',
+      'secret',
+      'token',
+    ];
 
     for (const field of sensitiveFields) {
       if (field in sanitized) {
