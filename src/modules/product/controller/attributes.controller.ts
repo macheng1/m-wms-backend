@@ -64,6 +64,11 @@ export class AttributesController {
     return this.attributesService.delete(id, req.user.tenantId);
   }
 
+  @Post('batchDelete')
+  async batchDelete(@Body('ids') ids: string[], @Req() req) {
+    return this.attributesService.batchDelete(ids, req.user.tenantId);
+  }
+
   @Post('status')
   async updateStatus(@Body() body: { id: string; isActive: number }, @Req() req) {
     return this.attributesService.updateStatus(body.id, body.isActive, req.user.tenantId);

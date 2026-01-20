@@ -42,6 +42,11 @@ export class OptionsController {
     return this.optionsService.delete(id);
   }
 
+  @Post('batchDelete')
+  async batchDelete(@Body('ids') ids: string[], @Req() req) {
+    return this.optionsService.batchDelete(ids, req.user.tenantId);
+  }
+
   /** 更改规格状态（启用/禁用） */
   @Post('status')
   async updateStatus(@Body() body: { id: string; isActive: number }, @Req() req) {
