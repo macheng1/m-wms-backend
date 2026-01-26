@@ -32,8 +32,9 @@ export class InventoryTransaction extends TenantBaseEntity {
   @Column({ length: 100, nullable: true })
   orderNo: string;
 
-  @Column({ length: 100, nullable: true })
-  location: string;
+  @Index('inventory_transaction_location_id_idx')
+  @Column({ nullable: true })
+  locationId: string;
 
   @Column({ type: 'text', nullable: true })
   remark: string;

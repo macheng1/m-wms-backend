@@ -27,8 +27,11 @@ export class AdjustInventoryDto {
   @IsOptional()
   remark?: string;
 
-  @ApiPropertyOptional({ description: '库位' })
+  @ApiPropertyOptional({
+    description: '库位ID（从 /api/locations/available-for-selection 接口获取 value）',
+    example: 'location-uuid-001',
+  })
   @IsString()
   @IsOptional()
-  location?: string;
+  locationId?: string;
 }

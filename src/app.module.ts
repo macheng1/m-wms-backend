@@ -7,6 +7,7 @@ import { AuthModule } from '@modules/auth/auth.module';
 import { InventoryModule } from '@modules/inventory/inventory.module';
 import { OrderModule } from '@modules/order/order.module';
 import { UnitModule } from '@modules/unit/unit.module';
+import { LocationModule } from '@modules/location/location.module';
 import { User } from './modules/users/entities/user.entity';
 import { Tenant } from './modules/tenant/entities/tenant.entity';
 import { Permission } from './modules/auth/entities/permission.entity';
@@ -78,6 +79,7 @@ console.log('当前工作目录:', process.cwd());
     UnitModule,
     InventoryModule,
     OrderModule,
+    LocationModule,
     UsersModule,
     SmsModule,
     UploadModule,

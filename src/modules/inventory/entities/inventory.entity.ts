@@ -36,8 +36,9 @@ export class Inventory {
   @JoinColumn({ name: 'unitId' })
   unit: Unit;
 
-  @Column({ length: 100, nullable: true })
-  location: string;
+  @Index('inventory_location_id_idx')
+  @Column({ nullable: true })
+  locationId: string;
 
   @Column({ type: 'json', nullable: true })
   multiUnitQty: Record<string, number>;

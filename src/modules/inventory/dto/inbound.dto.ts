@@ -47,10 +47,13 @@ export class InboundDto {
   @IsOptional()
   orderNo?: string;
 
-  @ApiPropertyOptional({ description: '库位', example: 'A-01-01' })
+  @ApiPropertyOptional({
+    description: '库位ID（从 /api/locations/available-for-selection 接口获取 value）',
+    example: 'location-uuid-001',
+  })
   @IsString()
   @IsOptional()
-  location?: string;
+  locationId?: string;
 
   @ApiProperty({
     description: '交易类型',
@@ -73,10 +76,13 @@ export class BatchInboundDto {
   @IsOptional()
   orderNo?: string;
 
-  @ApiPropertyOptional({ description: '库位', example: 'A-01-01' })
+  @ApiPropertyOptional({
+    description: '库位ID（从 /api/locations/available-for-selection 接口获取 value）',
+    example: 'location-uuid-001',
+  })
   @IsString()
   @IsOptional()
-  location?: string;
+  locationId?: string;
 
   @ApiProperty({
     description: '交易类型',

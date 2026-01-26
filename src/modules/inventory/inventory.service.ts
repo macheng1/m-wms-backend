@@ -113,12 +113,15 @@ export class InventoryService {
     const queryBuilder = this.inventoryRepository.createQueryBuilder('inventory');
     queryBuilder
       .leftJoin('inventory.unit', 'unit')
+      .leftJoin('locations', 'location', 'inventory.locationId = location.id AND location.tenantId = :tenantId')
       .leftJoin('products', 'product', 'inventory.sku = product.code AND product.tenantId = :tenantId')
       .select([
         'inventory',
         'unit.name as unitName',
         'unit.code as unitCode',
         'unit.symbol as unitSymbol',
+        'location.name as locationName',
+        'location.code as locationCode',
         'product.safetyStock as safetyStock',
       ])
       .where('inventory.tenantId = :tenantId', { tenantId });
@@ -132,6 +135,16 @@ export class InventoryService {
         '(inventory.sku LIKE :keyword OR inventory.productName LIKE :keyword)',
         { keyword: `%${keyword}%` },
       );
+    }
+
+    // 在数据库层面进行库存状态筛选
+    if (stockStatus === 'OUT_OF_STOCK') {
+      queryBuilder.andWhere('inventory.quantity = 0');
+    } else if (stockStatus === 'LOW_STOCK') {
+      queryBuilder.andWhere('inventory.quantity > 0 AND inventory.quantity < COALESCE(product.safetyStock, 0)');
+    } else if (stockStatus === 'IN_STOCK') {
+      queryBuilder.andWhere('inventory.quantity >= COALESCE(product.safetyStock, 0)');
+      queryBuilder.andWhere('product.safetyStock IS NOT NULL');
     }
 
     queryBuilder.orderBy('inventory.createdAt', 'DESC');
@@ -209,6 +222,9 @@ export class InventoryService {
         unitName: raw.unitName,
         unitCode: raw.unitCode,
         unitSymbol: raw.unitSymbol,
+        // 库位信息
+        locationName: raw.locationName,
+        locationCode: raw.locationCode,
         // quantity 带单位显示（整数不显示小数位）
         quantityDisplay: raw.unitSymbol
           ? `${formatNumber(numQuantity)} ${raw.unitSymbol}`
@@ -223,11 +239,6 @@ export class InventoryService {
         stockStatusInfo: stockStatusMap[status],
       };
     });
-
-    // 按库存状态筛选
-    if (stockStatus) {
-      list = list.filter((item: any) => item.stockStatus === stockStatus);
-    }
 
     return { list, total, page, pageSize };
   }
@@ -405,7 +416,7 @@ export class InventoryService {
           productName: product.name, // 使用产品表中的名称
           quantity: convertedQty,
           unitId: unit.id,
-          location: dto.location,
+          locationId: dto.locationId,
           tenantId,
           multiUnitQty: null,
         });
@@ -432,7 +443,7 @@ export class InventoryService {
         beforeQty,
         afterQty,
         orderNo: dto.orderNo,
-        location: dto.location,
+        locationId: dto.locationId,
         remark: dto.remark,
         tenantId,
       });
@@ -494,7 +505,7 @@ export class InventoryService {
         {
           ...item,
           orderNo: dto.orderNo,
-          location: dto.location,
+          locationId: dto.locationId,
           type: dto.type,
           remark: dto.remark,
         },
@@ -603,7 +614,7 @@ export class InventoryService {
         beforeQty,
         afterQty,
         orderNo: dto.orderNo,
-        location: dto.location || inventory.location,
+        locationId: dto.locationId || inventory.locationId,
         remark: dto.remark,
         tenantId,
       });
@@ -662,7 +673,7 @@ export class InventoryService {
         {
           ...item,
           orderNo: dto.orderNo,
-          location: dto.location,
+          locationId: dto.locationId,
           type: dto.type,
           remark: dto.remark,
         },
@@ -709,12 +720,15 @@ export class InventoryService {
     const queryBuilder = this.transactionRepository.createQueryBuilder('transaction');
     queryBuilder
       .leftJoin('units', 'unit', 'transaction.unitId = unit.id')
+      .leftJoin('locations', 'location', 'transaction.locationId = location.id AND location.tenantId = :tenantId')
       .leftJoin('inventory', 'inventory', 'transaction.sku = inventory.sku AND transaction.tenantId = inventory.tenantId')
       .select([
         'transaction',
         'unit.name as unitName',
         'unit.code as unitCode',
         'unit.symbol as unitSymbol',
+        'location.name as locationName',
+        'location.code as locationCode',
         'inventory.unitId as inventoryUnitId',
       ])
       .where('transaction.tenantId = :tenantId', { tenantId });
@@ -781,6 +795,9 @@ export class InventoryService {
         unitName: raw.unitName,
         unitCode: raw.unitCode,
         unitSymbol: raw.unitSymbol,
+        // 库位信息
+        locationName: raw.locationName,
+        locationCode: raw.locationCode,
         // 类型显示信息
         typeName: typeDisplayName,
         typeDirection: typeDirection, // INBOUND/OUTBOUND/OTHER
@@ -816,12 +833,15 @@ export class InventoryService {
     const queryBuilder = this.transactionRepository.createQueryBuilder('transaction');
     queryBuilder
       .leftJoin('units', 'unit', 'transaction.unitId = unit.id')
+      .leftJoin('locations', 'location', 'transaction.locationId = location.id AND location.tenantId = :tenantId')
       .leftJoin('inventory', 'inventory', 'transaction.sku = inventory.sku AND transaction.tenantId = inventory.tenantId')
       .select([
         'transaction',
         'unit.name as unitName',
         'unit.code as unitCode',
         'unit.symbol as unitSymbol',
+        'location.name as locationName',
+        'location.code as locationCode',
         'inventory.unitId as inventoryUnitId',
       ])
       .where('transaction.tenantId = :tenantId', { tenantId });
@@ -889,6 +909,9 @@ export class InventoryService {
         unitName: raw.unitName,
         unitCode: raw.unitCode,
         unitSymbol: raw.unitSymbol,
+        // 库位信息
+        locationName: raw.locationName,
+        locationCode: raw.locationCode,
         // 类型显示信息
         typeName: typeDisplayName,
         // 格式化显示字段
@@ -923,12 +946,15 @@ export class InventoryService {
     const queryBuilder = this.transactionRepository.createQueryBuilder('transaction');
     queryBuilder
       .leftJoin('units', 'unit', 'transaction.unitId = unit.id')
+      .leftJoin('locations', 'location', 'transaction.locationId = location.id AND location.tenantId = :tenantId')
       .leftJoin('inventory', 'inventory', 'transaction.sku = inventory.sku AND transaction.tenantId = inventory.tenantId')
       .select([
         'transaction',
         'unit.name as unitName',
         'unit.code as unitCode',
         'unit.symbol as unitSymbol',
+        'location.name as locationName',
+        'location.code as locationCode',
         'inventory.unitId as inventoryUnitId',
       ])
       .where('transaction.tenantId = :tenantId', { tenantId });
@@ -996,6 +1022,9 @@ export class InventoryService {
         unitName: raw.unitName,
         unitCode: raw.unitCode,
         unitSymbol: raw.unitSymbol,
+        // 库位信息
+        locationName: raw.locationName,
+        locationCode: raw.locationCode,
         // 类型显示信息
         typeName: typeDisplayName,
         // 格式化显示字段
@@ -1279,7 +1308,7 @@ export class InventoryService {
           productName: product.name,
           quantity: adjustedQty,
           unitId: unit.id,
-          location: dto.location,
+          locationId: dto.locationId,
           tenantId,
           multiUnitQty: null,
         });
@@ -1306,7 +1335,7 @@ export class InventoryService {
         beforeQty,
         afterQty,
         orderNo: null,
-        location: dto.location || inventory?.location,
+        locationId: dto.locationId || inventory?.locationId,
         remark: `${dto.reason}${dto.remark ? ': ' + dto.remark : ''}`,
         tenantId,
       });
