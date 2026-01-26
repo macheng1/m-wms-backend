@@ -1,4 +1,4 @@
-import { Entity, Column, Index } from 'typeorm';
+import { Entity, Column } from 'typeorm';
 import { TenantBaseEntity } from '../../../database/base.entity';
 import { UnitCategory } from '../../../common/constants/unit.constant';
 

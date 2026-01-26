@@ -23,6 +23,6 @@ export abstract class BaseEntity {
 import { Column } from 'typeorm';
 
 export abstract class TenantBaseEntity extends BaseEntity {
-  @Column({ nullable: true, comment: '租户ID，如果是平台管理员则为空' })
+  @Column({ type: 'char', length: 36, nullable: true, comment: '租户ID，如果是平台管理员则为空' })
   tenantId: string | null;
 }

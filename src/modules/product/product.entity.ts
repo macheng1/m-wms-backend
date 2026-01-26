@@ -11,7 +11,7 @@ export class Product extends TenantBaseEntity {
   @Column({ unique: true, comment: '产品编码/SKU' })
   code: string;
 
-  @Column({ comment: '类目ID' })
+  @Column({ type: 'char', length: 36, comment: '类目ID' })
   categoryId: string;
   /**
    * 产品图列表 (JSON 数组)

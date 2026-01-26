@@ -20,7 +20,7 @@ export class InventoryTransaction extends TenantBaseEntity {
   quantity: number;
 
   @Index()
-  @Column({ nullable: true })
+  @Column({ type: 'char', length: 36, nullable: true })
   unitId: string;
 
   @Column({ type: 'decimal', precision: 15, scale: 2 })
@@ -33,7 +33,7 @@ export class InventoryTransaction extends TenantBaseEntity {
   orderNo: string;
 
   @Index('inventory_transaction_location_id_idx')
-  @Column({ nullable: true })
+  @Column({ type: 'char', length: 36, nullable: true })
   locationId: string;
 
   @Column({ type: 'text', nullable: true })

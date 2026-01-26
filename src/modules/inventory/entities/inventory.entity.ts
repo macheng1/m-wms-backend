@@ -29,7 +29,7 @@ export class Inventory {
   quantity: number;
 
   @Index('inventory_unit_id_idx')
-  @Column({ nullable: true })
+  @Column({ type: 'char', length: 36, nullable: true })
   unitId: string;
 
   @ManyToOne(() => Unit, { eager: false })
@@ -37,7 +37,7 @@ export class Inventory {
   unit: Unit;
 
   @Index('inventory_location_id_idx')
-  @Column({ nullable: true })
+  @Column({ type: 'char', length: 36, nullable: true })
   locationId: string;
 
   @Column({ type: 'json', nullable: true })
