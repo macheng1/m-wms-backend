@@ -5,33 +5,34 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  Unique,
 } from 'typeorm';
 
 /**
  * 设备类型枚举
  */
 export enum DeviceType {
-  SCANNER = 'SCANNER',           // 扫码枪/扫码器
-  RFID_READER = 'RFID_READER',   // RFID读头
-  RFID_TAG = 'RFID_TAG',         // RFID标签
-  AGV = 'AGV',                   // AGV小车
-  ESL = 'ESL',                   // 电子标签
-  SENSOR = 'SENSOR',             // 传感器（温湿度、重量等）
-  PRINTER = 'PRINTER',           // 打印机
-  GATE = 'GATE',                 // 道闸/门禁
-  CAMERA = 'CAMERA',             // 摄像头
-  PDA = 'PDA',                   // 手持终端
+  SCANNER = 'SCANNER', // 扫码枪/扫码器
+  RFID_READER = 'RFID_READER', // RFID读头
+  RFID_TAG = 'RFID_TAG', // RFID标签
+  AGV = 'AGV', // AGV小车
+  ESL = 'ESL', // 电子标签
+  SENSOR = 'SENSOR', // 传感器（温湿度、重量等）
+  PRINTER = 'PRINTER', // 打印机
+  GATE = 'GATE', // 道闸/门禁
+  CAMERA = 'CAMERA', // 摄像头
+  PDA = 'PDA', // 手持终端
 }
 
 /**
  * 设备状态枚举
  */
 export enum DeviceStatus {
-  ONLINE = 'ONLINE',       // 在线
-  OFFLINE = 'OFFLINE',     // 离线
-  ERROR = 'ERROR',         // 故障
+  ONLINE = 'ONLINE', // 在线
+  OFFLINE = 'OFFLINE', // 离线
+  ERROR = 'ERROR', // 故障
   MAINTENANCE = 'MAINTENANCE', // 维护中
-  DISABLED = 'DISABLED',   // 已禁用
+  DISABLED = 'DISABLED', // 已禁用
 }
 
 /**
@@ -39,6 +40,7 @@ export enum DeviceStatus {
  */
 @Entity('devices')
 @Index('device_tenant_code_idx', ['tenantId', 'code'])
+@Unique(['tenantId', 'code'])
 export class Device {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -47,9 +49,9 @@ export class Device {
   tenantId: string;
 
   /**
-   * 设备编号（唯一）
+   * 设备编号（租户内唯一）
    */
-  @Column({ unique: true, length: 50 })
+  @Column({ length: 50 })
   code: string;
 
   /**
@@ -102,8 +104,8 @@ export class Device {
 
     // 设备特定配置
     rfidFrequency?: string; // RFID频率
-    scannerType?: string;   // 扫码类型
-    agvSpeed?: number;      // AGV速度
+    scannerType?: string; // 扫码类型
+    agvSpeed?: number; // AGV速度
 
     // 回调配置
     webhookUrl?: string;

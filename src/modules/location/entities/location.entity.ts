@@ -5,34 +5,36 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  Unique,
 } from 'typeorm';
 
 /**
  * 库位类型枚举
  */
 export enum LocationType {
-  STORAGE = 'STORAGE',       // 存储区
-  PICKING = 'PICKING',       // 拣货区
-  TEMP = 'TEMP',             // 暂存区
-  RECEIVING = 'RECEIVING',   // 收货区
-  SHIPPING = 'SHIPPING',     // 发货区
-  DEFECT = 'DEFECT',         // 次品区
-  RETURN = 'RETURN',         // 退货区
+  STORAGE = 'STORAGE', // 存储区
+  PICKING = 'PICKING', // 拣货区
+  TEMP = 'TEMP', // 暂存区
+  RECEIVING = 'RECEIVING', // 收货区
+  SHIPPING = 'SHIPPING', // 发货区
+  DEFECT = 'DEFECT', // 次品区
+  RETURN = 'RETURN', // 退货区
 }
 
 /**
  * 库位状态枚举
  */
 export enum LocationStatus {
-  AVAILABLE = 'AVAILABLE',   // 可用
-  OCCUPIED = 'OCCUPIED',     // 已占用
-  LOCKED = 'LOCKED',         // 锁定
-  RESERVED = 'RESERVED',     // 预留
-  DISABLED = 'DISABLED',     // 禁用
+  AVAILABLE = 'AVAILABLE', // 可用
+  OCCUPIED = 'OCCUPIED', // 已占用
+  LOCKED = 'LOCKED', // 锁定
+  RESERVED = 'RESERVED', // 预留
+  DISABLED = 'DISABLED', // 禁用
 }
 
 @Entity('locations')
 @Index('location_tenant_code_idx', ['tenantId', 'code'])
+@Unique(['tenantId', 'code'])
 export class Location {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -45,7 +47,7 @@ export class Location {
    * 格式：仓库-区域-货架-层-位
    * 例如：A01-01-01-03
    */
-  @Column({ unique: true, length: 50 })
+  @Column({ length: 50 })
   code: string;
 
   /**
@@ -123,9 +125,9 @@ export class Location {
    */
   @Column({ type: 'json', nullable: true })
   dimensions: {
-    length: number;  // 长 (cm)
-    width: number;   // 宽 (cm)
-    height: number;  // 高 (cm)
+    length: number; // 长 (cm)
+    width: number; // 宽 (cm)
+    height: number; // 高 (cm)
   };
 
   /**
@@ -134,9 +136,9 @@ export class Location {
    */
   @Column({ type: 'json', nullable: true })
   coordinates: {
-    x: number;  // X坐标
-    y: number;  // Y坐标
-    z: number;  // Z坐标（层高）
+    x: number; // X坐标
+    y: number; // Y坐标
+    z: number; // Z坐标（层高）
   };
 
   /**

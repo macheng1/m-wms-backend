@@ -1,13 +1,14 @@
-import { Entity, Column } from 'typeorm';
+import { Entity, Column, Unique } from 'typeorm';
 import { TenantBaseEntity } from '../../../database/base.entity';
 import { UnitCategory } from '../../../common/constants/unit.constant';
 
 @Entity('units')
+@Unique(['tenantId', 'code'])
 export class Unit extends TenantBaseEntity {
   @Column({ length: 50 })
   name: string;
 
-  @Column({ length: 20, unique: true })
+  @Column({ length: 20 })
   code: string;
 
   @Column({

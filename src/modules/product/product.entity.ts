@@ -1,18 +1,20 @@
 import { TenantBaseEntity } from '@/database/base.entity';
-import { Entity, Column, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, Column, ManyToOne, JoinColumn, Unique } from 'typeorm';
 import { Category } from './entities/category.entity';
 
 // src/modules/product/entities/product.entity.ts
 @Entity('products')
+@Unique(['tenantId', 'code'])
 export class Product extends TenantBaseEntity {
   @Column({ comment: '产品名称' })
   name: string;
 
-  @Column({ unique: true, comment: '产品编码/SKU' })
+  @Column({ comment: '产品编码/SKU' })
   code: string;
 
   @Column({ type: 'char', length: 36, comment: '类目ID' })
   categoryId: string;
+
   /**
    * 产品图列表 (JSON 数组)
    * 存储结构：["http://oss.../img1.jpg", "http://oss.../img2.jpg"]
@@ -24,6 +26,7 @@ export class Product extends TenantBaseEntity {
     comment: '产品图片列表',
   })
   images: string[];
+
   @Column({ nullable: true, comment: '单位，如：支、kg' })
   unit: string;
 
