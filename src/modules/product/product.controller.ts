@@ -1,6 +1,6 @@
 import { Controller, Post, Body, Get, Query, Req, Header, Res, UseInterceptors, UploadedFile } from '@nestjs/common';
 import { BusinessException } from '@/common/filters/business.exception';
-import { ApiTags, ApiConsumes, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiConsumes, ApiBody, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Request, Response } from 'express';
 import { QueryProductDto } from './entities/dto/query-product.dto';
@@ -17,6 +17,14 @@ export class ProductsController {
     private readonly productsService: ProductsService,
     private readonly importService: ProductImportService,
   ) {}
+
+  @Get('select')
+  @ApiOperation({ summary: '获取产品下拉选择列表' })
+  async selectList(@Query('keyword') keyword?: string, @Req() req?: any) {
+    // 兼容两种方式获取 tenantId
+    const tenantId = req?.user?.tenantId || req?.user?.tenantId;
+    return this.productsService.selectList(tenantId, keyword);
+  }
 
   @Post('save')
   async save(@Body() dto: SaveProductDto, @Req() req) {

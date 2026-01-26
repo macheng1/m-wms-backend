@@ -62,9 +62,12 @@ export const PERMISSION_CONFIG = {
     module: '库存管理',
     actions: [
       { code: 'wms:inventory', name: '库存管理', isMenu: true },
+      { code: 'wms:inventory:unit', name: '单位管理', isMenu: true },
       { code: 'wms:inventory:list', name: '库存查询', isMenu: true },
       { code: 'wms:inventory:inbound', name: '入库管理', isMenu: true },
       { code: 'wms:inventory:outbound', name: '出库管理', isMenu: true },
+      { code: 'wms:inventory:transactions', name: '库存流水', isMenu: true },
+      { code: 'wms:inventory:alerts', name: '库存预警', isMenu: true },
     ],
   },
   USERS: {

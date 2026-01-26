@@ -139,4 +139,31 @@ export class ProductsService {
     await this.productRepo.softRemove(product);
     return { message: '产品已移入回收站' };
   }
+
+  /**
+   * 获取产品下拉选择列表
+   * 返回格式：{ label: string, value: string }[]
+   */
+  async selectList(tenantId: string, keyword?: string) {
+    const query = this.productRepo
+      .createQueryBuilder('p')
+      .where('p.tenantId = :tenantId', { tenantId })
+      .andWhere('p.isActive = :isActive', { isActive: 1 });
+
+    if (keyword) {
+      query.andWhere('(p.name LIKE :kw OR p.code LIKE :kw)', { kw: `%${keyword}%` });
+    }
+
+    const products = await query
+      .orderBy('p.name', 'ASC')
+      .getMany();
+
+    return products.map((p) => ({
+      label: `${p.name} (${p.code})`,
+      value: p.code, // 使用 code (SKU) 作为 value
+      id: p.id,
+      name: p.name,
+      code: p.code,
+    }));
+  }
 }

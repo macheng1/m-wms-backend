@@ -6,6 +6,7 @@ import { TenantModule } from '@modules/tenant/tenant.module';
 import { AuthModule } from '@modules/auth/auth.module';
 import { InventoryModule } from '@modules/inventory/inventory.module';
 import { OrderModule } from '@modules/order/order.module';
+import { UnitModule } from '@modules/unit/unit.module';
 import { User } from './modules/users/entities/user.entity';
 import { Tenant } from './modules/tenant/entities/tenant.entity';
 import { Permission } from './modules/auth/entities/permission.entity';
@@ -47,7 +48,7 @@ console.log('当前工作目录:', process.cwd());
         username: configService.get('database.username'),
         password: configService.get('database.password'),
         database: configService.get('database.database'),
-        synchronize: true,
+        synchronize: configService.get('database.synchronize'),
         logging: configService.get('database.logging'),
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
         autoLoadEntities: true,
@@ -74,6 +75,7 @@ console.log('当前工作目录:', process.cwd());
     // Business modules
     TenantModule,
     AuthModule,
+    UnitModule,
     InventoryModule,
     OrderModule,
     UsersModule,
