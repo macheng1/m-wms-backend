@@ -7,7 +7,6 @@ export class Unit extends TenantBaseEntity {
   @Column({ length: 50 })
   name: string;
 
-  @Index()
   @Column({ length: 20, unique: true })
   code: string;
 
