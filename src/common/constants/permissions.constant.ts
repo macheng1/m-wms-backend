@@ -100,6 +100,7 @@ export const PERMISSION_CONFIG = {
       { code: 'wms:settings', name: '系统设置', isMenu: true },
       { code: 'wms:settings:roles', name: '角色管理', isMenu: true },
       { code: 'wms:settings:permissions', name: '权限管理', isMenu: true },
+      { code: 'wms:settings:dict', name: '字典管理', isMenu: true },
     ],
   },
 } as const;

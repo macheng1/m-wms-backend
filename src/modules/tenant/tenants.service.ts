@@ -86,17 +86,16 @@ export class TenantsService {
    */
   async findAll({ page = 1, pageSize = 20 }: { page: number; pageSize: number }) {
     const repo = this.dataSource.getRepository(Tenant);
-    const [data, total] = await repo.findAndCount({
+    const [list, total] = await repo.findAndCount({
       skip: (page - 1) * pageSize,
       take: pageSize,
       order: { createdAt: 'DESC' },
     });
     return {
-      data,
+      list,
       total,
       page,
       pageSize,
-      totalPages: Math.ceil(total / pageSize),
     };
   }
 

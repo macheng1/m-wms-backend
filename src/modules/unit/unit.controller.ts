@@ -1,10 +1,4 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  Query,
-} from '@nestjs/common';
+import { Controller, Get, Post, Body, Query } from '@nestjs/common';
 import { UnitService } from './unit.service';
 import { CreateUnitDto, UpdateUnitDto, QueryUnitDto, DetailUnitDto, DeleteUnitDto } from './dto';
 import { TenantId } from '@common/decorators';
@@ -23,10 +17,7 @@ export class UnitController {
 
   @Post('update')
   @ApiOperation({ summary: '更新单位' })
-  update(
-    @Body() updateUnitDto: UpdateUnitDto,
-    @TenantId() tenantId: string,
-  ) {
+  update(@Body() updateUnitDto: UpdateUnitDto, @TenantId() tenantId: string) {
     return this.unitService.update(updateUnitDto.id, updateUnitDto, tenantId);
   }
 
