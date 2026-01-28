@@ -34,6 +34,14 @@ export class TenantController {
     return await this.tenantsService.findAll({ page: Number(page), pageSize: Number(pageSize) });
   }
 
+  @Post('public/list')
+  @ApiOperation({ summary: '第三方调用 - 分页查询租户列表' })
+  @Public()
+  async publicFindAll(@Body() body: { page?: number; pageSize?: number }) {
+    const { page = 1, pageSize = 20 } = body || {};
+    return await this.tenantsService.findAll({ page: Number(page), pageSize: Number(pageSize) });
+  }
+
   @Post('detail')
   @ApiOperation({ summary: '获取租户详情' })
   async findOne(@Body() body: DetailTenantDto) {

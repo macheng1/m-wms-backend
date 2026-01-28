@@ -1,13 +1,24 @@
-import { Controller, Post, Body, Get, Query, Req, Header, Res, UseInterceptors, UploadedFile } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Get,
+  Query,
+  Req,
+  Header,
+  Res,
+  UseInterceptors,
+  UploadedFile,
+} from '@nestjs/common';
 import { BusinessException } from '@/common/filters/business.exception';
 import { ApiTags, ApiConsumes, ApiBody, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { Request, Response } from 'express';
 import { QueryProductDto } from './entities/dto/query-product.dto';
 import { SaveProductDto } from './entities/dto/save-product.dto';
 import { ImportProductDto } from './entities/dto/import-product.dto';
 import { ProductsService } from './product.service';
 import { ProductImportService } from './service/product-import.service';
+import { Public } from '@/common/decorators/public.decorator';
 
 @ApiTags('产品管理-产品管理')
 @ApiBearerAuth()
@@ -50,6 +61,34 @@ export class ProductsController {
   @Header('Expires', '0')
   async getDetail(@Query('id') id: string, @Req() req) {
     return this.productsService.getDetail(id, req.user.tenantId);
+  }
+
+  /**
+   * 第三方调用 - 产品列表（公开）
+   */
+  @Post('public/page')
+  @ApiOperation({ summary: '第三方调用 - 产品列表' })
+  @Public()
+  async publicFindPage(@Body() body: { tenantId: string } & Partial<QueryProductDto>) {
+    const { tenantId, ...query } = body;
+    if (!tenantId) {
+      throw new BusinessException('租户ID不能为空');
+    }
+    return this.productsService.findPage(query as QueryProductDto, tenantId);
+  }
+
+  /**
+   * 第三方调用 - 产品详情（公开）
+   */
+  @Post('public/detail')
+  @ApiOperation({ summary: '第三方调用 - 产品详情' })
+  @Public()
+  async publicGetDetail(@Body() body: { id: string; tenantId: string }) {
+    const { id, tenantId } = body;
+    if (!id || !tenantId) {
+      throw new BusinessException('产品ID和租户ID不能为空');
+    }
+    return this.productsService.getDetail(id, tenantId);
   }
   /** 修改产品状态 */
   @Post('status')
