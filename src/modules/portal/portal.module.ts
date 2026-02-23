@@ -13,11 +13,14 @@ import { Inquiry } from './entities/inquiry.entity';
 import { Product } from '../product/product.entity';
 import { Tenant } from '../tenant/entities/tenant.entity';
 import { AdminPortalController } from './admin-portal.controller';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
     // 💡 注册所有需要在 PortalService 中注入的 Repository
     TypeOrmModule.forFeature([Tenant, PortalConfig, Inquiry, Category, Product]),
+    // 导入通知模块
+    NotificationsModule,
   ],
   // 💡 注册两套控制器：一套面向官网，一套面向管理后台
   controllers: [PortalController, AdminPortalController],

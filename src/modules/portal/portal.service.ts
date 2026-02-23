@@ -9,6 +9,8 @@ import { PortalConfig } from './entities/portal-config.entity';
 import { Inquiry } from './entities/inquiry.entity';
 import { Product } from '../product/product.entity';
 import { Tenant } from '../tenant/entities/tenant.entity';
+import { NotificationsService } from '../notifications/services/notifications.service';
+import { NotificationType, NotificationCategory, NotificationPriority } from '../notifications/interfaces/notification-type.enum';
 
 @Injectable()
 export class PortalService {
@@ -18,6 +20,7 @@ export class PortalService {
     @InjectRepository(Inquiry) private inquiryRepo: Repository<Inquiry>,
     @InjectRepository(Category) private categoryRepo: Repository<Category>,
     @InjectRepository(Product) private productRepo: Repository<Product>,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   /**
@@ -170,8 +173,39 @@ export class PortalService {
     console.log('🚀 ~ PortalService ~ submitInquiry ~ data:', data);
     const tenant = await this.getTenantByDomain(domain);
 
+    // 保存询价记录
     const inquiry = this.inquiryRepo.create({ ...data, tenantId: tenant.id });
-    return this.inquiryRepo.save(inquiry);
+    const savedInquiries = await this.inquiryRepo.save(inquiry);
+    const savedInquiry = Array.isArray(savedInquiries) ? savedInquiries[0] : savedInquiries;
+
+    // 发送实时通知给客服（广播给租户所有在线用户）
+    // TODO: 可以根据租户配置指定接收通知的用户ID列表
+    try {
+      await this.notificationsService.send({
+        tenantId: tenant.id,
+        type: NotificationType.MESSAGE,
+        category: NotificationCategory.CONSULTATION,
+        title: `新询价 - ${data.name}`,
+        message: `收到来自${data.company || data.name}的询价：${data.message || '请查看详情'}`,
+        data: {
+          inquiryId: savedInquiry.id,
+          name: data.name,
+          phone: data.phone,
+          email: data.email,
+          company: data.company,
+          message: data.message,
+          productInterest: data.productInterest,
+          source: '官网',
+          submittedAt: new Date().toISOString(),
+        },
+        priority: NotificationPriority.HIGH,
+      });
+    } catch (error) {
+      console.error('发送询价通知失败:', error);
+      // 不影响询价保存，只记录错误
+    }
+
+    return savedInquiry;
   }
 
   /**

@@ -48,6 +48,13 @@ export class TenantController {
     return await this.tenantsService.findOne(body.id);
   }
 
+  @Post('public/detail')
+  @ApiOperation({ summary: '第三方调用 - 获取租户详情' })
+  @Public()
+  async publicFindOne(@Body() body: { id: string }) {
+    return await this.tenantsService.findOne(body.id);
+  }
+
   @Patch(':id')
   @ApiOperation({ summary: '修改租户信息' })
   async update(@Param('id') id: string, @Body() updateTenantDto: UpdateTenantDto) {

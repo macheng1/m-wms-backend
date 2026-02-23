@@ -7,6 +7,14 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   private client: Redis;
   private readonly keyPrefix: string;
 
+  /**
+   * 获取 Redis 客户端实例
+   * 用于需要直接操作 Redis 的场景（如 Pub/Sub）
+   */
+  get Client(): Redis {
+    return this.client;
+  }
+
   constructor(private configService: ConfigService) {
     const nodeEnv = this.configService.get<string>('app.nodeEnv') || 'development';
     this.keyPrefix = `${nodeEnv}:`;

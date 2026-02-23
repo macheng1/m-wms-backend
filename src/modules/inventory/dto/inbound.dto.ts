@@ -1,4 +1,13 @@
-import { IsString, IsNumber, IsNotEmpty, IsOptional, IsEnum, IsArray, ArrayNotEmpty, ValidateNested } from 'class-validator';
+import {
+  IsString,
+  IsNumber,
+  IsNotEmpty,
+  IsOptional,
+  IsEnum,
+  IsArray,
+  ArrayNotEmpty,
+  ValidateNested,
+} from 'class-validator';
 import { TransactionType } from '../../../common/constants/unit.constant';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -68,6 +77,16 @@ export class InboundDto {
   @IsString()
   @IsOptional()
   remark?: string;
+
+  @ApiPropertyOptional({
+    description: '接收通知的用户ID列表（仓管员等），为空则不发送通知',
+    example: ['user-123', 'user-456'],
+    type: [String],
+  })
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  notifyUserIds?: string[];
 }
 
 export class BatchInboundDto {
@@ -107,4 +126,14 @@ export class BatchInboundDto {
   @ValidateNested({ each: true })
   @Type(() => InboundItemDto)
   items: InboundItemDto[];
+
+  @ApiPropertyOptional({
+    description: '接收通知的用户ID列表（仓管员等），为空则不发送通知',
+    example: ['user-123', 'user-456'],
+    type: [String],
+  })
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  notifyUserIds?: string[];
 }

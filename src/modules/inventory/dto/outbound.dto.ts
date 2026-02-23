@@ -63,6 +63,16 @@ export class OutboundDto {
   @IsString()
   @IsOptional()
   remark?: string;
+
+  @ApiPropertyOptional({
+    description: '接收通知的用户ID列表（仓管员等），为空则不发送通知',
+    example: ['user-123', 'user-456'],
+    type: [String],
+  })
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  notifyUserIds?: string[];
 }
 
 export class BatchOutboundDto {
@@ -102,4 +112,14 @@ export class BatchOutboundDto {
   @ValidateNested({ each: true })
   @Type(() => OutboundItemDto)
   items: OutboundItemDto[];
+
+  @ApiPropertyOptional({
+    description: '接收通知的用户ID列表（仓管员等），为空则不发送通知',
+    example: ['user-123', 'user-456'],
+    type: [String],
+  })
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  notifyUserIds?: string[];
 }

@@ -27,6 +27,7 @@ import { ProductModule } from './modules/product/product.module';
 import { SystemModule } from './modules/system/system.module';
 import { PortalModule } from './modules/portal/portal.module';
 import { RedisModule } from './modules/redis/redis.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 console.log('当前运行环境:', process.env.NODE_ENV);
 console.log('当前工作目录:', process.cwd());
 @Module({
@@ -88,6 +89,7 @@ console.log('当前工作目录:', process.cwd());
     ProductModule,
     SystemModule,
     PortalModule,
+    NotificationsModule,
   ],
   providers: [
     {

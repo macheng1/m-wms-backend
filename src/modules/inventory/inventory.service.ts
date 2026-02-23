@@ -17,6 +17,8 @@ import { UnitConverter, Unit } from '../../common/utils/unit-converter.util';
 import { isInboundType, isOutboundType, TransactionType, TransactionTypeNames } from '../../common/constants/unit.constant';
 import { Product } from '../product/product.entity';
 import { AlertLevel, AlertLevelInfo } from '../../common/constants/alert-level.constant';
+import { NotificationsService } from '../notifications/services/notifications.service';
+import { NotificationType, NotificationCategory, NotificationPriority } from '../notifications/interfaces/notification-type.enum';
 
 /**
  * 格式化数字：整数不显示小数位，小数保留必要的位数
@@ -57,6 +59,7 @@ export class InventoryService {
     private productRepository: Repository<Product>,
     private unitService: UnitService,
     private dataSource: DataSource,
+    private notificationsService: NotificationsService,
   ) {}
 
   /**
@@ -454,6 +457,27 @@ export class InventoryService {
 
       const unitObj = this.toUnit(unit);
 
+      // 发送库存变更通知（异步，不阻塞返回）
+      if (dto.notifyUserIds && dto.notifyUserIds.length > 0) {
+        setImmediate(async () => {
+          try {
+            await this.sendStockChangeNotification(
+              tenantId,
+              dto.sku,
+              product.name,
+              dto.type,
+              dto.quantity,
+              beforeQty,
+              afterQty,
+              unitObj.symbol,
+              dto.notifyUserIds!,
+            );
+          } catch (error) {
+            console.error('发送库存变更通知失败:', error);
+          }
+        });
+      }
+
       // beforeQty 和 afterQty 是库存主单位的数量，需要换算成用户选择的单位
       let displayBeforeQty = beforeQty;
       let displayAfterQty = afterQty;
@@ -624,6 +648,29 @@ export class InventoryService {
       await queryRunner.commitTransaction();
 
       const inventoryUnitObj = this.toUnit(inventoryUnit);
+
+      // 发送库存变更通知（异步，不阻塞返回）
+      if (dto.notifyUserIds && dto.notifyUserIds.length > 0) {
+        setImmediate(async () => {
+          try {
+            // 使用用户选择的单位
+            const userUnit = this.toUnit(unit);
+            await this.sendStockChangeNotification(
+              tenantId,
+              dto.sku,
+              product.name,
+              dto.type,
+              dto.quantity,
+              beforeQty,
+              afterQty,
+              userUnit.symbol,
+              dto.notifyUserIds!,
+            );
+          } catch (error) {
+            console.error('发送库存变更通知失败:', error);
+          }
+        });
+      }
 
       // beforeQty 和 afterQty 是库存主单位的数量，需要换算成用户选择的单位
       let displayBeforeQty = beforeQty;
@@ -1345,6 +1392,27 @@ export class InventoryService {
 
       const unitObj = this.toUnit(unit);
 
+      // 发送库存变更通知（异步，不阻塞返回）
+      if (dto.notifyUserIds && dto.notifyUserIds.length > 0) {
+        setImmediate(async () => {
+          try {
+            await this.sendStockChangeNotification(
+              tenantId,
+              dto.sku,
+              product.name,
+              adjustType,
+              absQuantity,
+              beforeQty,
+              afterQty,
+              unitObj.symbol,
+              dto.notifyUserIds!,
+            );
+          } catch (error) {
+            console.error('发送库存变更通知失败:', error);
+          }
+        });
+      }
+
       // beforeQty 和 afterQty 是库存主单位的数量，需要换算成用户选择的单位
       let displayBeforeQty = beforeQty;
       let displayAfterQty = afterQty;
@@ -1380,6 +1448,182 @@ export class InventoryService {
       throw error;
     } finally {
       await queryRunner.release();
+    }
+  }
+
+  /**
+   * 发送库存预警通知
+   *
+   * 当库存低于安全库存时，发送通知给仓管员
+   *
+   * @param tenantId 租户ID
+   * @param sku 产品SKU
+   * @param productName 产品名称
+   * @param currentQty 当前库存数量
+   * @param safetyStock 安全库存数量
+   * @param unitSymbol 单位符号
+   * @param userIds 接收通知的用户ID列表（仓管员等）
+   */
+  private async sendStockWarningNotification(
+    tenantId: string,
+    sku: string,
+    productName: string,
+    currentQty: number,
+    safetyStock: number,
+    unitSymbol: string,
+    userIds: string[],
+  ): Promise<void> {
+    // 如果没有指定接收用户，则不发送通知
+    if (!userIds || userIds.length === 0) {
+      return;
+    }
+
+    // 计算预警级别
+    let alertLevel: AlertLevel;
+    let priority: NotificationPriority;
+
+    if (currentQty <= 0) {
+      alertLevel = AlertLevel.CRITICAL;
+      priority = NotificationPriority.URGENT;
+    } else if (currentQty < safetyStock * 0.2) {
+      alertLevel = AlertLevel.HIGH;
+      priority = NotificationPriority.HIGH;
+    } else {
+      alertLevel = AlertLevel.MEDIUM;
+      priority = NotificationPriority.NORMAL;
+    }
+
+    const alertInfo = AlertLevelInfo[alertLevel];
+
+    await this.notificationsService.sendToUsers({
+      tenantId,
+      userIds,
+      type: NotificationType.SYSTEM,
+      category: NotificationCategory.INVENTORY_WARNING,
+      title: `库存预警 - ${alertInfo?.label || '需要注意'}`,
+      message: `【${productName}(${sku})】当前库存 ${currentQty}${unitSymbol}，低于安全库存 ${safetyStock}${unitSymbol}。${alertInfo?.message || ''}`,
+      data: {
+        sku,
+        productName,
+        currentQty,
+        safetyStock,
+        unitSymbol,
+        alertLevel,
+        alertLabel: alertInfo?.label,
+      },
+      priority,
+    });
+  }
+
+  /**
+   * 发送库存变更通知
+   *
+   * 在库存发生变更时发送通知（如入库、出库等）
+   *
+   * @param tenantId 租户ID
+   * @param sku 产品SKU
+   * @param productName 产品名称
+   * @param transactionType 交易类型
+   * @param quantity 变更数量
+   * @param beforeQty 变更前库存
+   * @param afterQty 变更后库存
+   * @param unitSymbol 单位符号
+   * @param userIds 接收通知的用户ID列表
+   */
+  private async sendStockChangeNotification(
+    tenantId: string,
+    sku: string,
+    productName: string,
+    transactionType: TransactionType,
+    quantity: number,
+    beforeQty: number,
+    afterQty: number,
+    unitSymbol: string,
+    userIds: string[],
+  ): Promise<void> {
+    // 如果没有指定接收用户，则不发送通知
+    if (!userIds || userIds.length === 0) {
+      return;
+    }
+
+    // 判断是入库还是出库
+    const isInbound = isInboundType(transactionType);
+    const typeDisplayName = TransactionTypeNames[transactionType] || transactionType;
+    const direction = isInbound ? '入库' : '出库';
+    const quantityDisplay = isInbound ? `+${quantity}` : `${quantity}`;
+
+    await this.notificationsService.sendToUsers({
+      tenantId,
+      userIds,
+      type: NotificationType.SYSTEM,
+      category: NotificationCategory.INVENTORY_CHANGE,
+      title: `库存${direction}通知`,
+      message: `【${productName}(${sku})】${typeDisplayName} ${quantityDisplay}${unitSymbol}，库存从 ${beforeQty}${unitSymbol} 变更为 ${afterQty}${unitSymbol}`,
+      data: {
+        sku,
+        productName,
+        transactionType,
+        typeDisplayName,
+        direction,
+        quantity,
+        beforeQty,
+        afterQty,
+        unitSymbol,
+      },
+      priority: NotificationPriority.NORMAL,
+    });
+  }
+
+  /**
+   * 检查并发送库存预警通知
+   *
+   * 在库存变更后检查是否需要发送预警通知
+   *
+   * @param tenantId 租户ID
+   * @param sku 产品SKU
+   * @param afterQty 变更后的库存数量
+   * @param userIds 接收通知的用户ID列表
+   */
+  private async checkAndSendStockWarning(
+    tenantId: string,
+    sku: string,
+    afterQty: number,
+    userIds: string[],
+  ): Promise<void> {
+    // 查询产品信息获取安全库存
+    const product = await this.productRepository.findOne({
+      where: { code: sku, tenantId },
+    });
+
+    if (!product || !product.safetyStock || product.safetyStock <= 0) {
+      // 没有设置安全库存，不发送预警
+      return;
+    }
+
+    // 查询库存记录获取单位信息
+    const inventory = await this.inventoryRepository.findOne({
+      where: { sku, tenantId },
+      relations: ['unit'],
+    });
+
+    if (!inventory) {
+      return;
+    }
+
+    const safetyStock = Number(product.safetyStock);
+    const currentQty = Number(afterQty);
+
+    // 只有当前库存低于安全库存时才发送预警
+    if (currentQty < safetyStock) {
+      await this.sendStockWarningNotification(
+        tenantId,
+        sku,
+        inventory.productName,
+        currentQty,
+        safetyStock,
+        inventory.unit?.symbol || '',
+        userIds,
+      );
     }
   }
 }
