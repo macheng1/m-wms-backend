@@ -294,40 +294,14 @@ export class TenantsService {
     // 1. 生成企业编码和官网链接
     const code = dto.code || this.generateEnterpriseCode(dto.name);
 
-    // 2. 根据环境生成官网地址
-    const nodeEnv = this.configService.get<string>('app.nodeEnv') || 'development';
+    // 2. 统一生成官网地址（不再区分环境）
     const baseDomain =
       this.configService.get<string>('app.portalDomain') || 'https://pinmalink.com';
-    const subDomainMapping = this.configService.get<string>('app.portalSubDomain');
-
-    let website: string;
-    if (nodeEnv === 'production') {
-      // 生产环境：直接使用域名 https://pinmalink.com/portal/{code}/zh
-      const urlSlug = code
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, '-');
-      website = `${baseDomain}/portal/${urlSlug}/zh`;
-    } else {
-      // 其他环境：使用配置的子域名映射
-      let subDomain = nodeEnv;
-      if (subDomainMapping) {
-        try {
-          const mapping = JSON.parse(subDomainMapping);
-          subDomain = mapping[nodeEnv] || nodeEnv;
-        } catch {
-          // 如果解析失败，使用环境名作为子域名
-        }
-      }
-
-      const urlSlug = code
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, '-');
-      // 从 baseDomain 中提取域名部分（去掉协议）
-      const domainWithoutProtocol = baseDomain.replace(/^https?:\/\//, '');
-      website = `https://${subDomain}.${domainWithoutProtocol}/portal/${urlSlug}/zh`;
-    }
+    const urlSlug = code
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '-');
+    const website = `${baseDomain}/portal/${urlSlug}/zh`;
 
     // 3. 创建并保存租户
     const tenant = manager.create(Tenant, {

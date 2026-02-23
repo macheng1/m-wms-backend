@@ -7,9 +7,11 @@ export default registerAs('app', () => ({
   corsOrigin: process.env.CORS_ORIGIN || '*',
   portalDomain: process.env.PORTAL_DOMAIN || 'https://pinmalink.com',
   // 环境子域名映射
-  portalSubDomain: process.env.PORTAL_SUB_DOMAIN || JSON.stringify({
-    development: 'dev',
-    test: 'test',
-    uat: 'uat',
-  }),
+  portalSubDomain:
+    process.env.PORTAL_SUB_DOMAIN ||
+    JSON.stringify({
+      development: 'dev',
+      test: 'test',
+      uat: 'uat',
+    }),
 }));
