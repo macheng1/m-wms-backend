@@ -32,10 +32,10 @@ export class OssService {
     }
   }
   // 上传文件到oss 并返回  图片oss 地址
-  public async putOssFile(ossPath: string, localPath: string): Promise<string> {
+  public async putOssFile(ossPath: string, localPathOrBuffer: string | Buffer): Promise<string> {
     let res: any;
     try {
-      res = await this.client.put(ossPath, localPath);
+      res = await this.client.put(ossPath, localPathOrBuffer);
       console.log('res=====>', res);
       // 将文件设置为公共可读
       await this.client.putACL(ossPath, 'public-read');

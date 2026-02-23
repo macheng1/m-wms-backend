@@ -58,6 +58,8 @@ export class OptionsService {
       attribute: { id: dto.attributeId },
       attributeId: dto.attributeId,
       value: dto.value,
+      sort: dto.sort ?? 0,
+      isActive: dto.isActive ?? 1,
       tenantId,
     });
     return await this.optionRepo.save(option);
@@ -105,6 +107,26 @@ export class OptionsService {
     if (!option) throw new BusinessException('规格不存在或无权操作');
     // 2. 删除
     return await this.optionRepo.remove(option);
+  }
+
+  /** 批量删除规格值 **/
+  async batchDelete(ids: string[], tenantId: string) {
+    if (!ids || ids.length === 0) {
+      throw new BusinessException('请选择要删除的规格值');
+    }
+
+    // 查询所有要删除的规格值
+    const options = await this.optionRepo.find({
+      where: ids.map((id) => ({ id, tenantId })),
+    });
+
+    if (options.length === 0) {
+      throw new BusinessException('未找到可删除的规格值');
+    }
+
+    // 批量删除
+    await this.optionRepo.remove(options);
+    return { message: `成功删除 ${options.length} 个规格值` };
   }
   /** 更改规格状态（启用/禁用） **/
   async updateStatus(id: string, isActive: number, tenantId: string) {

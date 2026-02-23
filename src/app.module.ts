@@ -1,11 +1,13 @@
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { appConfig, databaseConfig, jwtConfig } from '@config/index';
+import { appConfig, databaseConfig, jwtConfig, redisConfig } from '@config/index';
 import { TenantModule } from '@modules/tenant/tenant.module';
 import { AuthModule } from '@modules/auth/auth.module';
 import { InventoryModule } from '@modules/inventory/inventory.module';
 import { OrderModule } from '@modules/order/order.module';
+import { UnitModule } from '@modules/unit/unit.module';
+import { LocationModule } from '@modules/location/location.module';
 import { User } from './modules/users/entities/user.entity';
 import { Tenant } from './modules/tenant/entities/tenant.entity';
 import { Permission } from './modules/auth/entities/permission.entity';
@@ -24,6 +26,8 @@ import { RolesModule } from './modules/roles/roles.module';
 import { ProductModule } from './modules/product/product.module';
 import { SystemModule } from './modules/system/system.module';
 import { PortalModule } from './modules/portal/portal.module';
+import { RedisModule } from './modules/redis/redis.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 console.log('当前运行环境:', process.env.NODE_ENV);
 console.log('当前工作目录:', process.cwd());
 @Module({
@@ -32,7 +36,7 @@ console.log('当前工作目录:', process.cwd());
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: resolve(process.cwd(), 'envs', `.env.${process.env.NODE_ENV || 'development'}`),
-      load: [appConfig, databaseConfig, jwtConfig],
+      load: [appConfig, databaseConfig, jwtConfig, redisConfig],
     }),
 
     // Database configuration
@@ -46,7 +50,7 @@ console.log('当前工作目录:', process.cwd());
         username: configService.get('database.username'),
         password: configService.get('database.password'),
         database: configService.get('database.database'),
-        synchronize: true,
+        synchronize: configService.get('database.synchronize'),
         logging: configService.get('database.logging'),
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
         autoLoadEntities: true,
@@ -68,11 +72,15 @@ console.log('当前工作目录:', process.cwd());
     }),
     // 全局注册所有实体的 repository
     TypeOrmModule.forFeature([User, Tenant, Permission, Role, Inventory, Order]),
+    // Infrastructure modules
+    RedisModule,
     // Business modules
     TenantModule,
     AuthModule,
+    UnitModule,
     InventoryModule,
     OrderModule,
+    LocationModule,
     UsersModule,
     SmsModule,
     UploadModule,
@@ -81,6 +89,7 @@ console.log('当前工作目录:', process.cwd());
     ProductModule,
     SystemModule,
     PortalModule,
+    NotificationsModule,
   ],
   providers: [
     {

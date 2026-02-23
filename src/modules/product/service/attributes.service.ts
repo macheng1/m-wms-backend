@@ -1,10 +1,11 @@
 // src/modules/product/service/attributes.service.ts
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like, DataSource } from 'typeorm';
+import { Repository, Like, DataSource, In } from 'typeorm';
 
 import { Attribute } from '../entities/attribute.entity';
 import { AttributeOption } from '../entities/attribute-option.entity';
+import { Category } from '../entities/category.entity';
 import { BusinessException } from '@/common/filters/business.exception';
 import { QueryAttributeDto } from '../entities/dto/query-attribute.dto';
 import { SaveAttributeDto } from '../entities/dto/save-attribute.dto';
@@ -17,6 +18,8 @@ export class AttributesService {
     private readonly attributeRepo: Repository<Attribute>,
     @InjectRepository(AttributeOption)
     private readonly optionRepo: Repository<AttributeOption>,
+    @InjectRepository(Category)
+    private readonly categoryRepo: Repository<Category>,
     private readonly dataSource: DataSource, // 引入 API 事务管理
   ) {}
 
@@ -173,18 +176,85 @@ export class AttributesService {
   }
 
   /**
-   * 伪删除：同步标记子表 (可选优化)
+   * 删除单个属性
    */
   async delete(id: string, tenantId: string) {
     const attr = await this.attributeRepo.findOne({
       where: { id, tenantId },
-      relations: ['options'],
     });
     if (!attr) throw new BusinessException('数据不存在');
 
-    // 伪删除主表，TypeORM 会处理带有 @DeleteDateColumn 的字段
-    await this.attributeRepo.softRemove(attr);
-    return { message: '已移入回收站' };
+    // 检查是否有类目绑定了该属性
+    const categories = await this.categoryRepo
+      .createQueryBuilder('category')
+      .leftJoinAndSelect('category.attributes', 'attribute')
+      .where('category.tenantId = :tenantId', { tenantId })
+      .andWhere('attribute.id = :id', { id })
+      .getMany();
+
+    if (categories.length > 0) {
+      const categoryNames = categories.map((c) => c.name).join('、');
+      throw new BusinessException(`该属性已绑定到类目：${categoryNames}，无法删除`);
+    }
+
+    // 使用事务确保删除的原子性
+    return await this.dataSource.transaction(async (manager) => {
+      // 先删除关联的 AttributeOption
+      await manager.delete(AttributeOption, { attributeId: id, tenantId });
+      // 再删除属性本身
+      await manager.remove(Attribute, attr);
+      return { message: '删除成功' };
+    });
+  }
+
+  /**
+   * 批量删除属性
+   */
+  async batchDelete(ids: string[], tenantId: string) {
+    if (!ids || ids.length === 0) {
+      throw new BusinessException('请选择要删除的属性');
+    }
+
+    // 查询所有要删除的属性
+    const attrs = await this.attributeRepo.find({
+      where: ids.map((id) => ({ id, tenantId })),
+    });
+
+    if (attrs.length === 0) {
+      throw new BusinessException('未找到可删除的属性');
+    }
+
+    // 检查是否有类目绑定了这些属性
+    const categories = await this.categoryRepo
+      .createQueryBuilder('category')
+      .leftJoinAndSelect('category.attributes', 'attribute')
+      .where('category.tenantId = :tenantId', { tenantId })
+      .andWhere('attribute.id IN (:...ids)', { ids })
+      .getMany();
+
+    if (categories.length > 0) {
+      const usedAttrNames = new Set<string>();
+      for (const category of categories) {
+        for (const attr of category.attributes || []) {
+          if (ids.includes(attr.id)) {
+            usedAttrNames.add(`${attr.name}（已绑定到类目：${category.name}）`);
+          }
+        }
+      }
+      throw new BusinessException(`以下属性已被类目使用，无法删除：\n${Array.from(usedAttrNames).join('、')}`);
+    }
+
+    // 使用事务确保批量删除的原子性
+    return await this.dataSource.transaction(async (manager) => {
+      // 先删除关联的 AttributeOption
+      await manager.delete(AttributeOption, {
+        attributeId: In(ids),
+        tenantId,
+      });
+      // 再批量删除属性
+      await manager.remove(Attribute, attrs);
+      return { message: `成功删除 ${attrs.length} 个属性` };
+    });
   }
 
   /**

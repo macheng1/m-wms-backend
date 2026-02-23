@@ -41,6 +41,7 @@ export class UsersController {
    * GET /users/page
    */
   @Get('page')
+  @UseGuards(JwtAuthGuard)
   @Header('Cache-Control', 'no-cache, no-store, must-revalidate')
   async findPage(@Query() query: QueryUserDto, @Req() req) {
     return this.usersService.findPage(query, req.user.tenantId);
@@ -51,6 +52,7 @@ export class UsersController {
    * POST /users/save
    */
   @Post('save')
+  @UseGuards(JwtAuthGuard)
   async save(@Body() createUserDto: CreateUserDto, @Req() req) {
     return this.usersService.save(createUserDto, req.user.tenantId);
   }
@@ -60,6 +62,7 @@ export class UsersController {
    * POST /users/update
    */
   @Post('update')
+  @UseGuards(JwtAuthGuard)
   async update(@Body() updateUserDto: UpdateUserDto, @Req() req) {
     return this.usersService.update(updateUserDto, req.user.tenantId);
   }
@@ -81,6 +84,7 @@ export class UsersController {
    */
   @ApiOperation({ summary: '管理员重置密码' })
   @Post('reset')
+  @UseGuards(JwtAuthGuard)
   async reset(@Body() dto: ResetPasswordDto, @Req() req) {
     // 强制带上租户 ID，防止管理员重置了其他厂家的账号
     return this.usersService.reset(dto, req.user.tenantId);
@@ -91,6 +95,7 @@ export class UsersController {
    * POST /users/status
    */
   @Post('status')
+  @UseGuards(JwtAuthGuard)
   async status(@Body() dto: UpdateUserStatusDto, @Req() req) {
     return this.usersService.status(dto, req.user.tenantId);
   }
@@ -100,6 +105,7 @@ export class UsersController {
    * POST /users/delete
    */
   @Post('delete')
+  @UseGuards(JwtAuthGuard)
   async delete(@Body('id') id: string, @Req() req) {
     return this.usersService.delete(id, req.user.tenantId);
   }
@@ -108,6 +114,7 @@ export class UsersController {
    * GET /users/:id
    */
   @Post('detail')
+  @UseGuards(JwtAuthGuard)
   async getUserDetail(@Body('id') id: string) {
     return this.usersService.getDetail(id);
   }

@@ -14,14 +14,11 @@ export class DictionariesService {
 
   /**
    * 根据类型获取字典列表 (核心：返回 {label, value} 格式)
+   * 字典为平台级数据，不进行租户隔离
    */
-  async getOptionsByType(type: string, tenantId?: string) {
-    const where: any = { type, isActive: 1 };
-    if (tenantId) {
-      where.tenantId = tenantId;
-    }
+  async getOptionsByType(type: string) {
     const list = await this.dictRepo.find({
-      where,
+      where: { type, isActive: 1 },
       order: { sort: 'ASC' },
     });
 
@@ -33,32 +30,65 @@ export class DictionariesService {
     }));
   }
 
-  async save(dto: SaveDictDto, tenantId: string) {
-    const entity = this.dictRepo.create({ ...dto, tenantId });
+  /**
+   * 保存字典项
+   * 字典为平台级数据，tenantId 设置为 null
+   */
+  async save(dto: SaveDictDto) {
+    const entity = this.dictRepo.create({ ...dto, tenantId: null });
     return this.dictRepo.save(entity);
   }
 
-  async delete(id: string, tenantId: string) {
-    return this.dictRepo.delete({ id, tenantId });
-  }
   /**
-   * 更新字典项
-   * @param dto 更新数据
-   * @param tenantId 租户ID (安全检查)
+   * 删除字典项
+   * 字典为平台级数据，不需要租户验证
    */
-  async update(dto: UpdateDictDto, tenantId: string) {
-    const { id, ...updateData } = dto;
+  async delete(id: string) {
+    return this.dictRepo.delete({ id });
+  }
 
-    // 1. 安全检查：确保该记录存在且属于该租户
-    const dict = await this.dictRepo.findOne({ where: { id, tenantId } });
-    if (!dict) {
-      throw new BusinessException('字典项不存在或无权修改');
+  /**
+   * 分页查询字典列表
+   * 字典为平台级数据，不进行租户隔离
+   */
+  async list(type: string, page: number, pageSize: number) {
+    const where: any = {};
+    if (type) {
+      where.type = type;
     }
 
-    // 2. 执行更新
-    await this.dictRepo.update({ id, tenantId }, updateData);
+    const [list, total] = await this.dictRepo.findAndCount({
+      where,
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      order: { sort: 'ASC', createdAt: 'DESC' },
+    });
 
-    // 3. 返回更新后的最新数据
-    return this.dictRepo.findOne({ where: { id, tenantId } });
+    return {
+      list,
+      total,
+      page,
+      pageSize,
+    };
+  }
+
+  /**
+   * 更新字典项
+   * 字典为平台级数据，不需要租户验证
+   */
+  async update(dto: UpdateDictDto) {
+    const { id, ...updateData } = dto;
+
+    // 检查记录是否存在
+    const dict = await this.dictRepo.findOne({ where: { id } });
+    if (!dict) {
+      throw new BusinessException('字典项不存在');
+    }
+
+    // 执行更新
+    await this.dictRepo.update({ id }, updateData);
+
+    // 返回更新后的最新数据
+    return this.dictRepo.findOne({ where: { id } });
   }
 }

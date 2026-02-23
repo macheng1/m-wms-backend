@@ -20,10 +20,9 @@ export abstract class BaseEntity {
   deletedAt: Date;
 }
 // 专门为 SaaS 业务设计的带租户标识的基类
-import { Column, Index } from 'typeorm';
+import { Column } from 'typeorm';
 
 export abstract class TenantBaseEntity extends BaseEntity {
-  @Index() // 强制所有业务查询走租户索引
-  @Column({ nullable: true, comment: '租户ID，如果是平台管理员则为空' })
+  @Column({ type: 'char', length: 36, nullable: true, comment: '租户ID，如果是平台管理员则为空' })
   tenantId: string | null;
 }

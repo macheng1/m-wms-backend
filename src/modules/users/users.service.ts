@@ -34,7 +34,7 @@ export class UsersService {
     // 权限扁平化：如果是平台管理员或租户管理员，直接返回通配符
     const isTenantAdmin = user.roles.some((r) => r.code === 'ADMIN');
     const permissions =
-      user.isPlatformAdmin || isTenantAdmin
+      user.isPlatformAdmin === 1 || isTenantAdmin
         ? ['*']
         : user.roles.flatMap((role) => role.permissions.map((p) => p.code));
 
@@ -58,9 +58,10 @@ export class UsersService {
    * 2. 分页查找 (page) - 按创建时间正序
    */
   async findPage(query: QueryUserDto, tenantId: string) {
-    const { page, pageSize, username } = query;
+    const { page, pageSize, username, isActive } = query;
     const where: any = { tenantId };
     if (username) where.username = Like(`%${username}%`);
+    if (isActive !== undefined) where.isActive = isActive;
 
     const [list, total] = await this.userRepo.findAndCount({
       where,
@@ -131,7 +132,7 @@ export class UsersService {
 
     user.isActive = dto.isActive;
     await this.userRepo.save(user);
-    return { message: user.isActive ? '账号已启用' : '账号已禁用' };
+    return { message: user.isActive === 1 ? '账号已启用' : '账号已禁用' };
   }
 
   /**
@@ -188,7 +189,7 @@ export class UsersService {
       isPlatformAdmin: user.isPlatformAdmin,
       tenantId: user.tenantId,
       tenantName: user.tenant?.name || '系统运营',
-      isActive: user.isActive ? 1 : 0,
+      isActive: user.isActive,
       roleIds,
     };
   }

@@ -4,9 +4,11 @@ import {
   ConflictException,
   InternalServerErrorException,
   Logger,
+  BadRequestException,
 } from '@nestjs/common';
 import { DataSource, EntityManager, In } from 'typeorm';
 import * as bcrypt from 'bcrypt';
+import { ConfigService } from '@nestjs/config';
 
 import { ROLE_TEMPLATES } from '@/common/constants/role-templates.constant';
 import { flattenPermissions } from '@/common/constants/permissions.constant';
@@ -18,6 +20,9 @@ import { User } from '../users/entities/user.entity';
 import pinyin from 'pinyin';
 import { DictionariesService } from '../system/service/dictionaries.service';
 import { PortalConfig } from '../portal/entities/portal-config.entity';
+import { SmsService } from '../aliyun/sms/sms.service';
+import { BusinessException } from '@/common/filters/business.exception';
+import { SystemSeedService } from '../auth/entities/system-init.service';
 
 @Injectable()
 export class TenantsService {
@@ -26,6 +31,9 @@ export class TenantsService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly dictionariesService: DictionariesService,
+    private readonly smsService: SmsService,
+    private readonly configService: ConfigService,
+    private readonly systemSeedService: SystemSeedService,
   ) {}
 
   /**
@@ -36,7 +44,7 @@ export class TenantsService {
     await this.validateBeforeOnboard(dto);
 
     try {
-      return await this.dataSource.transaction(async (manager) => {
+      const result = await this.dataSource.transaction(async (manager) => {
         // Step A: 创建租户主体
         const tenant = await this.createTenant(manager, dto);
 
@@ -45,6 +53,11 @@ export class TenantsService {
 
         // Step C: 创建租户超级管理员
         const adminUser = await this.createAdminUser(manager, tenant.id, dto, adminRole);
+
+        // Step D: 初始化基础单位、产品类目和属性
+        await this.systemSeedService.initBaseUnits(tenant.id);
+        await this.systemSeedService.initProductCategories(tenant.id);
+        await this.systemSeedService.initProductAttributes(tenant.id);
 
         // 返回给拦截器的数据负载
         return {
@@ -55,6 +68,11 @@ export class TenantsService {
           username: adminUser.username,
         };
       });
+
+      // 2. 入驻成功后删除验证码（防止重复使用）
+      await this.smsService.deleteCode(dto.contactPhone);
+
+      return result;
     } catch (error) {
       this.logger.error(`租户入驻失败: ${error.message}`, error.stack);
       // 如果是已知的业务异常则直接抛出，否则封装为 500
@@ -68,17 +86,16 @@ export class TenantsService {
    */
   async findAll({ page = 1, pageSize = 20 }: { page: number; pageSize: number }) {
     const repo = this.dataSource.getRepository(Tenant);
-    const [data, total] = await repo.findAndCount({
+    const [list, total] = await repo.findAndCount({
       skip: (page - 1) * pageSize,
       take: pageSize,
       order: { createdAt: 'DESC' },
     });
     return {
-      data,
+      list,
       total,
       page,
       pageSize,
-      totalPages: Math.ceil(total / pageSize),
     };
   }
 
@@ -176,7 +193,44 @@ export class TenantsService {
       ];
       for (const key of allowFields) {
         if (key in updateTenantDto) {
-          tenant[key] = updateTenantDto[key];
+          // 特殊处理 Date 类型字段
+          if (key === 'foundDate' || key === 'businessLicenseExpire' || key === 'qualificationExpire') {
+            const value: any = updateTenantDto[key];
+
+            // 1. 处理 null、undefined 或空字符串
+            if (value === null || value === undefined || value === '') {
+              tenant[key] = null;
+            }
+            // 2. 处理 Invalid Date 对象（由 DTO 验证管道将空字符串转换而来）
+            else if (value instanceof Date && isNaN(value.getTime())) {
+              tenant[key] = null;
+            }
+            // 3. 处理有效 Date 对象
+            else if (value instanceof Date) {
+              tenant[key] = value;
+            }
+            // 4. 处理字符串类型
+            else if (typeof value === 'string') {
+              const trimmed = value.trim();
+              if (trimmed === '') {
+                tenant[key] = null;
+              } else {
+                const dateObj = new Date(trimmed);
+                // 验证日期有效性
+                if (!isNaN(dateObj.getTime())) {
+                  tenant[key] = dateObj;
+                } else {
+                  tenant[key] = null;
+                }
+              }
+            }
+            // 5. 其他情况，设置为 null 防止错误数据
+            else {
+              tenant[key] = null;
+            }
+          } else {
+            tenant[key] = updateTenantDto[key];
+          }
         }
       }
       const savedTenant = await repo.save(tenant);
@@ -218,30 +272,38 @@ export class TenantsService {
     return { success: true };
   }
   /**
-   * 优化后的逻辑拆分 1：预校验（包含用户名和企业编码）
+   * 优化后的逻辑拆分 1：预校验（手机验证码、企业全称）
    */
   private async validateBeforeOnboard(dto: CreateTenantDto) {
-    // 并行检查用户名和企业编码，提升效率
-    const [existingUser] = await Promise.all([
-      this.dataSource.getRepository(User).findOne({ where: { username: dto.adminUser } }),
-    ]);
+    // 1. 验证手机验证码
+    const isValidCode = await this.smsService.verifyCode(dto.contactPhone, dto.smsCode);
+    if (!isValidCode) {
+      throw new BadRequestException('验证码错误或已过期');
+    }
 
-    if (existingUser) {
-      throw new ConflictException(`用户名 ${dto.adminUser} 已被占用`);
+    // 2. 检查企业全称是否已存在
+    const existingTenant = await this.dataSource.getRepository(Tenant).findOne({
+      where: { name: dto.name },
+    });
+    if (existingTenant) {
+      throw new BusinessException(`企业 "${dto.name}" 已存在`);
     }
   }
 
   private async createTenant(manager: EntityManager, dto: CreateTenantDto): Promise<Tenant> {
-    // 1. 生成企业编码和官网链接 (沿用之前的逻辑)
+    // 1. 生成企业编码和官网链接
     const code = dto.code || this.generateEnterpriseCode(dto.name);
-    const baseUrl = 'https://pinmalink.com';
+
+    // 2. 统一生成官网地址（不再区分环境）
+    const baseDomain =
+      this.configService.get<string>('app.portalDomain') || 'https://pinmalink.com';
     const urlSlug = code
       .trim()
       .toLowerCase()
       .replace(/[^a-z0-9]/g, '-');
-    const website = `${baseUrl}/portal/${urlSlug}/zh`;
+    const website = `${baseDomain}/portal/${urlSlug}/zh`;
 
-    // 2. 创建并保存租户
+    // 3. 创建并保存租户
     const tenant = manager.create(Tenant, {
       ...dto,
       code: code.trim(),
@@ -250,7 +312,7 @@ export class TenantsService {
     });
     const savedTenant = await manager.save(tenant);
 
-    // 💡 3. 自动初始化网站通用配置
+    // 💡 4. 自动初始化网站通用配置
     await this.initPortalConfig(manager, savedTenant);
 
     return savedTenant;
@@ -269,8 +331,9 @@ export class TenantsService {
 
       // 初始化默认页脚
       footerInfo: {
-        address: tenant.factoryAddress || tenant.address || '请完善工厂地址',
+        contactPerson: tenant.contactPerson || '业务部',
         phone: tenant.contactPhone || '请完善联系电话',
+        address: tenant.factoryAddress || tenant.address || '请完善工厂地址',
         icp: '苏ICP备2024067044号',
         copyright: `© ${new Date().getFullYear()} ${tenant.name}`,
       },

@@ -13,23 +13,9 @@ export class UploadService {
     console.log('file=======', file);
     const ossUrl = await this.ossService.putOssFile(
       `/image/${file.originalname}`,
-      `src/uploadsImg/${file.originalname}`,
+      file.buffer,
     );
     console.log('ossUrl=======', ossUrl);
-    // 判断是否存在此文件夹
-    // const uploadDir =
-    //   !!process.env.UPLOAD_DIR && process.env.UPLOAD_DIR !== ''
-    //     ? process.env.UPLOAD_DIR
-    //     : join(__dirname, '../../..', 'static/upload');
-
-    // await ensureDir(uploadDir);
-    // const currentSign = encryptFileMD5(file.buffer);
-    // const arr = file.originalname.split('.');
-    // const fileType = arr[arr.length - 1];
-    // const fileName = currentSign + '.' + fileType;
-
-    // const uploadPath = uploadDir + '/' + fileName + '';
-    // await outputFile(uploadPath, file.buffer);
 
     return {
       url: ossUrl,
@@ -44,7 +30,7 @@ export class UploadService {
         try {
           const ossUrl = await this.ossService.putOssFile(
             `/image/${file.originalname}`,
-            `src/uploadsImg/${file.originalname}`,
+            file.buffer,
           );
           return {
             filename: file.originalname,

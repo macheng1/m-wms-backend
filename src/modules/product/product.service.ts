@@ -16,12 +16,14 @@ export class ProductsService {
     private readonly dataSource: DataSource,
   ) {}
 
-  /** 自动化 SKU 生成策略：类目码-规格值组合 */
-  private generateSkuCode(categoryCode: string, specs: Record<string, any>): string {
-    const specValues = Object.values(specs)
-      .filter((v) => !!v)
-      .join('-');
-    return `${categoryCode}-${specValues}`.toUpperCase();
+  /**
+   * 通用 SKU 生成策略：时间戳 + 4位随机数
+   * 简短且唯一，不依赖类目和属性
+   */
+  private generateSkuCode(): string {
+    const timestamp = Date.now().toString(36).toUpperCase(); // 转为36进制并大写
+    const random = Math.floor(1000 + Math.random() * 9000); // 4位随机数
+    return `SKU-${timestamp}-${random}`;
   }
 
   /** 新增产品 */
@@ -29,9 +31,9 @@ export class ProductsService {
     const category = await this.categoryRepo.findOne({ where: { id: dto.categoryId, tenantId } });
     if (!category) throw new BusinessException('所选类目不存在');
 
-    // 如果未传编码，则自动根据类目和规格生成
+    // 如果未传编码，则自动生成通用SKU
     if (!dto.code) {
-      dto.code = this.generateSkuCode(category.code, dto.specs);
+      dto.code = this.generateSkuCode();
     }
 
     const exists = await this.productRepo.findOne({ where: { code: dto.code, tenantId } });
@@ -136,5 +138,32 @@ export class ProductsService {
     // 执行软删除，保留业务轨迹
     await this.productRepo.softRemove(product);
     return { message: '产品已移入回收站' };
+  }
+
+  /**
+   * 获取产品下拉选择列表
+   * 返回格式：{ label: string, value: string }[]
+   */
+  async selectList(tenantId: string, keyword?: string) {
+    const query = this.productRepo
+      .createQueryBuilder('p')
+      .where('p.tenantId = :tenantId', { tenantId })
+      .andWhere('p.isActive = :isActive', { isActive: 1 });
+
+    if (keyword) {
+      query.andWhere('(p.name LIKE :kw OR p.code LIKE :kw)', { kw: `%${keyword}%` });
+    }
+
+    const products = await query
+      .orderBy('p.name', 'ASC')
+      .getMany();
+
+    return products.map((p) => ({
+      label: `${p.name} (${p.code})`,
+      value: p.code, // 使用 code (SKU) 作为 value
+      id: p.id,
+      name: p.name,
+      code: p.code,
+    }));
   }
 }

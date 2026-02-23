@@ -110,6 +110,10 @@ export class Tenant extends BaseEntity {
 
   @Column({ nullable: true, comment: '年产能' })
   annualCapacity: string;
-  @Column({ default: true, comment: '租户状态：是否激活' })
-  isActive: boolean;
+  @Column({
+    type: 'tinyint',
+    default: 1,
+    comment: '租户状态：是否激活 (1启用/0禁用)',
+  })
+  isActive: number;
 }
