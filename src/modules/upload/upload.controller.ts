@@ -4,6 +4,7 @@ import { FilesInterceptor } from '@nestjs/platform-express';
 import { Body, Controller, HttpCode, Post, UploadedFiles, UseInterceptors } from '@nestjs/common';
 
 import multer = require('multer');
+import { memoryStorageConfig } from '@/common/config/multer.config';
 import { Public } from '@/common/decorators/public.decorator';
 @ApiTags('上传图片')
 @Controller('upload')
@@ -30,19 +31,12 @@ export class UploadController {
   })
   @UseInterceptors(
     FilesInterceptor('file', 6, {
-      storage: multer.diskStorage({
-        destination: (req, file, cb) => {
-          cb(null, 'src/uploadsImg/');
-        },
-        filename: (req, file, cb) => {
-          cb(null, `${file.originalname}`);
-        },
-      }),
+      storage: memoryStorageConfig,
     }),
   )
   @HttpCode(200)
   async uploadMultiple(@UploadedFiles() files: Array<Express.Multer.File>, @Body() body) {
-    if (!files || !Array.isArray(files) || files.length === 0) {
+    if (!files || !files || !Array.isArray(files) || files.length === 0) {
       throw new Error('No files uploaded');
     }
     return this.uploadService.uploadMultiple(files);

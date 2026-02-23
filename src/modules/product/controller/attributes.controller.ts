@@ -17,6 +17,8 @@ import { AttributeImportService } from '../service/attribute-import.service';
 import { SaveAttributeDto } from '../entities/dto/save-attribute.dto';
 import { QueryAttributeDto } from '../entities/dto/query-attribute.dto';
 import { ImportAttributeDto } from '../entities/dto/import-attribute.dto';
+import { memoryStorageConfig } from '@/common/config/multer.config';
+import multer = require('multer');
 
 @ApiTags('产品管理-属性管理')
 @ApiBearerAuth()
@@ -88,7 +90,7 @@ export class AttributesController {
    * 导入属性数据
    */
   @Post('import')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorageConfig }))
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     description: '上传属性导入 Excel 文件',

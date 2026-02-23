@@ -19,6 +19,8 @@ import { ImportProductDto } from './entities/dto/import-product.dto';
 import { ProductsService } from './product.service';
 import { ProductImportService } from './service/product-import.service';
 import { Public } from '@/common/decorators/public.decorator';
+import { memoryStorageConfig } from '@/common/config/multer.config';
+import multer = require('multer');
 
 @ApiTags('产品管理-产品管理')
 @ApiBearerAuth()
@@ -121,7 +123,7 @@ export class ProductsController {
    * 导入产品数据
    */
   @Post('import')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorageConfig }))
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     description: '上传产品导入 Excel 文件',
