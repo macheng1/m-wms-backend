@@ -4,9 +4,14 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  Index,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
+import { Unit } from '../../unit/entities/unit.entity';
 
 @Entity('inventory')
+@Index('inventory_tenant_sku_idx', ['tenantId', 'sku'])
 export class Inventory {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -20,11 +25,23 @@ export class Inventory {
   @Column({ length: 200 })
   productName: string;
 
-  @Column({ type: 'int', default: 0 })
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
   quantity: number;
 
-  @Column({ length: 100, nullable: true })
-  location: string;
+  @Index('inventory_unit_id_idx')
+  @Column({ type: 'char', length: 36, nullable: true })
+  unitId: string;
+
+  @ManyToOne(() => Unit, { eager: false })
+  @JoinColumn({ name: 'unitId' })
+  unit: Unit;
+
+  @Index('inventory_location_id_idx')
+  @Column({ type: 'char', length: 36, nullable: true })
+  locationId: string;
+
+  @Column({ type: 'json', nullable: true })
+  multiUnitQty: Record<string, number>;
 
   @CreateDateColumn()
   createdAt: Date;

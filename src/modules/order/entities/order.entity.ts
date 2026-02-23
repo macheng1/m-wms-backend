@@ -4,6 +4,7 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  Unique,
 } from 'typeorm';
 
 export enum OrderStatus {
@@ -14,6 +15,7 @@ export enum OrderStatus {
 }
 
 @Entity('orders')
+@Unique(['tenantId', 'orderNumber'])
 export class Order {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -21,7 +23,7 @@ export class Order {
   @Column()
   tenantId: string;
 
-  @Column({ unique: true, length: 50 })
+  @Column({ length: 50 })
   orderNumber: string;
 
   @Column({ type: 'enum', enum: OrderStatus, default: OrderStatus.PENDING })

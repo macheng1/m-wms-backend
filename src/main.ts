@@ -2,7 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
-import { AllExceptionsFilter } from '@common/filters';
+import { HttpExceptionFilter } from '@common/filters';
 import { TransformInterceptor, LoggingInterceptor } from '@common/interceptors';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 
@@ -28,7 +28,7 @@ async function bootstrap() {
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
-      forbidNonWhitelisted: true,
+      forbidNonWhitelisted: false,
       transform: true,
       transformOptions: {
         enableImplicitConversion: true,
@@ -37,7 +37,7 @@ async function bootstrap() {
   );
 
   // Global filters
-  app.useGlobalFilters(new AllExceptionsFilter());
+  app.useGlobalFilters(new HttpExceptionFilter());
 
   // Global interceptors
   app.useGlobalInterceptors(new TransformInterceptor(), new LoggingInterceptor());

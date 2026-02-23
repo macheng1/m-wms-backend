@@ -1,8 +1,10 @@
-import { Controller, Post, Body } from '@nestjs/common';
+import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { TenantId } from '@common/decorators';
+import { ApiOperation } from '@nestjs/swagger';
+import { Public } from '@/common/decorators/public.decorator';
 
 @Controller('auth')
 export class AuthController {
@@ -14,7 +16,10 @@ export class AuthController {
   }
 
   @Post('login')
-  login(@Body() loginDto: LoginDto, @TenantId() tenantId: string) {
-    return this.authService.login(loginDto, tenantId);
+  @HttpCode(HttpStatus.OK) // 登录通常返回 200 而非 201
+  @Public()
+  @ApiOperation({ summary: '用户登录', description: '支持账号密码登录，成功后返回 JWT' })
+  async login(@Body() loginDto: LoginDto) {
+    return this.authService.login(loginDto);
   }
 }

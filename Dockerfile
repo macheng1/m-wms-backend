@@ -32,7 +32,7 @@ FROM node:20.15.0-alpine
 WORKDIR /app
 
 # 设置生产环境标识
-ENV NODE_ENV=development
+ENV NODE_ENV=test
 
 # 1. 从构建阶段拷贝编译后的代码和精简后的 node_modules
 COPY --from=builder /app/dist ./dist
