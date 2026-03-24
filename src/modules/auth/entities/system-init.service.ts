@@ -37,7 +37,7 @@ export class SystemSeedService implements OnModuleInit {
     // 等待 TypeORM 同步完成
     await this.dataSource.synchronize(false);
     await this.initPermissions();
-    await this.initPlatformAdmin();
+    // await this.initPlatformAdmin();
     await this.initIndustryDicts();
   }
   /**

@@ -27,16 +27,12 @@ export class UnitConverter {
    * @param targetUnit 目标单位
    * @returns 换算后的数量
    */
-  static convert(
-    sourceQty: number,
-    sourceUnit: Unit,
-    targetUnit: Unit,
-  ): number {
+  static convert(sourceQty: number, sourceUnit: Unit, targetUnit: Unit): number {
     // 验证单位分类是否相同
     if (sourceUnit.category !== targetUnit.category) {
       throw new Error(
         `单位分类不同，无法换算: ${sourceUnit.name}(${sourceUnit.category}) ` +
-        `-> ${targetUnit.name}(${targetUnit.category})`,
+          `-> ${targetUnit.name}(${targetUnit.category})`,
       );
     }
 
@@ -67,9 +63,7 @@ export class UnitConverter {
     const result: Record<string, number> = {};
 
     // 筛选同分类的单位
-    const sameCategoryUnits = allUnits.filter(
-      u => u.category === baseUnit.category,
-    );
+    const sameCategoryUnits = allUnits.filter((u) => u.category === baseUnit.category);
 
     for (const unit of sameCategoryUnits) {
       try {
@@ -125,7 +119,7 @@ export class UnitConverter {
    * @returns 基准单位
    */
   static getBaseUnit(units: Unit[], category: UnitCategory): Unit | undefined {
-    const sameCategoryUnits = units.filter(u => u.category === category);
+    const sameCategoryUnits = units.filter((u) => u.category === category);
     if (sameCategoryUnits.length === 0) {
       return undefined;
     }
@@ -165,11 +159,7 @@ export class UnitConverter {
     changeUnit: Unit,
   ): number {
     // 将变动数量换算为主单位
-    const convertedChangeQty = this.convert(
-      Math.abs(changeQty),
-      changeUnit,
-      currentUnit,
-    );
+    const convertedChangeQty = this.convert(Math.abs(changeQty), changeUnit, currentUnit);
 
     // 根据变动方向计算
     if (changeQty > 0) {

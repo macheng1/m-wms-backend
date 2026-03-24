@@ -5,7 +5,7 @@ import { Tenant } from '@/modules/tenant/entities/tenant.entity';
 import { Column, Entity, JoinColumn, JoinTable, ManyToMany, ManyToOne, Index } from 'typeorm';
 
 @Entity('users')
-@Index(['tenantId', 'username'], { unique: true }) // 租户内用户名唯一
+@Index(['tenantId', 'username'], { unique: true, where: 'tenantId IS NOT NULL' })
 export class User extends TenantBaseEntity {
   @Column({ comment: '登录用户名' })
   username: string;
@@ -16,8 +16,8 @@ export class User extends TenantBaseEntity {
   @Column({ nullable: true, comment: '手机号' })
   phone: string;
 
-  @Column({ nullable: true, comment: '邮箱' })
-  email: string;
+  @Column({ nullable: true, default: null, comment: '邮箱' })
+  email: string | null;
 
   @Column({ nullable: true, comment: '真实姓名' })
   realName: string;
