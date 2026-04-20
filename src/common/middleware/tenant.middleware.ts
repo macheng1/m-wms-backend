@@ -18,7 +18,7 @@ export class TenantMiddleware implements NestMiddleware {
     const tenantId = req.headers['x-tenant-id'] as string;
 
     // 如果是公共路由（如登录、健康检查），则跳过租户验证
-    const publicPaths = ['/api/health', '/auth/login', '/auth/register'];
+    const publicPaths = ['/api/health', '/user/login', '/user/register'];
     if (publicPaths.some((path) => req.path.startsWith(path))) {
       return next();
     }

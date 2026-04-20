@@ -162,8 +162,8 @@ npm run seed               # 运行种子数据
 - `DELETE /api/tenants/:id` - 删除租户
 
 ### 认证授权
-- `POST /api/auth/register` - 用户注册
-- `POST /api/auth/login` - 用户登录
+- `POST /api/user/register` - 用户注册
+- `POST /api/user/login` - 用户登录
 
 ### 库存管理
 - `POST /api/inventory` - 创建库存

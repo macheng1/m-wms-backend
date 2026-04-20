@@ -5,10 +5,9 @@ import { AuthController } from './auth.controller';
 import { User } from '../users/entities/user.entity';
 import { Tenant } from '../tenant/entities/tenant.entity';
 import { Permission } from './entities/permission.entity';
-import { Dictionary } from '../system/entities/dictionary.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User, Tenant, Permission, Dictionary])],
+  imports: [TypeOrmModule.forFeature([User, Tenant, Permission])],
   controllers: [AuthController],
   providers: [AuthService],
   exports: [AuthService],

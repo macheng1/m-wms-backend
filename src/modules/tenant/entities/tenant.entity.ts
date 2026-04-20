@@ -116,4 +116,11 @@ export class Tenant extends BaseEntity {
     comment: '租户状态：是否激活 (1启用/0禁用)',
   })
   isActive: number;
+
+  @Column({
+    type: 'tinyint',
+    default: 0,
+    comment: '审核状态：1通过，0待审核',
+  })
+  isApproved: number;
 }

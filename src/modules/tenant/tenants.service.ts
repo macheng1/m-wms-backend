@@ -18,11 +18,9 @@ import { Role } from '../roles/entities/role.entity';
 import { Permission } from '../auth/entities/permission.entity';
 import { User } from '../users/entities/user.entity';
 import pinyin from 'pinyin';
-import { DictionariesService } from '../system/service/dictionaries.service';
 import { PortalConfig } from '../portal/entities/portal-config.entity';
 import { SmsService } from '../aliyun/sms/sms.service';
 import { BusinessException } from '@/common/filters/business.exception';
-import { SystemSeedService } from '../auth/entities/system-init.service';
 
 @Injectable()
 export class TenantsService {
@@ -30,10 +28,8 @@ export class TenantsService {
 
   constructor(
     private readonly dataSource: DataSource,
-    private readonly dictionariesService: DictionariesService,
     private readonly smsService: SmsService,
     private readonly configService: ConfigService,
-    private readonly systemSeedService: SystemSeedService,
   ) {}
 
   /**
@@ -53,11 +49,6 @@ export class TenantsService {
 
         // Step C: 创建租户超级管理员
         const adminUser = await this.createAdminUser(manager, tenant.id, dto, adminRole);
-
-        // Step D: 初始化基础单位、产品类目和属性
-        await this.systemSeedService.initBaseUnits(tenant.id);
-        await this.systemSeedService.initProductCategories(tenant.id);
-        await this.systemSeedService.initProductAttributes(tenant.id);
 
         // 返回给拦截器的数据负载
         return {
@@ -106,20 +97,14 @@ export class TenantsService {
     const repo = this.dataSource.getRepository(Tenant);
     const tenant = await repo.findOne({ where: { id } });
     if (!tenant) throw new ConflictException('租户不存在');
-    // 查行业名称
-    let industryName = '';
-    if (tenant.industryCode) {
-      const dict = await this.dictionariesService.getOptionsByType('INDUSTRY');
-      const found = dict.find((item) => item.value === tenant.industryCode);
-      industryName = found ? found.label : '';
-    }
+
     // 返回所有业务字段，保证前端展示完整
     return {
       id: tenant.id,
       code: tenant.code,
       name: tenant.name,
       industryCode: tenant.industryCode,
-      industryName,
+      industryName: '',
       contactPerson: tenant.contactPerson,
       contactPhone: tenant.contactPhone,
       address: tenant.address,
@@ -146,6 +131,7 @@ export class TenantsService {
       mainProducts: tenant.mainProducts,
       annualCapacity: tenant.annualCapacity,
       isActive: tenant.isActive,
+      isApproved: tenant.isApproved,
       createdAt: tenant.createdAt,
       updatedAt: tenant.updatedAt,
     };
@@ -190,6 +176,7 @@ export class TenantsService {
         'mainProducts',
         'annualCapacity',
         'isActive',
+        'isApproved',
       ];
       for (const key of allowFields) {
         if (key in updateTenantDto) {

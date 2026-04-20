@@ -6,7 +6,7 @@ import { TenantId } from '@common/decorators';
 import { ApiOperation } from '@nestjs/swagger';
 import { Public } from '@/common/decorators/public.decorator';
 
-@Controller('auth')
+@Controller('user')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 

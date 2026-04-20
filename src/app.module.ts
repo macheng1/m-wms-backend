@@ -24,7 +24,6 @@ import { SmsModule } from './modules/aliyun/sms/sms.module';
 import { UploadModule } from './modules/upload/upload.module';
 import { RolesModule } from './modules/roles/roles.module';
 import { ProductModule } from './modules/product/product.module';
-import { SystemModule } from './modules/system/system.module';
 import { PortalModule } from './modules/portal/portal.module';
 import { RedisModule } from './modules/redis/redis.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
@@ -87,7 +86,6 @@ console.log('当前工作目录:', process.cwd());
     RolesModule,
     HealthModule,
     ProductModule,
-    SystemModule,
     PortalModule,
     NotificationsModule,
   ],

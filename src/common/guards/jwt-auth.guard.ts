@@ -1,9 +1,17 @@
 // src/modules/auth/guards/jwt-auth.guard.ts
-import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  Injectable,
+  UnauthorizedException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Reflector } from '@nestjs/core'; // 必须导入 Reflector
 import { ConfigService } from '@nestjs/config';
 import { IS_PUBLIC_KEY } from 'src/common/decorators/public.decorator';
+import { DataSource } from 'typeorm';
+import { Tenant } from '@/modules/tenant/entities/tenant.entity';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -11,6 +19,7 @@ export class JwtAuthGuard implements CanActivate {
     private jwtService: JwtService,
     private reflector: Reflector, // 注入反射器
     private configService: ConfigService,
+    private dataSource: DataSource,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -34,6 +43,23 @@ export class JwtAuthGuard implements CanActivate {
         secret: this.configService.get('jwt.secret'),
       });
       console.log('🚀 ~ JwtAuthGuard ~ canActivate ~ payload:', payload);
+
+      // 平台管理员跳过租户审核校验
+      if (!payload.isAdmin && payload.tenantId) {
+        const tenant = await this.dataSource.getRepository(Tenant).findOne({
+          where: { id: payload.tenantId },
+        });
+
+        if (!tenant) {
+          throw new UnauthorizedException('租户不存在');
+        }
+        if (tenant.isApproved !== 1) {
+          throw new ForbiddenException('租户未审核通过，禁止访问');
+        }
+        if (tenant.isActive !== 1) {
+          throw new ForbiddenException('租户已禁用，禁止访问');
+        }
+      }
 
       // 挂载租户信息，方便后续引出棒业务逻辑进行数据隔离
       request['user'] = payload;

@@ -127,6 +127,12 @@ export class AuthService {
       const tenant = await this.tenantRepository.findOne({ where: { code: code } });
       console.log('🚀 ~ AuthService ~ findUserForLogin ~ tenant:', tenant);
       if (!tenant) return null;
+      if (tenant.isApproved !== 1) {
+        throw new BusinessException('企业未审核通过，暂不可登录');
+      }
+      if (tenant.isActive !== 1) {
+        throw new BusinessException('企业已被禁用，暂不可登录');
+      }
 
       query
         .where('user.username = :username', { username })
