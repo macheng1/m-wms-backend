@@ -173,9 +173,9 @@ export class UsersService {
   /**
    * 获取指定员工详情（getDetail）
    */
-  async getDetail(id: string) {
+  async getDetail(id: string, tenantId: string) {
     const user = await this.userRepo.findOne({
-      where: { id },
+      where: { id, tenantId },
       relations: ['roles', 'roles.permissions', 'tenant'],
     });
     if (!user) throw new NotFoundException('该员工不存在');

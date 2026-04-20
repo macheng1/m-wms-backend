@@ -115,7 +115,7 @@ export class UsersController {
    */
   @Post('detail')
   @UseGuards(JwtAuthGuard)
-  async getUserDetail(@Body('id') id: string) {
-    return this.usersService.getDetail(id);
+  async getUserDetail(@Body('id') id: string, @Req() req) {
+    return this.usersService.getDetail(id, req.user.tenantId);
   }
 }

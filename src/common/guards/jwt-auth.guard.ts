@@ -3,6 +3,7 @@ import {
   CanActivate,
   ExecutionContext,
   Injectable,
+  HttpException,
   UnauthorizedException,
   ForbiddenException,
 } from '@nestjs/common';
@@ -63,7 +64,10 @@ export class JwtAuthGuard implements CanActivate {
 
       // 挂载租户信息，方便后续引出棒业务逻辑进行数据隔离
       request['user'] = payload;
-    } catch {
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
       throw new UnauthorizedException('验证失败');
     }
 
