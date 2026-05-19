@@ -1,6 +1,6 @@
 -- M-WMS backend schema init SQL
 -- Generated from current entity definitions on 2026-04-20
--- Target: MySQL 8+
+-- Target: MySQL 5.7+/8+ or compatible MariaDB
 
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
@@ -37,25 +37,35 @@ CREATE TABLE IF NOT EXISTS `tenants` (
   `annualCapacity` varchar(255) DEFAULT NULL COMMENT '年产能',
   `isActive` tinyint NOT NULL DEFAULT 1 COMMENT '租户状态：是否激活 (1启用/0禁用)',
   `isApproved` tinyint NOT NULL DEFAULT 0 COMMENT '审核状态：1通过，0待审核',
+  `lifecycleStatus` enum('pending','active','rejected','disabled','expired') NOT NULL DEFAULT 'pending' COMMENT '租户生命周期状态',
+  `expiresAt` datetime DEFAULT NULL COMMENT '到期时间',
+  `approvedAt` datetime DEFAULT NULL COMMENT '审核通过时间',
+  `auditRemark` text DEFAULT NULL COMMENT '审核备注',
+  `disabledReason` text DEFAULT NULL COMMENT '禁用原因',
   `createdAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   `updatedAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
   `deletedAt` datetime(6) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `UQ_tenants_code` (`code`),
   UNIQUE KEY `UQ_tenants_name` (`name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `permissions` (
   `id` int NOT NULL AUTO_INCREMENT,
   `code` varchar(255) NOT NULL COMMENT '权限唯一标识码，需与前端 MENU_CONFIG 的 code 一一对应',
+  `scope` enum('platform','tenant') NOT NULL DEFAULT 'tenant' COMMENT '权限归属域：platform-平台超级管理员，tenant-租户管理员/员工',
   `name` varchar(255) NOT NULL COMMENT '权限名称',
+  `routePath` varchar(255) DEFAULT NULL COMMENT '前端菜单路由，对应 my-wms 的实际页面路径',
+  `icon` varchar(255) DEFAULT NULL COMMENT '前端菜单图标标识',
+  `sortOrder` int NOT NULL DEFAULT 0 COMMENT '菜单排序',
+  `isHidden` tinyint NOT NULL DEFAULT 0 COMMENT '是否隐藏菜单',
   `type` enum('MENU','BUTTON','API') NOT NULL DEFAULT 'MENU' COMMENT '权限类型：菜单、按钮、接口',
   `parentId` int NOT NULL DEFAULT 0 COMMENT '父级权限ID，用于后台配置时的树形展示',
   `description` varchar(255) DEFAULT NULL COMMENT '描述信息',
   `createdAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '创建时间',
   PRIMARY KEY (`id`),
   UNIQUE KEY `UQ_permissions_code` (`code`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `units` (
   `id` char(36) NOT NULL,
@@ -74,7 +84,7 @@ CREATE TABLE IF NOT EXISTS `units` (
   `sortOrder` int NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   UNIQUE KEY `UQ_units_tenant_code` (`tenantId`,`code`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `attributes` (
   `id` char(36) NOT NULL,
@@ -88,7 +98,7 @@ CREATE TABLE IF NOT EXISTS `attributes` (
   `unit` varchar(255) DEFAULT NULL COMMENT '单位，如：mm, kg, 支',
   `isActive` int NOT NULL DEFAULT 1 COMMENT '状态：1启用，0禁用',
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `categories` (
   `id` char(36) NOT NULL,
@@ -101,7 +111,7 @@ CREATE TABLE IF NOT EXISTS `categories` (
   `isActive` int NOT NULL DEFAULT 1 COMMENT '状态：1启用，0禁用',
   PRIMARY KEY (`id`),
   UNIQUE KEY `UQ_categories_tenant_code` (`tenantId`,`code`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `roles` (
   `id` char(36) NOT NULL,
@@ -112,10 +122,11 @@ CREATE TABLE IF NOT EXISTS `roles` (
   `name` varchar(255) NOT NULL COMMENT '角色名称',
   `isActive` tinyint NOT NULL DEFAULT 1 COMMENT '角色状态：1 启用，0 禁用',
   `code` varchar(255) DEFAULT NULL COMMENT '角色模板编码',
+  `scope` enum('platform','tenant') NOT NULL DEFAULT 'tenant' COMMENT '角色归属域：platform-平台角色，tenant-租户角色',
   `remark` varchar(255) DEFAULT NULL COMMENT '备注',
   `isSystem` tinyint(1) NOT NULL DEFAULT 0 COMMENT '是否为系统初始化角色',
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `users` (
   `id` char(36) NOT NULL,
@@ -137,7 +148,7 @@ CREATE TABLE IF NOT EXISTS `users` (
   UNIQUE KEY `IDX_users_tenant_username` (`tenantId`,`username`),
   KEY `IDX_users_tenant` (`tenantId`),
   CONSTRAINT `FK_users_tenant` FOREIGN KEY (`tenantId`) REFERENCES `tenants` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `products` (
   `id` char(36) NOT NULL,
@@ -157,11 +168,11 @@ CREATE TABLE IF NOT EXISTS `products` (
   UNIQUE KEY `UQ_products_tenant_code` (`tenantId`,`code`),
   KEY `IDX_products_category` (`categoryId`),
   CONSTRAINT `FK_products_category` FOREIGN KEY (`categoryId`) REFERENCES `categories` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `locations` (
   `id` char(36) NOT NULL,
-  `tenantId` varchar(255) NOT NULL,
+  `tenantId` char(36) NOT NULL,
   `code` varchar(50) NOT NULL,
   `name` varchar(100) NOT NULL,
   `warehouse` varchar(20) NOT NULL,
@@ -183,16 +194,16 @@ CREATE TABLE IF NOT EXISTS `locations` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `UQ_locations_tenant_code` (`tenantId`,`code`),
   KEY `location_tenant_code_idx` (`tenantId`,`code`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `devices` (
   `id` char(36) NOT NULL,
-  `tenantId` varchar(255) NOT NULL,
+  `tenantId` char(36) NOT NULL,
   `code` varchar(50) NOT NULL,
   `name` varchar(100) NOT NULL,
   `type` enum('SCANNER','RFID_READER','RFID_TAG','AGV','ESL','SENSOR','PRINTER','GATE','CAMERA','PDA') NOT NULL,
   `status` enum('ONLINE','OFFLINE','ERROR','MAINTENANCE','DISABLED') NOT NULL DEFAULT 'OFFLINE',
-  `locationId` varchar(255) DEFAULT NULL,
+  `locationId` char(36) DEFAULT NULL,
   `config` json DEFAULT NULL,
   `lastHeartbeat` datetime DEFAULT NULL,
   `metadata` json DEFAULT NULL,
@@ -202,11 +213,11 @@ CREATE TABLE IF NOT EXISTS `devices` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `UQ_devices_tenant_code` (`tenantId`,`code`),
   KEY `device_tenant_code_idx` (`tenantId`,`code`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `inventory` (
   `id` char(36) NOT NULL,
-  `tenantId` varchar(255) NOT NULL,
+  `tenantId` char(36) NOT NULL,
   `sku` varchar(100) NOT NULL,
   `productName` varchar(200) NOT NULL,
   `quantity` decimal(15,2) NOT NULL DEFAULT 0.00,
@@ -220,16 +231,16 @@ CREATE TABLE IF NOT EXISTS `inventory` (
   KEY `inventory_unit_id_idx` (`unitId`),
   KEY `inventory_location_id_idx` (`locationId`),
   CONSTRAINT `FK_inventory_unit` FOREIGN KEY (`unitId`) REFERENCES `units` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `inventory_locations` (
   `id` char(36) NOT NULL,
-  `tenantId` varchar(255) NOT NULL,
+  `tenantId` char(36) NOT NULL,
   `sku` varchar(100) NOT NULL,
   `productName` varchar(200) NOT NULL,
-  `locationId` varchar(255) NOT NULL,
+  `locationId` char(36) NOT NULL,
   `quantity` decimal(15,2) NOT NULL DEFAULT 0.00,
-  `unitId` varchar(255) DEFAULT NULL,
+  `unitId` char(36) DEFAULT NULL,
   `batchNo` varchar(50) DEFAULT NULL,
   `productionDate` date DEFAULT NULL,
   `expiryDate` date DEFAULT NULL,
@@ -243,7 +254,7 @@ CREATE TABLE IF NOT EXISTS `inventory_locations` (
   KEY `inv_loc_tenant_location_idx` (`tenantId`,`locationId`),
   KEY `inv_loc_location_id_idx` (`locationId`),
   CONSTRAINT `FK_inventory_locations_location` FOREIGN KEY (`locationId`) REFERENCES `locations` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `inventory_transactions` (
   `id` char(36) NOT NULL,
@@ -268,11 +279,11 @@ CREATE TABLE IF NOT EXISTS `inventory_transactions` (
   PRIMARY KEY (`id`),
   KEY `IDX_inventory_transactions_unitId` (`unitId`),
   KEY `inventory_transaction_location_id_idx` (`locationId`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `orders` (
   `id` char(36) NOT NULL,
-  `tenantId` varchar(255) NOT NULL,
+  `tenantId` char(36) NOT NULL,
   `orderNumber` varchar(50) NOT NULL,
   `status` enum('pending','processing','completed','cancelled') NOT NULL DEFAULT 'pending',
   `totalAmount` decimal(10,2) NOT NULL DEFAULT 0.00,
@@ -280,7 +291,7 @@ CREATE TABLE IF NOT EXISTS `orders` (
   `updatedAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
   PRIMARY KEY (`id`),
   UNIQUE KEY `UQ_orders_tenant_orderNumber` (`tenantId`,`orderNumber`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `portal_configs` (
   `id` char(36) NOT NULL,
@@ -296,7 +307,7 @@ CREATE TABLE IF NOT EXISTS `portal_configs` (
   `seoConfig` json DEFAULT NULL COMMENT 'SEO 优化配置',
   `isActive` int NOT NULL DEFAULT 1 COMMENT '站点状态：1开启，0关闭',
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `inquiries` (
   `id` char(36) NOT NULL,
@@ -311,11 +322,11 @@ CREATE TABLE IF NOT EXISTS `inquiries` (
   `adminRemark` text DEFAULT NULL COMMENT '后台管理员备注',
   `attachments` text DEFAULT NULL COMMENT '附件列表，逗号分隔的文件路径或URL',
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `notifications` (
   `id` char(36) NOT NULL,
-  `tenantId` varchar(255) NOT NULL,
+  `tenantId` char(36) NOT NULL,
   `userId` char(36) DEFAULT NULL,
   `roleId` char(36) DEFAULT NULL,
   `type` enum('SYSTEM','MESSAGE','MENTION','TICKET','WORKFLOW') NOT NULL DEFAULT 'SYSTEM',
@@ -341,7 +352,7 @@ CREATE TABLE IF NOT EXISTS `notifications` (
   KEY `notification_created_idx` (`createdAt`),
   KEY `notification_user_id_idx` (`userId`),
   KEY `notification_expire_idx` (`expireAt`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `dictionaries` (
   `id` char(36) NOT NULL,
@@ -349,19 +360,24 @@ CREATE TABLE IF NOT EXISTS `dictionaries` (
   `updatedAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '最后更新时间',
   `deletedAt` datetime(6) DEFAULT NULL COMMENT '删除时间（伪删除标记）',
   `tenantId` char(36) DEFAULT NULL COMMENT '租户ID，如果是平台管理员则为空',
+  `scope` enum('platform','tenant') NOT NULL DEFAULT 'platform' COMMENT '字典归属域：platform-平台标准字典，tenant-租户自定义字典',
   `type` varchar(255) NOT NULL COMMENT '字典类型，如 INDUSTRY, UNIT, MATERIAL',
   `label` varchar(255) NOT NULL COMMENT '展示名称 (前端 label)',
   `value` varchar(255) NOT NULL COMMENT '实际存值 (前端 value)',
   `sort` int NOT NULL DEFAULT 0 COMMENT '排序',
   `isActive` int NOT NULL DEFAULT 1 COMMENT '状态：1启用，0禁用',
+  `isSystem` tinyint NOT NULL DEFAULT 0 COMMENT '是否系统内置字典，内置字典不建议删除',
+  `allowTenantExtend` tinyint NOT NULL DEFAULT 0 COMMENT '是否允许租户扩展',
+  `allowTenantOverride` tinyint NOT NULL DEFAULT 0 COMMENT '是否允许租户覆盖',
+  `parentId` char(36) DEFAULT NULL COMMENT '继承的平台字典ID',
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `attribute_options` (
   `id` char(36) NOT NULL,
   `createdAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '创建时间',
   `updatedAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '最后更新时间',
-  `tenantId` varchar(255) DEFAULT NULL COMMENT '租户ID',
+  `tenantId` char(36) DEFAULT NULL COMMENT '租户ID',
   `attributeId` char(36) NOT NULL,
   `value` varchar(255) NOT NULL COMMENT '具体选项值，如：304、12.5',
   `isActive` tinyint NOT NULL DEFAULT 1 COMMENT '属性状态：1 启用，0 禁用',
@@ -370,7 +386,7 @@ CREATE TABLE IF NOT EXISTS `attribute_options` (
   KEY `IDX_attribute_options_tenantId` (`tenantId`),
   KEY `IDX_attribute_options_attributeId` (`attributeId`),
   CONSTRAINT `FK_attribute_options_attribute` FOREIGN KEY (`attributeId`) REFERENCES `attributes` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `role_permissions` (
   `rolesId` char(36) NOT NULL,
@@ -379,7 +395,38 @@ CREATE TABLE IF NOT EXISTS `role_permissions` (
   KEY `IDX_role_permissions_permissionsId` (`permissionsId`),
   CONSTRAINT `FK_role_permissions_role` FOREIGN KEY (`rolesId`) REFERENCES `roles` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `FK_role_permissions_permission` FOREIGN KEY (`permissionsId`) REFERENCES `permissions` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `tenant_menu_permissions` (
+  `tenantId` char(36) NOT NULL,
+  `permissionsId` int NOT NULL,
+  PRIMARY KEY (`tenantId`,`permissionsId`),
+  KEY `IDX_tenant_menu_permissions_permissionsId` (`permissionsId`),
+  CONSTRAINT `FK_tenant_menu_permissions_tenant` FOREIGN KEY (`tenantId`) REFERENCES `tenants` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `FK_tenant_menu_permissions_permission` FOREIGN KEY (`permissionsId`) REFERENCES `permissions` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `operation_logs` (
+  `id` char(36) NOT NULL,
+  `createdAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '创建时间',
+  `updatedAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '最后更新时间',
+  `deletedAt` datetime(6) DEFAULT NULL COMMENT '删除时间（伪删除标记）',
+  `tenantId` char(36) DEFAULT NULL COMMENT '租户ID，平台操作为空',
+  `userId` char(36) DEFAULT NULL COMMENT '操作人ID',
+  `username` varchar(255) DEFAULT NULL COMMENT '操作人账号',
+  `scope` enum('platform','tenant') NOT NULL COMMENT '操作域',
+  `module` varchar(255) NOT NULL COMMENT '业务模块',
+  `action` varchar(255) NOT NULL COMMENT '操作动作',
+  `targetType` varchar(255) DEFAULT NULL COMMENT '目标类型',
+  `targetId` varchar(255) DEFAULT NULL COMMENT '目标ID',
+  `description` text DEFAULT NULL COMMENT '操作描述',
+  `beforeData` json DEFAULT NULL COMMENT '操作前数据',
+  `afterData` json DEFAULT NULL COMMENT '操作后数据',
+  `ip` varchar(255) DEFAULT NULL COMMENT 'IP地址',
+  PRIMARY KEY (`id`),
+  KEY `IDX_operation_logs_tenant_created` (`tenantId`,`createdAt`),
+  KEY `IDX_operation_logs_user_created` (`userId`,`createdAt`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `user_roles` (
   `usersId` char(36) NOT NULL,
@@ -388,7 +435,7 @@ CREATE TABLE IF NOT EXISTS `user_roles` (
   KEY `IDX_user_roles_rolesId` (`rolesId`),
   CONSTRAINT `FK_user_roles_user` FOREIGN KEY (`usersId`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `FK_user_roles_role` FOREIGN KEY (`rolesId`) REFERENCES `roles` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `category_attributes` (
   `categoriesId` char(36) NOT NULL,
@@ -397,12 +444,12 @@ CREATE TABLE IF NOT EXISTS `category_attributes` (
   KEY `IDX_category_attributes_attributesId` (`attributesId`),
   CONSTRAINT `FK_category_attributes_category` FOREIGN KEY (`categoriesId`) REFERENCES `categories` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `FK_category_attributes_attribute` FOREIGN KEY (`attributesId`) REFERENCES `attributes` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `device_events` (
   `id` char(36) NOT NULL,
-  `tenantId` varchar(255) NOT NULL,
-  `deviceId` varchar(255) NOT NULL,
+  `tenantId` char(36) NOT NULL,
+  `deviceId` char(36) NOT NULL,
   `eventType` varchar(50) NOT NULL,
   `eventData` json NOT NULL,
   `processed` tinyint(1) NOT NULL DEFAULT 0,
@@ -410,6 +457,6 @@ CREATE TABLE IF NOT EXISTS `device_events` (
   `createdAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   PRIMARY KEY (`id`),
   KEY `device_event_tenant_device_idx` (`tenantId`,`deviceId`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;

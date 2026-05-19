@@ -1,0 +1,352 @@
+import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { PlatformAdminGuard } from '@/common/guards/platform-admin.guard';
+import { TenantsService } from '../tenant/tenants.service';
+import { AdminPlatformService } from './admin-platform.service';
+
+@ApiTags('管理端 API 边界')
+@ApiBearerAuth()
+@Controller('admin')
+export class AdminApiController {
+  constructor(
+    private readonly tenantsService: TenantsService,
+    private readonly adminPlatformService: AdminPlatformService,
+  ) {}
+
+  @Get('meta')
+  @ApiOperation({ summary: '管理端 API 边界信息' })
+  getMeta() {
+    return {
+      type: 'admin',
+      client: 'my-wms',
+      auth: 'jwt',
+      tenantSource: 'jwt',
+      basePath: '/api/admin',
+      status: 'skeleton',
+    };
+  }
+
+  @Get('platform/meta')
+  @ApiOperation({ summary: '管理端平台域 API 边界信息' })
+  getPlatformMeta() {
+    return {
+      type: 'admin-platform',
+      client: 'my-wms',
+      auth: 'jwt',
+      tenantSource: 'platform-context',
+      basePath: '/api/admin/platform',
+      actors: ['platform-super-admin'],
+      responsibilities: ['租户管理', '平台菜单', '平台角色', '平台用户', '平台配置'],
+      status: 'skeleton',
+    };
+  }
+
+  @Get('tenant/meta')
+  @ApiOperation({ summary: '管理端租户域 API 边界信息' })
+  getTenantMeta() {
+    return {
+      type: 'admin-tenant',
+      client: 'my-wms',
+      auth: 'jwt',
+      tenantSource: 'jwt',
+      basePath: '/api/admin/tenant',
+      actors: ['tenant-admin', 'tenant-staff'],
+      responsibilities: ['租户员工', '租户角色', '租户菜单', '租户业务数据'],
+      status: 'skeleton',
+    };
+  }
+
+  @Get('tenant/menus')
+  @ApiOperation({ summary: '管理端租户域 - 当前租户已授权菜单' })
+  getCurrentTenantMenus(@Req() req) {
+    return this.adminPlatformService.findTenantMenuGrant(req.user.tenantId);
+  }
+
+  @Get('tenant/dashboard')
+  @ApiOperation({ summary: '管理端租户域 - 当前租户看板' })
+  getTenantDashboard(@Req() req) {
+    return this.adminPlatformService.tenantDashboard(req.user.tenantId);
+  }
+
+  @Get('tenant/profile')
+  @ApiOperation({ summary: '管理端租户域 - 当前租户资料' })
+  getTenantProfile(@Req() req) {
+    return this.tenantsService.findOne(req.user.tenantId);
+  }
+
+  @Post('tenant/profile/save')
+  @ApiOperation({ summary: '管理端租户域 - 保存当前租户资料' })
+  saveTenantProfile(@Req() req, @Body() body: any) {
+    return this.tenantsService.update(req.user.tenantId, body).then(async (tenant) => {
+      await this.adminPlatformService.recordAudit({
+        user: req.user,
+        scope: 'tenant',
+        module: 'tenant-profile',
+        action: 'save',
+        targetType: 'tenant',
+        targetId: req.user.tenantId,
+        description: '保存租户企业资料',
+        afterData: body,
+        ip: req.ip,
+      });
+      return tenant;
+    });
+  }
+
+  @Post('tenant/audit-logs')
+  @ApiOperation({ summary: '管理端租户域 - 当前租户操作日志' })
+  getTenantAuditLogs(@Req() req, @Body() body: { page?: number; pageSize?: number; module?: string; username?: string }) {
+    return this.adminPlatformService.findAuditLogs({
+      ...body,
+      scope: 'tenant',
+      tenantId: req.user.tenantId,
+    });
+  }
+
+  @Get('platform/dashboard')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 平台数据看板' })
+  getPlatformDashboard() {
+    return this.adminPlatformService.platformDashboard();
+  }
+
+  @Get('platform/tenants')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 租户列表' })
+  getPlatformTenants() {
+    return this.tenantsService.findAll({ page: 1, pageSize: 100 });
+  }
+
+  @Get('platform/tenant-menus')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 租户统一菜单池' })
+  getTenantMenus() {
+    return this.adminPlatformService.findTenantMenus();
+  }
+
+  @Post('platform/tenants/list')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 租户分页列表' })
+  listPlatformTenants(@Body() body: { page?: number; pageSize?: number }) {
+    const { page = 1, pageSize = 20 } = body || {};
+    return this.tenantsService.findAll({ page: Number(page), pageSize: Number(pageSize) });
+  }
+
+  @Get('platform/tenants/:id/menus')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 查询租户已授权菜单' })
+  getTenantMenuGrant(@Param('id') id: string) {
+    return this.adminPlatformService.findTenantMenuGrant(id);
+  }
+
+  @Post('platform/tenants/:id/menus/save')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 保存租户菜单授权' })
+  saveTenantMenuGrant(@Param('id') id: string, @Body() body: { permissionCodes?: string[] }, @Req() req) {
+    return this.adminPlatformService.saveTenantMenuGrant(id, body?.permissionCodes || []).then(async (result) => {
+      await this.adminPlatformService.recordAudit({
+        user: req.user,
+        scope: 'platform',
+        module: 'tenant-menu',
+        action: 'save',
+        targetType: 'tenant',
+        targetId: id,
+        description: `保存租户菜单授权：${result.tenantName}`,
+        afterData: { permissionCodes: body?.permissionCodes || [] },
+        ip: req.ip,
+      });
+      return result;
+    });
+  }
+
+  @Post('platform/tenants/:id/lifecycle')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 更新租户生命周期' })
+  updateTenantLifecycle(@Param('id') id: string, @Body() body: any, @Req() req) {
+    return this.adminPlatformService.updateTenantLifecycle(id, body).then(async (tenant) => {
+      await this.adminPlatformService.recordAudit({
+        user: req.user,
+        scope: 'platform',
+        module: 'tenant',
+        action: 'lifecycle',
+        targetType: 'tenant',
+        targetId: id,
+        description: `更新租户生命周期：${tenant.lifecycleStatus}`,
+        afterData: tenant as any,
+        ip: req.ip,
+      });
+      return tenant;
+    });
+  }
+
+  @Get('platform/tenants/:id')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 租户详情' })
+  getPlatformTenantDetail(@Param('id') id: string) {
+    return this.tenantsService.findOne(id);
+  }
+
+  @Post('platform/tenants/:id/approve')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 审核通过租户' })
+  approveTenant(@Param('id') id: string) {
+    return this.tenantsService.approve(id);
+  }
+
+  @Post('platform/tenants/:id/reject')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 驳回并禁用租户' })
+  rejectTenant(@Param('id') id: string) {
+    return this.tenantsService.reject(id);
+  }
+
+  @Get('platform/permissions')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 权限列表' })
+  getPlatformPermissions() {
+    return this.adminPlatformService.findPermissions();
+  }
+
+  @Get('platform/menus')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 菜单列表' })
+  getPlatformMenus() {
+    return this.adminPlatformService.findMenus();
+  }
+
+  @Get('platform/roles')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 角色列表' })
+  getPlatformRoles() {
+    return this.adminPlatformService.findRoles();
+  }
+
+  @Post('platform/roles/save')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 保存平台角色' })
+  savePlatformRole(
+    @Body()
+    dto: {
+      id?: string;
+      name: string;
+      code?: string;
+      remark?: string;
+      isActive?: number;
+      permissionCodes?: string[];
+    },
+    @Req() req,
+  ) {
+    return this.adminPlatformService.saveRole(dto).then(async (role) => {
+      await this.adminPlatformService.recordAudit({
+        user: req.user,
+        scope: 'platform',
+        module: 'platform-role',
+        action: 'save',
+        targetType: 'role',
+        targetId: role.id,
+        description: `保存平台角色：${role.name}`,
+        afterData: role as any,
+        ip: req.ip,
+      });
+      return role;
+    });
+  }
+
+  @Post('platform/users/list')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 平台用户分页列表' })
+  listPlatformUsers(@Body() body: { page?: number; pageSize?: number; username?: string; isActive?: number }) {
+    return this.adminPlatformService.findUsers(body || {});
+  }
+
+  @Get('platform/users/:id')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 平台用户详情' })
+  getPlatformUserDetail(@Param('id') id: string) {
+    return this.adminPlatformService.findUserDetail(id);
+  }
+
+  @Post('platform/users/save')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 保存平台用户' })
+  savePlatformUser(
+    @Body()
+    dto: {
+      id?: string;
+      username: string;
+      password?: string;
+      realName?: string;
+      avatar?: string;
+      isActive?: number;
+      roleIds?: string[];
+    },
+    @Req() req,
+  ) {
+    return this.adminPlatformService.saveUser(dto).then(async (user) => {
+      await this.adminPlatformService.recordAudit({
+        user: req.user,
+        scope: 'platform',
+        module: 'platform-user',
+        action: 'save',
+        targetType: 'user',
+        targetId: user.id,
+        description: `保存平台用户：${user.username}`,
+        afterData: { id: user.id, username: user.username, isActive: user.isActive },
+        ip: req.ip,
+      });
+      return user;
+    });
+  }
+
+  @Post('platform/users/:id/status')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 平台用户状态变更' })
+  updatePlatformUserStatus(@Param('id') id: string, @Body() body: { isActive: number }) {
+    return this.adminPlatformService.updateUserStatus(id, body.isActive);
+  }
+
+  @Post('platform/menus/save')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 保存平台菜单' })
+  savePlatformMenu(
+    @Body()
+    dto: {
+      id?: number;
+      code: string;
+      name: string;
+      routePath?: string | null;
+      description?: string | null;
+      parentId?: number;
+    },
+    @Req() req,
+  ) {
+    return this.adminPlatformService.saveMenu(dto).then(async (menu) => {
+      await this.adminPlatformService.recordAudit({
+        user: req.user,
+        scope: 'platform',
+        module: 'platform-menu',
+        action: 'save',
+        targetType: 'permission',
+        targetId: String(menu.id),
+        description: `保存平台菜单：${menu.name}`,
+        afterData: menu as any,
+        ip: req.ip,
+      });
+      return menu;
+    });
+  }
+
+  @Post('platform/audit-logs')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 平台操作审计日志' })
+  getPlatformAuditLogs(@Body() body: { page?: number; pageSize?: number; module?: string; username?: string }) {
+    return this.adminPlatformService.findAuditLogs({ ...body, scope: 'platform' });
+  }
+
+  @Post('platform/menus/:id/delete')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 删除平台菜单' })
+  deletePlatformMenu(@Param('id') id: string) {
+    return this.adminPlatformService.deleteMenu(Number(id));
+  }
+}

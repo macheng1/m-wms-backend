@@ -27,6 +27,9 @@ import { ProductModule } from './modules/product/product.module';
 import { PortalModule } from './modules/portal/portal.module';
 import { RedisModule } from './modules/redis/redis.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { AdminApiModule } from './modules/admin/admin-api.module';
+import { MiniappApiModule } from './modules/miniapp/miniapp-api.module';
+import { OpenApiModule } from './modules/open/open-api.module';
 console.log('当前运行环境:', process.env.NODE_ENV);
 console.log('当前工作目录:', process.cwd());
 @Module({
@@ -88,6 +91,9 @@ console.log('当前工作目录:', process.cwd());
     HealthModule,
     ProductModule,
     PortalModule,
+    AdminApiModule,
+    MiniappApiModule,
+    OpenApiModule,
     NotificationsModule,
   ],
   providers: [

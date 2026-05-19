@@ -123,4 +123,24 @@ export class Tenant extends BaseEntity {
     comment: '审核状态：1通过，0待审核',
   })
   isApproved: number;
+
+  @Column({
+    type: 'enum',
+    enum: ['pending', 'active', 'rejected', 'disabled', 'expired'],
+    default: 'pending',
+    comment: '租户生命周期状态',
+  })
+  lifecycleStatus: 'pending' | 'active' | 'rejected' | 'disabled' | 'expired';
+
+  @Column({ nullable: true, type: 'datetime', comment: '到期时间' })
+  expiresAt: Date | null;
+
+  @Column({ nullable: true, type: 'datetime', comment: '审核通过时间' })
+  approvedAt: Date | null;
+
+  @Column({ nullable: true, type: 'text', comment: '审核备注' })
+  auditRemark: string | null;
+
+  @Column({ nullable: true, type: 'text', comment: '禁用原因' })
+  disabledReason: string | null;
 }

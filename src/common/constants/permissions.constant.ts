@@ -1,123 +1,182 @@
 /**
- * 权限元数据接口定义
+ * 权限域：
+ * - platform：平台超级管理员使用，负责租户、平台菜单、平台角色、平台用户和平台配置。
+ * - tenant：租户管理员和租户员工使用，负责本租户员工、角色、菜单和业务数据。
  */
+export type PermissionScope = 'platform' | 'tenant';
+
 export interface PermissionMeta {
-  code: string; // 权限唯一标识，对应后端 Guard 校验
-  name: string; // 权限名称，用于 UI 显示
-  description?: string; // 权限详细描述
-  isMenu?: boolean; // 是否属于菜单级权限（用于飞冰侧边栏过滤）
+  code: string;
+  name: string;
+  description?: string;
+  isMenu?: boolean;
+  routePath?: string;
+  scope?: PermissionScope;
 }
 
 export interface PermissionGroup {
-  module: string; // 模块名称
+  module: string;
+  scope: PermissionScope;
   actions: PermissionMeta[];
-  children?: PermissionGroup[]; // 支持嵌套（可选）
 }
 
-/**
- * 全局权限配置
- * 使用 as const 保证类型推导为具体值而非 string
- */
 export const PERMISSION_CONFIG = {
-  DASHBOARD: {
-    module: '工作台',
-    actions: [{ code: 'wms:dashboard', name: '工作台', isMenu: true }],
+  PLATFORM_DASHBOARD: {
+    module: '平台工作台',
+    scope: 'platform',
+    actions: [{ code: 'platform:dashboard', name: '平台工作台', isMenu: true, routePath: '/' }],
   },
-
-  BASE: {
-    module: '基本信息',
+  PLATFORM_TENANT: {
+    module: '租户管理',
+    scope: 'platform',
     actions: [
+      { code: 'platform:tenant', name: '租户管理', isMenu: true, routePath: '/tenants' },
+      { code: 'platform:tenant:list', name: '租户列表', isMenu: true, routePath: '/tenants' },
+      { code: 'platform:tenant:create', name: '新增租户' },
+      { code: 'platform:tenant:update', name: '编辑租户' },
+      { code: 'platform:tenant:delete', name: '删除租户' },
+      { code: 'platform:tenant:approve', name: '审核租户' },
+      { code: 'platform:tenant:status', name: '启用/禁用租户' },
+    ],
+  },
+  PLATFORM_SECURITY: {
+    module: '平台权限',
+    scope: 'platform',
+    actions: [
+      { code: 'platform:user', name: '平台用户', isMenu: true, routePath: '/settings/platform-users' },
+      { code: 'platform:role', name: '平台角色', isMenu: true, routePath: '/settings/platform-roles' },
+      { code: 'platform:menu', name: '平台菜单', isMenu: true, routePath: '/settings/platform-menus' },
       {
-        code: 'wms:base',
-        name: '基本信息',
+        code: 'platform:permission',
+        name: '平台权限',
         isMenu: true,
-        // itemKey: '/base', // 前端自定义字段
-        // icon: <IconAppCenter />,
+        routePath: '/settings/platform-permissions',
+      },
+      {
+        code: 'platform:audit-log',
+        name: '平台审计',
+        isMenu: true,
+        routePath: '/settings/platform-audit-logs',
       },
     ],
   },
-  WEBSITE: {
-    module: '网站管理',
-    actions: [{ code: 'wms:website:inquiry', name: '询价管理', isMenu: true }],
+  PLATFORM_CONFIG: {
+    module: '平台配置',
+    scope: 'platform',
+    actions: [{ code: 'platform:config', name: '平台配置', isMenu: true, routePath: '/settings/dict' }],
   },
 
-  PRODUCT: {
+  TENANT_DASHBOARD: {
+    module: '租户工作台',
+    scope: 'tenant',
+    actions: [{ code: 'tenant:dashboard', name: '工作台', isMenu: true, routePath: '/' }],
+  },
+  TENANT_BASE: {
+    module: '基础资料',
+    scope: 'tenant',
+    actions: [
+      { code: 'tenant:base', name: '基础资料', isMenu: true, routePath: '/base' },
+      { code: 'tenant:unit:list', name: '单位管理', isMenu: true, routePath: '/inventory/unit' },
+    ],
+  },
+  TENANT_SECURITY: {
+    module: '组织权限',
+    scope: 'tenant',
+    actions: [
+      { code: 'tenant:user:list', name: '员工管理', isMenu: true, routePath: '/users' },
+      { code: 'tenant:user:create', name: '新增员工' },
+      { code: 'tenant:user:update', name: '编辑员工' },
+      { code: 'tenant:user:delete', name: '删除员工' },
+      { code: 'tenant:role:list', name: '角色管理', isMenu: true, routePath: '/settings/roles' },
+      { code: 'tenant:role:create', name: '新增角色' },
+      { code: 'tenant:role:update', name: '编辑角色' },
+      { code: 'tenant:role:delete', name: '删除角色' },
+      { code: 'tenant:menu:list', name: '租户菜单', isMenu: true, routePath: '/settings/permissions' },
+      { code: 'tenant:dict', name: '租户字典', isMenu: true, routePath: '/settings/dict' },
+      { code: 'tenant:audit-log', name: '操作日志', isMenu: true, routePath: '/settings/operation-logs' },
+    ],
+  },
+  TENANT_PRODUCT: {
     module: '产品管理',
+    scope: 'tenant',
     actions: [
-      { code: 'wms:product:attr', name: '属性管理', isMenu: true },
-      { code: 'wms:product:spec', name: '规格管理', isMenu: true },
-      { code: 'wms:product:list', name: '产品列表', isMenu: true },
+      { code: 'tenant:product', name: '产品管理', isMenu: true, routePath: '/product' },
+      { code: 'tenant:product:list', name: '产品列表', isMenu: true, routePath: '/product/list' },
+      { code: 'tenant:product:create', name: '新增产品' },
+      { code: 'tenant:product:update', name: '编辑产品' },
+      { code: 'tenant:product:delete', name: '删除产品' },
+      { code: 'tenant:product:import', name: '导入产品' },
+      { code: 'tenant:category:list', name: '类目管理', isMenu: true, routePath: '/category/list' },
+      { code: 'tenant:attribute:list', name: '属性管理', isMenu: true, routePath: '/product/attr' },
+      { code: 'tenant:spec:list', name: '规格管理', isMenu: true, routePath: '/product/spec' },
     ],
   },
-  WAREHOUSE: {
+  TENANT_WAREHOUSE: {
     module: '仓库管理',
+    scope: 'tenant',
     actions: [
-      { code: 'wms:warehouse', name: '仓库管理', isMenu: true },
-      { code: 'wms:warehouse:list', name: '仓库列表', isMenu: true },
-      { code: 'wms:warehouse:area', name: '库区管理', isMenu: true },
+      { code: 'tenant:warehouse', name: '仓库管理', isMenu: true, routePath: '/warehouse' },
+      { code: 'tenant:location:list', name: '库位管理', isMenu: true, routePath: '/warehouse/list' },
+      { code: 'tenant:location:create', name: '新增库位' },
+      { code: 'tenant:location:update', name: '编辑库位' },
+      { code: 'tenant:location:delete', name: '删除库位' },
     ],
   },
-
-  INVENTORY: {
+  TENANT_INVENTORY: {
     module: '库存管理',
+    scope: 'tenant',
     actions: [
-      { code: 'wms:inventory', name: '库存管理', isMenu: true },
-      { code: 'wms:inventory:unit', name: '单位管理', isMenu: true },
-      { code: 'wms:inventory:list', name: '库存查询', isMenu: true },
-      { code: 'wms:inventory:inbound', name: '入库管理', isMenu: true },
-      { code: 'wms:inventory:outbound', name: '出库管理', isMenu: true },
-      { code: 'wms:inventory:transactions', name: '库存流水', isMenu: true },
-      { code: 'wms:inventory:alerts', name: '库存预警', isMenu: true },
+      { code: 'tenant:inventory', name: '库存管理', isMenu: true, routePath: '/inventory' },
+      { code: 'tenant:inventory:list', name: '库存查询', isMenu: true, routePath: '/inventory/list' },
+      { code: 'tenant:inventory:inbound', name: '入库管理', isMenu: true, routePath: '/inventory/inbound' },
+      { code: 'tenant:inventory:outbound', name: '出库管理', isMenu: true, routePath: '/inventory/outbound' },
+      { code: 'tenant:inventory:adjust', name: '库存调整' },
+      {
+        code: 'tenant:inventory:transaction:list',
+        name: '库存流水',
+        isMenu: true,
+        routePath: '/inventory/transactions',
+      },
+      { code: 'tenant:inventory:alert:list', name: '库存预警', isMenu: true, routePath: '/inventory/alerts' },
     ],
   },
-  USERS: {
-    module: '员工管理',
-    actions: [{ code: 'wms:users', name: '员工管理', isMenu: true }],
-  },
-  TENANTS: {
-    module: '租户管理',
+  TENANT_ORDER: {
+    module: '订单管理',
+    scope: 'tenant',
     actions: [
-      { code: 'wms:tenants', name: '租户管理', isMenu: true },
-      { code: 'wms:tenants:list', name: '租户列表', isMenu: true },
-      { code: 'wms:tenants:add', name: '新增租户' },
-      { code: 'wms:tenants:edit', name: '编辑租户' },
-      { code: 'wms:tenants:delete', name: '删除租户' },
+      { code: 'tenant:order', name: '订单管理', isMenu: true },
+      { code: 'tenant:order:list', name: '订单列表', isMenu: true },
+      { code: 'tenant:order:create', name: '新增订单' },
+      { code: 'tenant:order:update', name: '编辑订单' },
+      { code: 'tenant:order:delete', name: '删除订单' },
     ],
   },
-  CATEGORY: {
-    module: '类目管理',
+  TENANT_PORTAL: {
+    module: '官网管理',
+    scope: 'tenant',
     actions: [
-      { code: 'wms:category', name: '类目管理', isMenu: true },
-      { code: 'wms:category:list', name: '类目列表', isMenu: true },
-      { code: 'wms:category:add', name: '新增类目' },
-      { code: 'wms:category:edit', name: '编辑类目' },
-      { code: 'wms:category:delete', name: '删除类目' },
-    ],
-  },
-  SETTINGS: {
-    module: '系统设置',
-    actions: [
-      { code: 'wms:settings', name: '系统设置', isMenu: true },
-      { code: 'wms:settings:roles', name: '角色管理', isMenu: true },
-      { code: 'wms:settings:permissions', name: '权限管理', isMenu: true },
+      { code: 'tenant:portal', name: '官网管理', isMenu: true, routePath: '/website' },
+      { code: 'tenant:portal:config', name: '官网配置', isMenu: true, routePath: '/base' },
+      { code: 'tenant:portal:inquiry:list', name: '询盘管理', isMenu: true, routePath: '/website/inquiry' },
     ],
   },
 } as const;
 
-/**
- * 辅助工具：提取所有权限 Code 的联合类型 (前端校验用)
- */
 export type PermissionCode =
   (typeof PERMISSION_CONFIG)[keyof typeof PERMISSION_CONFIG]['actions'][number]['code'];
 
-/**
- * 辅助工具：转换为后端初始化所需的扁平数组
- */
 export const flattenPermissions = () => {
   return Object.values(PERMISSION_CONFIG).flatMap((group) =>
     group.actions.map((action) => ({
       ...action,
       module: group.module,
+      scope: 'scope' in action ? action.scope : group.scope,
     })),
   );
 };
+
+export const flattenTenantPermissions = () =>
+  flattenPermissions().filter((permission) => permission.scope === 'tenant');
+
+export const flattenPlatformPermissions = () =>
+  flattenPermissions().filter((permission) => permission.scope === 'platform');

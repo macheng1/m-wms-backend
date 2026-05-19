@@ -4,7 +4,7 @@ import { CreateRoleDto, UpdateRoleDto } from './entities/dto/create-role.dto';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Role } from './entities/role.entity';
-import { In, Like, Repository } from 'typeorm';
+import { DataSource, In, Like, Repository } from 'typeorm';
 import { QueryRoleDto } from './entities/dto/query-role.dto';
 import { Permission } from '../auth/entities/permission.entity';
 
@@ -16,29 +16,71 @@ export class RolesService {
     private readonly roleRepository: Repository<Role>,
     @InjectRepository(Permission)
     private readonly permissionRepository: Repository<Permission>,
+    private readonly dataSource: DataSource,
   ) {}
+
+  private async getTenantPermissions(
+    permissionCodes: string[] = [],
+    tenantId: string,
+  ): Promise<Permission[]> {
+    if (permissionCodes.length === 0) {
+      return [];
+    }
+
+    const permissions = await this.permissionRepository.find({
+      where: {
+        code: In(permissionCodes),
+        scope: 'tenant',
+      },
+    });
+
+    if (permissions.length !== permissionCodes.length) {
+      const existingCodes = new Set(permissions.map((permission) => permission.code));
+      const invalidCodes = permissionCodes.filter((code) => !existingCodes.has(code));
+      throw new BusinessException(`存在不可分配的租户权限：${invalidCodes.join(', ')}`);
+    }
+
+    const menuPermissions = permissions.filter((permission) => permission.type === 'MENU');
+    if (menuPermissions.length > 0) {
+      const grantedRows: Array<{ code: string }> = await this.dataSource.query(
+        `
+          SELECT p.code
+          FROM tenant_menu_permissions tmp
+          INNER JOIN permissions p ON p.id = tmp.permissionsId
+          WHERE tmp.tenantId = ?
+            AND p.scope = 'tenant'
+            AND p.type = 'MENU'
+        `,
+        [tenantId],
+      );
+      const grantedCodes = new Set(grantedRows.map((row) => row.code));
+      const invalidMenuCodes = menuPermissions
+        .map((permission) => permission.code)
+        .filter((code) => !grantedCodes.has(code));
+
+      if (invalidMenuCodes.length > 0) {
+        throw new BusinessException(`存在未授权给该租户的菜单：${invalidMenuCodes.join(', ')}`);
+      }
+    }
+
+    return permissions;
+  }
 
   async create(dto: CreateRoleDto, tenantId: string) {
     // 1. 唯一性检查：确保同一个厂家的角色名不重复
     const existing = await this.roleRepository.findOne({
-      where: { name: dto.name, tenantId },
+      where: { name: dto.name, tenantId, scope: 'tenant' },
     });
     if (existing) throw new BusinessException('该角色名称在当前企业中已存在');
 
-    // 2. 根据前端传来的 code 数组，去数据库里查出对应的权限实体
-    let permissions: Permission[] = [];
-    if (dto.permissionCodes && dto.permissionCodes.length > 0) {
-      // 使用 TypeORM 的 In 操作符批量查询
-      permissions = await this.permissionRepository.find({
-        where: {
-          code: In(dto.permissionCodes), // 对应你前端存的 code
-        },
-      });
-    }
+    // 2. 租户管理员只能为租户角色分配 tenant 域权限。
+    const permissions = await this.getTenantPermissions(dto.permissionCodes, tenantId);
 
     // 3. 创建角色并关联查到的权限实体
+    const { permissionCodes, scope, ...roleInfo } = dto;
     const role = this.roleRepository.create({
-      ...dto,
+      ...roleInfo,
+      scope: 'tenant',
       tenantId, // 强制注入租户 ID，保证数据隔离
       permissions, // 绑定权限实体对象数组
     });
@@ -54,7 +96,7 @@ export class RolesService {
     const { page, pageSize, name, isActive, permissionCodes } = query;
 
     // 构建查询条件
-    const where: any = { tenantId };
+    const where: any = { tenantId, scope: 'tenant' };
     if (name) {
       where.name = Like(`%${name}%`); // 模糊匹配角色名
     }
@@ -79,11 +121,19 @@ export class RolesService {
       const qb = this.roleRepository
         .createQueryBuilder('role')
         .leftJoinAndSelect('role.permissions', 'permission')
-        .where(where)
-        .andWhere('permission.code IN (:...permissionCodes)', { permissionCodes })
-        .skip((page - 1) * pageSize)
-        .take(pageSize)
-        .orderBy('role.id', 'DESC');
+        .where('role.tenantId = :tenantId', { tenantId })
+        .andWhere('role.scope = :scope', { scope: 'tenant' })
+        .andWhere('permission.code IN (:...permissionCodes)', { permissionCodes });
+
+      if (name) {
+        qb.andWhere('role.name LIKE :name', { name: `%${name}%` });
+      }
+      if (isActiveNum === 0 || isActiveNum === 1) {
+        qb.andWhere('role.isActive = :isActive', { isActive: isActiveNum });
+      }
+
+      qb.skip((page - 1) * pageSize).take(pageSize).orderBy('role.id', 'DESC');
+
       const [list, total] = await qb.getManyAndCount();
       return {
         list,
@@ -114,7 +164,7 @@ export class RolesService {
   async update(id: string, dto: UpdateRoleDto, tenantId: string) {
     // 1. 先查找该租户下的角色，并显式加载 permissions 关联
     const role = await this.roleRepository.findOne({
-      where: { id, tenantId },
+      where: { id, tenantId, scope: 'tenant' },
       relations: ['permissions'], // 必须加载关联，否则 TypeORM 无法正确对比差异进行更新
     });
 
@@ -124,21 +174,13 @@ export class RolesService {
 
     // 2. 如果 DTO 中包含了权限码数组，则进行转换
     if (dto.permissionCodes) {
-      // 根据 code 批量查找权限实体
-      const permissionEntities = await this.permissionRepository.find({
-        where: {
-          code: In(dto.permissionCodes), // 对应前端 MENU_CONFIG 里的 code
-        },
-      });
-
-      // 将查找到的实体数组赋值给 role 对象
-      role.permissions = permissionEntities; //
+      role.permissions = await this.getTenantPermissions(dto.permissionCodes, tenantId);
     }
 
     // 3. 更新其他基础字段（如 name, remark, isActive）
     // 注意：不要直接 Object.assign(role, dto)，因为 dto 里的 permissionCodes 是字符串数组
-    const { permissionCodes, ...baseInfo } = dto;
-    Object.assign(role, baseInfo);
+    const { permissionCodes, scope, ...baseInfo } = dto;
+    Object.assign(role, baseInfo, { scope: 'tenant' });
 
     // 4. 保存角色
     // TypeORM 会自动处理中间表 role_permissions 的更新
@@ -152,7 +194,7 @@ export class RolesService {
   async updateStatus(id: string, isActive: number, tenantId: string) {
     // 1. 查找并确认归属权，防止越权操作其他工厂的角色
     const role = await this.roleRepository.findOne({
-      where: { id, tenantId },
+      where: { id, tenantId, scope: 'tenant' },
     });
 
     if (!role) {
@@ -175,7 +217,7 @@ export class RolesService {
   async findOne(id: string, tenantId: string) {
     console.log('🚀 ~ RolesService ~ findOne ~ tenantId:', tenantId);
     const role = await this.roleRepository.findOne({
-      where: { id, tenantId },
+      where: { id, tenantId, scope: 'tenant' },
       relations: ['permissions'],
     });
     if (!role) throw new BusinessException('角色不存在或无权操作');
@@ -189,7 +231,7 @@ export class RolesService {
   async selectRoleList(tenantId: string) {
     console.log('🚀 ~ RolesService ~ selectRoleList ~ tenantId:', tenantId);
     const list = await this.roleRepository.find({
-      where: { tenantId, isActive: 1 },
+      where: { tenantId, scope: 'tenant', isActive: 1 },
       order: { createdAt: 'ASC' },
       relations: ['permissions'],
     });

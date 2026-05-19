@@ -80,18 +80,24 @@ export class AuthService {
     // 2. 校验密码
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) throw new BadRequestException('密码错误');
+    if (user.isActive !== 1) throw new BusinessException('账号已禁用');
+
+    const userType = user.isPlatformAdmin === 1 ? 'platform' : 'tenant';
 
     // 3. 签发 JWT (载荷只包含核心 ID，不包含权限列表，防止 Token 过大)
     const payload = {
+      tokenType: 'admin',
+      userType,
       sub: user.id,
       userId: user.id,
       username: user.username,
       tenantId: user.tenantId,
-      isAdmin: user.isPlatformAdmin,
     };
 
     return {
       access_token: this.jwtService.sign(payload),
+      userType,
+      tenantId: user.tenantId,
     };
   }
   // src/modules/auth/auth.service.ts

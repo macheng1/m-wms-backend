@@ -1,7 +1,7 @@
 // src/modules/users/users.service.ts
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Like, Repository } from 'typeorm';
+import { DataSource, Like, Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs'; // 修复导入，确保运行时可用
 import { User } from './entities/user.entity';
 import { Role } from '../roles/entities/role.entity';
@@ -18,6 +18,7 @@ export class UsersService {
   constructor(
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
+    private readonly dataSource: DataSource,
   ) {}
 
   /**
@@ -31,12 +32,13 @@ export class UsersService {
 
     if (!user) throw new NotFoundException('该用户不存在');
 
-    // 权限扁平化：如果是平台管理员或租户管理员，直接返回通配符
+    // 权限扁平化：平台超级管理员/租户管理员返回通配符，其余用户按角色权限返回。
+    const isPlatformSuperAdmin =
+      user.isPlatformAdmin === 1 && user.roles.some((r) => r.code === 'PLATFORM_ADMIN');
     const isTenantAdmin = user.roles.some((r) => r.code === 'ADMIN');
-    const permissions =
-      user.isPlatformAdmin === 1 || isTenantAdmin
-        ? ['*']
-        : user.roles.flatMap((role) => role.permissions.map((p) => p.code));
+    const permissions = isPlatformSuperAdmin
+      ? ['*']
+      : await this.resolveUserPermissions(user, isTenantAdmin);
 
     // 新增：角色名称数组
     const roleNames = user.roles?.map((r) => r.name) || [];
@@ -46,12 +48,41 @@ export class UsersService {
       username: user.username,
       avatar: user.avatar,
       realName: user.realName,
-      isPlatformAdmin: user.isPlatformAdmin,
+      userType: user.isPlatformAdmin === 1 ? 'platform' : 'tenant',
       tenantId: user.tenantId,
       tenantName: user.tenant?.name || '系统运营',
       permissions: [...new Set(permissions)], // 去重
       roleNames,
     };
+  }
+
+  private async resolveUserPermissions(user: User, isTenantAdmin: boolean) {
+    if (!user.tenantId) {
+      return user.roles.flatMap((role) => role.permissions.map((p) => p.code));
+    }
+
+    const grantedRows: Array<{ code: string }> = await this.dataSource.query(
+      `
+        SELECT p.code
+        FROM tenant_menu_permissions tmp
+        INNER JOIN permissions p ON p.id = tmp.permissionsId
+        WHERE tmp.tenantId = ?
+          AND p.scope = 'tenant'
+          AND p.type = 'MENU'
+      `,
+      [user.tenantId],
+    );
+    const grantedMenuCodes = new Set(grantedRows.map((row) => row.code));
+
+    if (isTenantAdmin) {
+      return [...grantedMenuCodes];
+    }
+
+    return user.roles.flatMap((role) =>
+      role.permissions
+        .filter((permission) => permission.type !== 'MENU' || grantedMenuCodes.has(permission.code))
+        .map((permission) => permission.code),
+    );
   }
 
   /**
@@ -186,7 +217,7 @@ export class UsersService {
       username: user.username,
       avatar: user.avatar,
       realName: user.realName,
-      isPlatformAdmin: user.isPlatformAdmin,
+      userType: user.isPlatformAdmin === 1 ? 'platform' : 'tenant',
       tenantId: user.tenantId,
       tenantName: user.tenant?.name || '系统运营',
       isActive: user.isActive,

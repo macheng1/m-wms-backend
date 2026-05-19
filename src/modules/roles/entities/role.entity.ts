@@ -5,6 +5,8 @@ import { Entity, Column, ManyToMany, JoinTable } from 'typeorm';
 import { Permission } from '../../auth/entities/permission.entity';
 import { TenantBaseEntity } from '@/database/base.entity';
 
+export type RoleScope = 'platform' | 'tenant';
+
 @Entity('roles')
 export class Role extends TenantBaseEntity {
   @Column({ comment: '角色名称' })
@@ -13,6 +15,13 @@ export class Role extends TenantBaseEntity {
   isActive: number; // <--- 状态字段 1启用 0禁用
   @Column({ nullable: true, comment: '角色模板编码' })
   code: string;
+  @Column({
+    type: 'enum',
+    enum: ['platform', 'tenant'],
+    default: 'tenant',
+    comment: '角色归属域：platform-平台角色，tenant-租户角色',
+  })
+  scope: RoleScope;
   @Column({ nullable: true, comment: '备注' })
   remark: string;
   @Column({ default: false, comment: '是否为系统初始化角色' })

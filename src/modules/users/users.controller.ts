@@ -9,12 +9,19 @@ import { ResetPasswordDto } from './dto/reset-password-dto';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { QueryUserDto } from './dto/query-user.dto';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { OperationLog } from '../admin/entities/operation-log.entity';
 
 @ApiTags('用户管理')
 @ApiBearerAuth()
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    @InjectRepository(OperationLog)
+    private readonly operationLogRepo: Repository<OperationLog>,
+  ) {}
 
   /**
    * 获取当前登录用户的详细信息及权限
@@ -54,7 +61,9 @@ export class UsersController {
   @Post('save')
   @UseGuards(JwtAuthGuard)
   async save(@Body() createUserDto: CreateUserDto, @Req() req) {
-    return this.usersService.save(createUserDto, req.user.tenantId);
+    const result = await this.usersService.save(createUserDto, req.user.tenantId);
+    await this.recordTenantAudit(req, 'user', 'save', result?.id, `保存员工：${result?.username || createUserDto.username}`);
+    return result;
   }
 
   /**
@@ -64,7 +73,9 @@ export class UsersController {
   @Post('update')
   @UseGuards(JwtAuthGuard)
   async update(@Body() updateUserDto: UpdateUserDto, @Req() req) {
-    return this.usersService.update(updateUserDto, req.user.tenantId);
+    const result = await this.usersService.update(updateUserDto, req.user.tenantId);
+    await this.recordTenantAudit(req, 'user', 'update', updateUserDto.id, `更新员工：${result?.username || updateUserDto.username || updateUserDto.id}`);
+    return result;
   }
 
   /**
@@ -87,7 +98,9 @@ export class UsersController {
   @UseGuards(JwtAuthGuard)
   async reset(@Body() dto: ResetPasswordDto, @Req() req) {
     // 强制带上租户 ID，防止管理员重置了其他厂家的账号
-    return this.usersService.reset(dto, req.user.tenantId);
+    const result = await this.usersService.reset(dto, req.user.tenantId);
+    await this.recordTenantAudit(req, 'user', 'reset-password', dto.userId, '重置员工密码');
+    return result;
   }
 
   /**
@@ -97,7 +110,9 @@ export class UsersController {
   @Post('status')
   @UseGuards(JwtAuthGuard)
   async status(@Body() dto: UpdateUserStatusDto, @Req() req) {
-    return this.usersService.status(dto, req.user.tenantId);
+    const result = await this.usersService.status(dto, req.user.tenantId);
+    await this.recordTenantAudit(req, 'user', 'status', dto.id, `切换员工状态：${dto.isActive}`);
+    return result;
   }
 
   /**
@@ -107,7 +122,9 @@ export class UsersController {
   @Post('delete')
   @UseGuards(JwtAuthGuard)
   async delete(@Body('id') id: string, @Req() req) {
-    return this.usersService.delete(id, req.user.tenantId);
+    const result = await this.usersService.delete(id, req.user.tenantId);
+    await this.recordTenantAudit(req, 'user', 'delete', id, '删除员工');
+    return result;
   }
   /**
    * 获取指定员工详情
@@ -117,5 +134,22 @@ export class UsersController {
   @UseGuards(JwtAuthGuard)
   async getUserDetail(@Body('id') id: string, @Req() req) {
     return this.usersService.getDetail(id, req.user.tenantId);
+  }
+
+  private recordTenantAudit(req: any, module: string, action: string, targetId?: string, description?: string) {
+    return this.operationLogRepo.save(
+      this.operationLogRepo.create({
+        tenantId: req.user?.tenantId || null,
+        userId: req.user?.userId || req.user?.sub || null,
+        username: req.user?.username || null,
+        scope: 'tenant',
+        module,
+        action,
+        targetType: module,
+        targetId: targetId || null,
+        description: description || null,
+        ip: req.ip || null,
+      }),
+    );
   }
 }

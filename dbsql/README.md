@@ -38,3 +38,59 @@ YYYYMMDDHHMM_业务说明_rollback.sql
 - 删除字段、删除数据、修改字段类型等高风险操作必须说明风险，并提供回滚方案。
 - TypeORM migration 可以继续放在 `src/database/migrations/`，但对应的人工 SQL 方案和维护 SQL 应沉淀到本目录。
 - 禁止使用 `DB_SYNCHRONIZE=true` 自动创建或修改表结构；数据库变更必须通过本目录 SQL 和/或 TypeORM migration 管理。
+
+## 执行顺序
+
+空库初始化：
+
+```text
+1. init-schema.sql
+2. 202605191700_admin_scope_data.sql
+```
+
+旧库升级：
+
+```text
+1. 备份数据库
+2. 202605191700_admin_scope_schema.sql
+3. 202605191700_admin_scope_data.sql
+```
+
+升级失败并且代码也回退时，才考虑执行对应的 `*-rollback.sql`。
+
+## 已知执行问题
+
+### 1273 - Unknown collation: `utf8mb4_0900_ai_ci`
+
+原因：`utf8mb4_0900_ai_ci` 是 MySQL 8 常见排序规则，MySQL 5.7 或部分 MariaDB 不支持。
+
+处理：本目录 SQL 已统一改为 `utf8mb4_unicode_ci`。如果复制旧 SQL 执行，先替换：
+
+```sql
+utf8mb4_0900_ai_ci -> utf8mb4_unicode_ci
+```
+
+### 1060 - Duplicate column name
+
+原因：重复执行结构升级脚本，或已经执行过 `init-schema.sql` 后又执行 `*-schema.sql`。
+
+处理：
+
+- 空库建表后不要再执行 `202605191700_admin_scope_schema.sql`，只执行 `202605191700_admin_scope_data.sql`。
+- `202605191700_admin_scope_schema.sql` 已改成幂等脚本，字段已存在会自动跳过。
+
+### 外键字段类型不一致
+
+原因：MySQL 创建外键时要求引用字段和被引用字段类型、长度、字符集/排序规则兼容。
+
+已处理：
+
+- `inventory_locations.locationId` 与 `locations.id` 统一为 `char(36)`。
+- 常见 UUID 字段如 `tenantId`、`locationId`、`unitId`、`deviceId` 已在 `init-schema.sql` 中统一为 `char(36)`。
+
+### schema / data / rollback 不要混用
+
+- `init-schema.sql`：新库建表。
+- `*-schema.sql`：旧库升级结构。
+- `*-data.sql`：写入初始化数据。
+- `*-rollback.sql`：撤销对应结构升级，只有回退版本时使用。

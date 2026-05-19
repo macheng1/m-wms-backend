@@ -87,6 +87,14 @@
 ## Controller 规范
 
 - 路由风格优先保持现有项目习惯，例如 `page`、`save`、`update`、`detail`、`delete`、`status`。
+- 新增接口前必须先判断调用方类型：管理端 Admin API、官网 Portal API、小程序 Miniapp API、服务器调用 Open API。
+- 管理端接口主要服务 `my-wms`，优先使用 JWT 登录态，从 `req.user.tenantId` 获取租户，后续需要接 RBAC 权限码。
+- 管理端内部再分为平台域和租户域：
+  - 平台域用于超级管理员，路径建议为 `/admin/platform/*`，负责租户、平台菜单、平台角色、平台用户和平台配置。
+  - 租户域用于租户管理员和租户员工，路径建议为 `/admin/tenant/*`，负责本租户员工、角色、菜单和业务数据。
+- 官网接口主要服务 `portal-websits`，建议统一放在 `/portal/:domain/*`，通过 `domain` 解析租户，不信任前端传入的 `tenantId`。
+- 小程序接口建议统一放在 `/miniapp/*`，使用小程序登录态或用户绑定关系确定租户，不直接复用管理端账号密码接口。
+- 服务器调用接口建议统一放在 `/open/v1/*`，使用服务端 appKey/appSecret、签名、时间戳、nonce 或专用 token，不使用前端 JWT。
 - 已登录接口从 `req.user` 获取用户信息，租户 ID 优先使用 `req.user.tenantId`。
 - 公开接口必须使用 `@Public()`，并对 `tenantId`、`id` 等关键参数做显式校验。
 - 需要 Bearer Token 的 controller 保持 `@ApiBearerAuth()`。
@@ -155,6 +163,12 @@
 - 权限常量和角色模板优先维护在 `src/common/constants/`。
 - 新增受保护接口时，检查是否需要权限守卫、权限码、角色模板或菜单侧配置。
 - 平台管理员逻辑与租户管理员逻辑要区分清楚，不要把 `tenantId = null` 的数据混入普通租户查询。
+- 平台超级管理员属于平台域，`tenantId` 可以为空，只能默认操作平台资源和租户管理资源。
+- 平台超级管理员如需查看或处理某个租户业务数据，必须设计明确的“代管/切换租户”上下文，不能让平台接口默认跨租户混查。
+- 租户管理员属于租户域，只能管理本租户员工、租户角色、租户菜单和本租户业务数据。
+- 租户员工属于租户域，只能按角色权限访问本租户业务数据。
+- 角色、菜单、权限建议区分 `scope`：`platform` 表示平台域，`tenant` 表示租户域；租户域数据必须带 `tenantId`。
+- 权限码建议按域名前缀拆分，例如 `platform:tenant:list`、`platform:role:list`、`tenant:user:list`、`tenant:inventory:outbound`。
 
 ## 异常与响应规范
 

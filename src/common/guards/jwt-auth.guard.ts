@@ -46,13 +46,16 @@ export class JwtAuthGuard implements CanActivate {
       console.log('🚀 ~ JwtAuthGuard ~ canActivate ~ payload:', payload);
 
       // 平台管理员跳过租户审核校验
-      if (!payload.isAdmin && payload.tenantId) {
+      if (payload.userType !== 'platform' && payload.tenantId) {
         const tenant = await this.dataSource.getRepository(Tenant).findOne({
           where: { id: payload.tenantId },
         });
 
         if (!tenant) {
           throw new UnauthorizedException('租户不存在');
+        }
+        if (tenant.lifecycleStatus && tenant.lifecycleStatus !== 'active') {
+          throw new ForbiddenException('租户未处于运营中状态，禁止访问');
         }
         if (tenant.isApproved !== 1) {
           throw new ForbiddenException('租户未审核通过，禁止访问');

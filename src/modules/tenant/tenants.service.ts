@@ -44,10 +44,13 @@ export class TenantsService {
         // Step A: 创建租户主体
         const tenant = await this.createTenant(manager, dto);
 
-        // Step B: 并行初始化角色与权限（优化性能）
+        // Step B: 初始化该租户可使用的统一菜单
+        await this.initTenantMenuPermissions(manager, tenant.id);
+
+        // Step C: 初始化角色与权限
         const { adminRole } = await this.initTenantRoles(manager, tenant.id);
 
-        // Step C: 创建租户超级管理员
+        // Step D: 创建租户超级管理员
         const adminUser = await this.createAdminUser(manager, tenant.id, dto, adminRole);
 
         // 返回给拦截器的数据负载
@@ -132,8 +135,56 @@ export class TenantsService {
       annualCapacity: tenant.annualCapacity,
       isActive: tenant.isActive,
       isApproved: tenant.isApproved,
+      lifecycleStatus: tenant.lifecycleStatus,
+      expiresAt: tenant.expiresAt,
+      approvedAt: tenant.approvedAt,
+      auditRemark: tenant.auditRemark,
+      disabledReason: tenant.disabledReason,
       createdAt: tenant.createdAt,
       updatedAt: tenant.updatedAt,
+    };
+  }
+
+  async approve(id: string) {
+    const repo = this.dataSource.getRepository(Tenant);
+    const tenant = await repo.findOne({ where: { id } });
+    if (!tenant) throw new ConflictException('租户不存在');
+
+    tenant.isApproved = 1;
+    tenant.isActive = 1;
+    tenant.lifecycleStatus = 'active';
+    tenant.approvedAt = tenant.approvedAt || new Date();
+    const savedTenant = await repo.save(tenant);
+
+    return {
+      id: savedTenant.id,
+      code: savedTenant.code,
+      name: savedTenant.name,
+      isApproved: savedTenant.isApproved,
+      isActive: savedTenant.isActive,
+      lifecycleStatus: savedTenant.lifecycleStatus,
+      message: '租户审核已通过',
+    };
+  }
+
+  async reject(id: string) {
+    const repo = this.dataSource.getRepository(Tenant);
+    const tenant = await repo.findOne({ where: { id } });
+    if (!tenant) throw new ConflictException('租户不存在');
+
+    tenant.isApproved = 0;
+    tenant.isActive = 0;
+    tenant.lifecycleStatus = 'rejected';
+    const savedTenant = await repo.save(tenant);
+
+    return {
+      id: savedTenant.id,
+      code: savedTenant.code,
+      name: savedTenant.name,
+      isApproved: savedTenant.isApproved,
+      isActive: savedTenant.isActive,
+      lifecycleStatus: savedTenant.lifecycleStatus,
+      message: '租户已驳回并禁用',
     };
   }
 
@@ -337,6 +388,19 @@ export class TenantsService {
   }
 
   // ...existing code...
+  private async initTenantMenuPermissions(manager: EntityManager, tenantId: string) {
+    const tenantMenus = await manager.find(Permission, {
+      where: { scope: 'tenant', type: 'MENU' },
+    });
+
+    for (const permission of tenantMenus) {
+      await manager.query(
+        'INSERT IGNORE INTO tenant_menu_permissions (tenantId, permissionsId) VALUES (?, ?)',
+        [tenantId, permission.id],
+      );
+    }
+  }
+
   /**
    * 优化后的逻辑拆分 3：初始化角色（极致性能版）
    */
@@ -358,12 +422,13 @@ export class TenantsService {
       // 你可以根据 code 查询 Permission 实体，或直接用 code 关联
       // 这里假设 Permission 实体已初始化，且 code 唯一
       const permissionEntities = await manager.find(Permission, {
-        where: { code: In(perms.map((p) => p.code)) },
+        where: { code: In(perms.map((p) => p.code)), scope: 'tenant' },
       });
       const role = manager.create(Role, {
         tenantId,
         name: tpl.name,
         code: tpl.code,
+        scope: 'tenant',
         isSystem: true,
         permissions: permissionEntities,
       });
