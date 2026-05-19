@@ -90,10 +90,9 @@ DB_DATABASE=wms_dev
 ```bash
 # 运行迁移
 npm run migration:run
-
-# 或者使用同步模式（仅开发环境）
-# 设置 DB_SYNCHRONIZE=true
 ```
+
+数据库结构不要通过 `DB_SYNCHRONIZE=true` 自动同步；建表、字段变更、索引、初始化数据和维护数据统一沉淀到 `dbsql/`，必要时再配套 TypeORM migration。
 
 ### 启动开发服务器
 

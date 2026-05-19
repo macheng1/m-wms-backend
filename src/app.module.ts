@@ -49,7 +49,8 @@ console.log('当前工作目录:', process.cwd());
         username: configService.get('database.username'),
         password: configService.get('database.password'),
         database: configService.get('database.database'),
-        synchronize: configService.get('database.synchronize'),
+        // 禁止自动同步表结构；数据库变更统一走 dbsql/ 或 migration。
+        synchronize: false,
         logging: configService.get('database.logging'),
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
         autoLoadEntities: true,

@@ -1,0 +1,7 @@
+interface:
+  display_name: "后端 PRD 分析"
+  short_description: "把产品需求拆成后端任务"
+  default_prompt: "使用 $backend-prd-analysis 从后端视角分析这个 PRD 并拆分开发任务。"
+
+policy:
+  allow_implicit_invocation: true
