@@ -3,13 +3,13 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { RolesService } from './roles.service';
 import { Role } from './entities/role.entity';
-import { Permission } from '../auth/entities/permission.entity';
+import { Menu } from '../auth/entities/menu.entity';
 import { RolesController } from './roles.controller';
 import { OperationLog } from '../admin/entities/operation-log.entity';
 import { Department } from '../system/entities/department.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Role, Permission, Department, OperationLog])],
+  imports: [TypeOrmModule.forFeature([Role, Menu, Department, OperationLog])],
   controllers: [
     // 2. 注册刚才规范化的控制器
     RolesController,

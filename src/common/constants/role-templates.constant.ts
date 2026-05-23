@@ -9,14 +9,14 @@ export const ROLE_TEMPLATES = {
     description: '拥有工厂内所有操作权限',
     scope: 'tenant',
     // 自动提取所有租户域权限 code。平台域权限不下发给租户角色。
-    permissionCodes: flattenTenantPermissions().map((permission) => permission.code),
+    menuCodes: flattenTenantPermissions().map((permission) => permission.code),
   },
   WH_MANAGER: {
     name: '仓库主管',
     code: 'WH_MANAGER',
     description: '负责仓库管理',
     scope: 'tenant',
-    permissionCodes: [
+    menuCodes: [
       'tenant:warehouse',
       'tenant:location:list',
       'tenant:inventory',
@@ -32,7 +32,7 @@ export const ROLE_TEMPLATES = {
     code: 'PROD_LEADER',
     description: '负责库存管理',
     scope: 'tenant',
-    permissionCodes: [
+    menuCodes: [
       'tenant:inventory',
       'tenant:inventory:list',
       'tenant:inventory:inbound',

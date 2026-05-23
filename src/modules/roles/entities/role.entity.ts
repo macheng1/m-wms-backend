@@ -2,7 +2,7 @@
 
 import { Entity, Column, ManyToMany, JoinTable } from 'typeorm';
 
-import { Permission } from '../../auth/entities/permission.entity';
+import { Menu } from '../../auth/entities/menu.entity';
 import { TenantBaseEntity } from '@/database/base.entity';
 import { Department } from '@/modules/system/entities/department.entity';
 
@@ -36,9 +36,13 @@ export class Role extends TenantBaseEntity {
   })
   dataScope: RoleDataScope;
 
-  @ManyToMany(() => Permission)
-  @JoinTable({ name: 'role_permissions' })
-  permissions: Permission[];
+  @ManyToMany(() => Menu)
+  @JoinTable({
+    name: 'role_menus',
+    joinColumn: { name: 'roleId', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'menuId', referencedColumnName: 'id' },
+  })
+  menus: Menu[];
 
   @ManyToMany(() => Department)
   @JoinTable({

@@ -26,5 +26,5 @@ export class QueryRoleDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  permissionCodes?: string[]; // 支持按权限码集合过
+  menuCodes?: string[]; // 支持按菜单码集合过滤
 }

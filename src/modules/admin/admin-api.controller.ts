@@ -142,8 +142,8 @@ export class AdminApiController {
   @Post('platform/tenants/:id/menus/save')
   @UseGuards(PlatformAdminGuard)
   @ApiOperation({ summary: '平台域 - 保存租户菜单授权' })
-  saveTenantMenuGrant(@Param('id') id: string, @Body() body: { permissionCodes?: string[] }, @Req() req) {
-    return this.adminPlatformService.saveTenantMenuGrant(id, body?.permissionCodes || []).then(async (result) => {
+  saveTenantMenuGrant(@Param('id') id: string, @Body() body: { menuCodes?: string[] }, @Req() req) {
+    return this.adminPlatformService.saveTenantMenuGrant(id, body?.menuCodes || []).then(async (result) => {
       await this.adminPlatformService.recordAudit({
         user: req.user,
         scope: 'platform',
@@ -152,7 +152,7 @@ export class AdminApiController {
         targetType: 'tenant',
         targetId: id,
         description: `保存租户菜单授权：${result.tenantName}`,
-        afterData: { permissionCodes: body?.permissionCodes || [] },
+        afterData: { menuCodes: body?.menuCodes || [] },
         ip: req.ip,
       });
       return result;
@@ -200,11 +200,11 @@ export class AdminApiController {
     return this.tenantsService.reject(id);
   }
 
-  @Get('platform/permissions')
+  @Get('platform/menus/all')
   @UseGuards(PlatformAdminGuard)
-  @ApiOperation({ summary: '平台域 - 权限列表' })
-  getPlatformPermissions() {
-    return this.adminPlatformService.findPermissions();
+  @ApiOperation({ summary: '平台域 - 全量菜单列表' })
+  getPlatformMenusAll() {
+    return this.adminPlatformService.findAllMenus();
   }
 
   @Get('platform/menus')
@@ -264,8 +264,8 @@ export class AdminApiController {
       code?: string;
       remark?: string;
       isActive?: number;
-      permissionCodes?: string[];
-      permissionIds?: number[];
+      menuCodes?: string[];
+      menuIds?: number[];
       dataScope?: 'ALL' | 'CUSTOM' | 'DEPT' | 'DEPT_AND_CHILD' | 'SELF';
       deptIds?: string[];
     },
@@ -371,7 +371,7 @@ export class AdminApiController {
         scope: 'platform',
         module: 'platform-menu',
         action: 'save',
-        targetType: 'permission',
+        targetType: 'menu',
         targetId: String(menu.id),
         description: `保存平台菜单：${menu.name}`,
         afterData: menu as any,
@@ -398,7 +398,7 @@ export class AdminApiController {
         scope: 'platform',
         module: 'platform-menu',
         action: 'delete',
-        targetType: 'permission',
+        targetType: 'menu',
         targetId: String(menu.id),
         description: `删除平台菜单：${menu.name}`,
         beforeData: menu,

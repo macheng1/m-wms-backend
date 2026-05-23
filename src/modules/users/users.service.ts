@@ -35,7 +35,7 @@ export class UsersService {
   async getProfile(userId: string) {
     const user = await this.userRepo.findOne({
       where: { id: userId },
-      relations: ['roles', 'roles.permissions', 'tenant'],
+      relations: ['roles', 'roles.menus', 'tenant'],
     });
 
     if (!user) throw new NotFoundException('该用户不存在');
@@ -44,12 +44,11 @@ export class UsersService {
     const isPlatformSuperAdmin =
       user.isPlatformAdmin === 1 && user.roles.some((r) => r.code === 'PLATFORM_ADMIN');
     const isTenantAdmin = user.roles.some((r) => r.code === 'ADMIN');
-    const permissions = isPlatformSuperAdmin
-      ? ['*']
-      : await this.resolveUserPermissions(user, isTenantAdmin);
+    const menuAuth = await this.resolveUserMenuAuth(user, isPlatformSuperAdmin, isTenantAdmin);
 
     // 新增：角色名称数组
     const roleNames = user.roles?.map((r) => r.name) || [];
+    const roleIds = user.roles?.map((r) => r.id) || [];
 
     return {
       id: user.id,
@@ -59,38 +58,103 @@ export class UsersService {
       userType: user.isPlatformAdmin === 1 ? 'platform' : 'tenant',
       tenantId: user.tenantId,
       tenantName: user.tenant?.name || '系统运营',
-      permissions: [...new Set(permissions)], // 去重
+      menus: menuAuth.menus,
+      butAuths: menuAuth.butAuths,
+      roleIds,
       roleNames,
     };
   }
 
-  private async resolveUserPermissions(user: User, isTenantAdmin: boolean) {
-    if (!user.tenantId) {
-      return user.roles.flatMap((role) => role.permissions.map((p) => p.code));
+  private async resolveUserMenuAuth(user: User, isPlatformSuperAdmin: boolean, isTenantAdmin: boolean) {
+    const scope = user.tenantId ? 'tenant' : 'platform';
+    const allowedCodes = new Set<string>();
+
+    if (!isPlatformSuperAdmin) {
+      if (user.tenantId) {
+        const grantedRows: Array<{ code: string }> = await this.dataSource.query(
+          `
+            SELECT m.code
+            FROM tenant_menu_permissions tmp
+            INNER JOIN menus m ON m.id = tmp.menuId
+            WHERE tmp.tenantId = ?
+              AND m.scope = 'tenant'
+              AND m.type = 'MENU'
+          `,
+          [user.tenantId],
+        );
+        const grantedMenuCodes = new Set(grantedRows.map((row) => row.code));
+
+        if (isTenantAdmin) {
+          grantedMenuCodes.forEach((code) => allowedCodes.add(code));
+          user.roles.forEach((role) => {
+            role.menus
+              .filter((menu) => menu.type !== 'MENU' || grantedMenuCodes.has(menu.code))
+              .forEach((menu) => allowedCodes.add(menu.code));
+          });
+        } else {
+          user.roles.forEach((role) => {
+            role.menus
+              .filter((menu) => menu.type !== 'MENU' || grantedMenuCodes.has(menu.code))
+              .forEach((menu) => allowedCodes.add(menu.code));
+          });
+        }
+      } else {
+        user.roles.forEach((role) => {
+          role.menus.forEach((menu) => allowedCodes.add(menu.code));
+        });
+      }
     }
 
-    const grantedRows: Array<{ code: string }> = await this.dataSource.query(
+    const rows = await this.dataSource.query(
       `
-        SELECT p.code
-        FROM tenant_menu_permissions tmp
-        INNER JOIN permissions p ON p.id = tmp.permissionsId
-        WHERE tmp.tenantId = ?
-          AND p.scope = 'tenant'
-          AND p.type = 'MENU'
+        SELECT id, code, name, type, routePath, componentPath, icon, parentId, sortOrder
+        FROM menus
+        WHERE scope = ?
+          AND isActive = 1
+          AND isHidden = 0
+          AND type IN ('DIRECTORY', 'MENU', 'BUTTON')
+        ORDER BY parentId ASC, sortOrder ASC, id ASC
       `,
-      [user.tenantId],
+      [scope],
     );
-    const grantedMenuCodes = new Set(grantedRows.map((row) => row.code));
 
-    if (isTenantAdmin) {
-      return [...grantedMenuCodes];
-    }
+    const canUse = (menu: any) => isPlatformSuperAdmin || allowedCodes.has(menu.code);
+    return {
+      menus: this.buildVisibleMenuTree(rows, 0, allowedCodes, isPlatformSuperAdmin),
+      butAuths: rows
+        .filter((menu: any) => menu.type === 'BUTTON' && canUse(menu))
+        .map((menu: any) => menu.code),
+    };
+  }
 
-    return user.roles.flatMap((role) =>
-      role.permissions
-        .filter((permission) => permission.type !== 'MENU' || grantedMenuCodes.has(permission.code))
-        .map((permission) => permission.code),
-    );
+  private buildVisibleMenuTree(
+    menus: any[],
+    parentId: number,
+    allowedCodes: Set<string>,
+    includeAll: boolean,
+  ): any[] {
+    return menus
+      .filter((menu) => menu.type !== 'BUTTON' && Number(menu.parentId || 0) === parentId)
+      .map((menu) => {
+        const children = this.buildVisibleMenuTree(menus, Number(menu.id), allowedCodes, includeAll);
+        const isAllowed = includeAll || allowedCodes.has(menu.code);
+        if (!isAllowed && children.length === 0) return null;
+        return {
+          id: menu.id,
+          code: menu.code,
+          name: menu.name,
+          text: menu.name,
+          type: menu.type,
+          routePath: menu.routePath,
+          itemKey: menu.routePath,
+          componentPath: menu.componentPath,
+          icon: menu.icon,
+          parentId: menu.parentId,
+          sortOrder: menu.sortOrder,
+          children: children.length > 0 ? children : undefined,
+        };
+      })
+      .filter(Boolean);
   }
 
   /**
@@ -230,7 +294,7 @@ export class UsersService {
   async getDetail(id: string, tenantId: string) {
     const user = await this.userRepo.findOne({
       where: { id, tenantId },
-      relations: ['roles', 'roles.permissions', 'tenant', 'department', 'post'],
+      relations: ['roles', 'roles.menus', 'tenant', 'department', 'post'],
     });
     if (!user) throw new NotFoundException('该员工不存在');
 

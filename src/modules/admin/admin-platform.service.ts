@@ -1,5 +1,5 @@
 import { BusinessException } from '@/common/filters/business.exception';
-import { Permission } from '@/modules/auth/entities/permission.entity';
+import { Menu } from '@/modules/auth/entities/menu.entity';
 import { Role } from '@/modules/roles/entities/role.entity';
 import { Department } from '@/modules/system/entities/department.entity';
 import { Post } from '@/modules/system/entities/post.entity';
@@ -26,8 +26,8 @@ type PlatformMenuType = 'DIRECTORY' | 'MENU' | 'BUTTON';
 @Injectable()
 export class AdminPlatformService {
   constructor(
-    @InjectRepository(Permission)
-    private readonly permissionRepo: Repository<Permission>,
+    @InjectRepository(Menu)
+    private readonly menuRepo: Repository<Menu>,
     @InjectRepository(Role)
     private readonly roleRepo: Repository<Role>,
     @InjectRepository(User)
@@ -130,15 +130,15 @@ export class AdminPlatformService {
     return this.operationLogRepo.save(log);
   }
 
-  findPermissions() {
-    return this.permissionRepo.find({
+  findAllMenus() {
+    return this.menuRepo.find({
       where: { scope: 'platform' },
       order: { id: 'ASC' },
     });
   }
 
   findMenus() {
-    return this.permissionRepo.find({
+    return this.menuRepo.find({
       where: { scope: 'platform', type: In(['DIRECTORY', 'MENU', 'BUTTON']) },
       order: { sortOrder: 'ASC', id: 'ASC' },
     });
@@ -161,7 +161,7 @@ export class AdminPlatformService {
     const isHidden = Number(query.isHidden);
     if (isHidden === 0 || isHidden === 1) where.isHidden = isHidden;
 
-    const [list, total] = await this.permissionRepo.findAndCount({
+    const [list, total] = await this.menuRepo.findAndCount({
       where,
       skip: (page - 1) * pageSize,
       take: pageSize,
@@ -172,7 +172,7 @@ export class AdminPlatformService {
   }
 
   async findMenuDetail(id: number) {
-    const menu = await this.permissionRepo.findOne({
+    const menu = await this.menuRepo.findOne({
       where: { id, scope: 'platform', type: In(['DIRECTORY', 'MENU', 'BUTTON']) },
     });
 
@@ -189,7 +189,7 @@ export class AdminPlatformService {
   }
 
   findTenantMenus() {
-    return this.permissionRepo.find({
+    return this.menuRepo.find({
       where: { scope: 'tenant', type: 'MENU' },
       order: { id: 'ASC' },
     });
@@ -204,12 +204,12 @@ export class AdminPlatformService {
     const menus = await this.findTenantMenus();
     const rows: Array<{ code: string }> = await this.dataSource.query(
       `
-        SELECT p.code
+        SELECT m.code
         FROM tenant_menu_permissions tmp
-        INNER JOIN permissions p ON p.id = tmp.permissionsId
+        INNER JOIN menus m ON m.id = tmp.menuId
         WHERE tmp.tenantId = ?
-          AND p.scope = 'tenant'
-          AND p.type = 'MENU'
+          AND m.scope = 'tenant'
+          AND m.type = 'MENU'
       `,
       [tenantId],
     );
@@ -222,17 +222,17 @@ export class AdminPlatformService {
     };
   }
 
-  async saveTenantMenuGrant(tenantId: string, permissionCodes: string[]) {
+  async saveTenantMenuGrant(tenantId: string, menuCodes: string[]) {
     const tenant = await this.tenantRepo.findOne({ where: { id: tenantId } });
     if (!tenant) {
       throw new BusinessException('租户不存在');
     }
 
-    const uniqueCodes = [...new Set(permissionCodes)];
-    const permissions =
+    const uniqueCodes = [...new Set(menuCodes)];
+    const menus =
       uniqueCodes.length === 0
         ? []
-        : await this.permissionRepo.find({
+        : await this.menuRepo.find({
             where: {
               code: In(uniqueCodes),
               scope: 'tenant',
@@ -240,18 +240,18 @@ export class AdminPlatformService {
             },
           });
 
-    if (permissions.length !== uniqueCodes.length) {
-      const existingCodes = new Set(permissions.map((permission) => permission.code));
+    if (menus.length !== uniqueCodes.length) {
+      const existingCodes = new Set(menus.map((menu) => menu.code));
       const invalidCodes = uniqueCodes.filter((code) => !existingCodes.has(code));
       throw new BusinessException(`存在不可授权的租户菜单：${invalidCodes.join(', ')}`);
     }
 
     await this.dataSource.transaction(async (manager) => {
       await manager.query('DELETE FROM tenant_menu_permissions WHERE tenantId = ?', [tenantId]);
-      for (const permission of permissions) {
+      for (const menu of menus) {
         await manager.query(
-          'INSERT IGNORE INTO tenant_menu_permissions (tenantId, permissionsId) VALUES (?, ?)',
-          [tenantId, permission.id],
+          'INSERT IGNORE INTO tenant_menu_permissions (tenantId, menuId) VALUES (?, ?)',
+          [tenantId, menu.id],
         );
       }
     });
@@ -262,13 +262,13 @@ export class AdminPlatformService {
   async findRoles() {
     return this.roleRepo.find({
       where: { scope: 'platform', tenantId: IsNull() },
-      relations: ['permissions', 'departments'],
+      relations: ['menus', 'departments'],
       order: { createdAt: 'ASC' },
     }).then((roles) =>
       roles.map((role) => ({
         ...role,
-        permissionCodes: role.permissions?.map((permission) => permission.code) || [],
-        permissionIds: role.permissions?.map((permission) => permission.id) || [],
+        menuCodes: role.menus?.map((menu) => menu.code) || [],
+        menuIds: role.menus?.map((menu) => menu.id) || [],
         deptIds: role.departments?.map((department) => department.id) || [],
       })),
     );
@@ -280,17 +280,17 @@ export class AdminPlatformService {
     code?: string;
     remark?: string;
     isActive?: number;
-    permissionCodes?: string[];
-    permissionIds?: number[];
+    menuCodes?: string[];
+    menuIds?: number[];
     dataScope?: 'ALL' | 'CUSTOM' | 'DEPT' | 'DEPT_AND_CHILD' | 'SELF';
     deptIds?: string[];
   }) {
-    const permissions = await this.getPlatformPermissions(dto.permissionCodes || [], dto.permissionIds || []);
+    const menus = await this.getPlatformMenus(dto.menuCodes || [], dto.menuIds || []);
     const departments = await this.getPlatformDepartments(dto.deptIds || []);
     const role = dto.id
       ? await this.roleRepo.findOne({
           where: { id: dto.id, scope: 'platform', tenantId: IsNull() },
-          relations: ['permissions', 'departments'],
+          relations: ['menus', 'departments'],
         })
       : this.roleRepo.create({
           tenantId: null,
@@ -303,13 +303,13 @@ export class AdminPlatformService {
     }
 
     role.name = dto.name;
-    role.code = dto.code || role.code;
+    role.code = dto.id ? role.code || (await this.generatePlatformRoleCode()) : await this.generatePlatformRoleCode();
     role.remark = dto.remark || null;
     role.isActive = dto.isActive ?? 1;
     role.scope = 'platform';
     role.tenantId = null;
     role.dataScope = dto.dataScope || role.dataScope || 'ALL';
-    role.permissions = permissions;
+    role.menus = menus;
     role.departments = departments;
 
     return this.roleRepo.save(role);
@@ -502,16 +502,16 @@ export class AdminPlatformService {
     isActive?: number;
   }) {
     const type = dto.type || 'MENU';
-    const existing = await this.permissionRepo.findOne({ where: { code: dto.code } });
+    const existing = await this.menuRepo.findOne({ where: { code: dto.code } });
     if (existing && existing.id !== dto.id) {
-      throw new BusinessException('权限码已存在');
+      throw new BusinessException('菜单码已存在');
     }
 
     const menu = dto.id
-      ? await this.permissionRepo.findOne({
+      ? await this.menuRepo.findOne({
           where: { id: dto.id, scope: 'platform', type: In(['DIRECTORY', 'MENU', 'BUTTON']) },
         })
-      : this.permissionRepo.create({
+      : this.menuRepo.create({
           scope: 'platform',
           type,
         });
@@ -525,7 +525,7 @@ export class AdminPlatformService {
     }
 
     if (dto.parentId && dto.parentId > 0) {
-      const parentMenu = await this.permissionRepo.findOne({
+      const parentMenu = await this.menuRepo.findOne({
         where: { id: dto.parentId, scope: 'platform', type: In(['DIRECTORY', 'MENU']) },
       });
       if (!parentMenu) {
@@ -546,7 +546,7 @@ export class AdminPlatformService {
     menu.scope = 'platform';
     menu.type = type;
 
-    return this.permissionRepo.save(menu);
+    return this.menuRepo.save(menu);
   }
 
   async updateTenantLifecycle(
@@ -584,14 +584,14 @@ export class AdminPlatformService {
   }
 
   async deleteMenu(id: number) {
-    const menu = await this.permissionRepo.findOne({
+    const menu = await this.menuRepo.findOne({
       where: { id, scope: 'platform', type: In(['DIRECTORY', 'MENU', 'BUTTON']) },
     });
     if (!menu) {
       throw new BusinessException('平台菜单不存在');
     }
 
-    const childCount = await this.permissionRepo.count({
+    const childCount = await this.menuRepo.count({
       where: { scope: 'platform', parentId: id },
     });
     if (childCount > 0) {
@@ -599,18 +599,18 @@ export class AdminPlatformService {
     }
 
     const [bindingRow]: Array<{ total: string | number }> = await this.dataSource.query(
-      'SELECT COUNT(*) AS total FROM role_permissions WHERE permissionsId = ?',
+      'SELECT COUNT(*) AS total FROM role_menus WHERE menuId = ?',
       [id],
     );
     if (Number(bindingRow?.total || 0) > 0) {
       throw new BusinessException('该菜单已绑定平台角色，请先解除角色授权后再删除');
     }
 
-    await this.permissionRepo.remove(menu);
+    await this.menuRepo.remove(menu);
     return { id: menu.id, name: menu.name, code: menu.code };
   }
 
-  private buildMenuTree(menus: Permission[], parentId = 0): Array<Permission & { children?: Permission[] }> {
+  private buildMenuTree(menus: Menu[], parentId = 0): Array<Menu & { children?: Menu[] }> {
     return menus
       .filter((menu) => Number(menu.parentId || 0) === parentId)
       .map((menu) => {
@@ -619,30 +619,30 @@ export class AdminPlatformService {
       });
   }
 
-  private async getPlatformPermissions(permissionCodes: string[], permissionIds: number[] = []) {
-    if (permissionCodes.length === 0 && permissionIds.length === 0) {
+  private async getPlatformMenus(menuCodes: string[], menuIds: number[] = []) {
+    if (menuCodes.length === 0 && menuIds.length === 0) {
       return [];
     }
 
-    const permissions = await this.permissionRepo.find({
+    const menus = await this.menuRepo.find({
       where: {
         scope: 'platform',
-        ...(permissionIds.length > 0 ? { id: In(permissionIds) } : { code: In(permissionCodes) }),
+        ...(menuIds.length > 0 ? { id: In(menuIds) } : { code: In(menuCodes) }),
       },
     });
 
-    const expectedValues = permissionIds.length > 0 ? permissionIds : permissionCodes;
-    if (permissions.length !== expectedValues.length) {
-      const existingCodes = new Set(permissions.map((permission) => permission.code));
-      const existingIds = new Set(permissions.map((permission) => permission.id));
+    const expectedValues = menuIds.length > 0 ? menuIds : menuCodes;
+    if (menus.length !== expectedValues.length) {
+      const existingCodes = new Set(menus.map((menu) => menu.code));
+      const existingIds = new Set(menus.map((menu) => menu.id));
       const invalidValues =
-        permissionIds.length > 0
-          ? permissionIds.filter((id) => !existingIds.has(id))
-          : permissionCodes.filter((code) => !existingCodes.has(code));
-      throw new BusinessException(`存在不可分配的平台权限：${invalidValues.join(', ')}`);
+        menuIds.length > 0
+          ? menuIds.filter((id) => !existingIds.has(id))
+          : menuCodes.filter((code) => !existingCodes.has(code));
+      throw new BusinessException(`存在不可分配的平台菜单：${invalidValues.join(', ')}`);
     }
 
-    return permissions;
+    return menus;
   }
 
   private async getPlatformDepartments(deptIds: string[]) {
@@ -690,5 +690,18 @@ export class AdminPlatformService {
     }
 
     return roles;
+  }
+
+  private async generatePlatformRoleCode() {
+    for (let i = 0; i < 5; i += 1) {
+      const random = Math.random().toString(36).slice(2, 8).toUpperCase();
+      const code = `PR${random}`;
+      const exists = await this.roleRepo.findOne({
+        where: { code, scope: 'platform', tenantId: IsNull() },
+      });
+      if (!exists) return code;
+    }
+
+    throw new BusinessException('生成平台角色编码失败，请重试');
   }
 }

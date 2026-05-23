@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { AdminApiController } from './admin-api.controller';
 import { TenantModule } from '../tenant/tenant.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Permission } from '../auth/entities/permission.entity';
+import { Menu } from '../auth/entities/menu.entity';
 import { Role } from '../roles/entities/role.entity';
 import { User } from '../users/entities/user.entity';
 import { Tenant } from '../tenant/entities/tenant.entity';
@@ -12,7 +12,7 @@ import { Department } from '../system/entities/department.entity';
 import { Post } from '../system/entities/post.entity';
 
 @Module({
-  imports: [TenantModule, TypeOrmModule.forFeature([Permission, Role, User, Tenant, Department, Post, OperationLog])],
+  imports: [TenantModule, TypeOrmModule.forFeature([Menu, Role, User, Tenant, Department, Post, OperationLog])],
   controllers: [AdminApiController],
   providers: [AdminPlatformService],
 })

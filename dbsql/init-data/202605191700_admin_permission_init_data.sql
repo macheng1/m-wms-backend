@@ -1,20 +1,20 @@
 -- 用途：初始化平台域/租户域权限数据
 -- 来源需求：平台维护菜单和权限定义，租户管理员只分配已开放的租户权限
--- 影响范围：permissions
+-- 影响范围：menus
 -- 执行环境：MySQL 5.7+/8+ 或兼容 MariaDB
 -- 说明：本文件按权限 code 幂等写入，新模型不再保留 wms:* 兼容权限码。
 -- 前置条件：空库需先执行 init/init-schema.sql；旧库需先执行对应 create-table 或 alter-table 下的 update.sql。
 -- 常见错误：Unknown column `scope` 表示结构脚本未执行或当前库不是新结构。
 
 DELETE rp
-FROM `role_permissions` rp
-JOIN `permissions` p ON p.`id` = rp.`permissionsId`
+FROM `role_menus` rp
+JOIN `menus` p ON p.`id` = rp.`menuId`
 WHERE p.`code` LIKE 'wms:%';
 
-DELETE FROM `permissions`
+DELETE FROM `menus`
 WHERE `code` LIKE 'wms:%';
 
-INSERT INTO `permissions` (`code`, `scope`, `name`, `type`, `parentId`, `description`)
+INSERT INTO `menus` (`code`, `scope`, `name`, `type`, `parentId`, `description`)
 VALUES
   ('platform:dashboard', 'platform', '平台工作台', 'MENU', 0, '平台工作台'),
   ('platform:tenant', 'platform', '租户管理', 'DIRECTORY', 0, '租户管理'),
@@ -85,7 +85,7 @@ ON DUPLICATE KEY UPDATE
   `parentId` = VALUES(`parentId`),
   `description` = VALUES(`description`);
 
-UPDATE `permissions`
+UPDATE `menus`
 SET `routePath` = CASE `code`
   WHEN 'platform:dashboard' THEN '/'
   WHEN 'platform:tenant' THEN '/tenants'
@@ -103,7 +103,7 @@ SET `routePath` = CASE `code`
   WHEN 'tenant:unit:list' THEN '/inventory/unit'
   WHEN 'tenant:user:list' THEN '/users'
   WHEN 'tenant:role:list' THEN '/settings/roles'
-  WHEN 'tenant:menu:list' THEN '/settings/permissions'
+  WHEN 'tenant:menu:list' THEN '/settings/menus'
   WHEN 'tenant:dict' THEN '/settings/dict'
   WHEN 'tenant:dept' THEN '/settings/dept'
   WHEN 'tenant:post' THEN '/settings/post'
@@ -166,13 +166,13 @@ WHERE `code` IN (
   'tenant:portal:inquiry:list'
 );
 
-UPDATE `permissions` child
-JOIN `permissions` parent ON parent.`code` = 'platform:tenant'
+UPDATE `menus` child
+JOIN `menus` parent ON parent.`code` = 'platform:tenant'
 SET child.`parentId` = parent.`id`
 WHERE child.`code` = 'platform:tenant:list';
 
-UPDATE `permissions` child
-JOIN `permissions` parent ON parent.`code` = 'platform:tenant:list'
+UPDATE `menus` child
+JOIN `menus` parent ON parent.`code` = 'platform:tenant:list'
 SET child.`parentId` = parent.`id`
 WHERE child.`code` IN (
   'platform:tenant:create',
@@ -182,8 +182,8 @@ WHERE child.`code` IN (
   'platform:tenant:status'
 );
 
-UPDATE `permissions` child
-JOIN `permissions` parent ON parent.`code` = 'platform:settings'
+UPDATE `menus` child
+JOIN `menus` parent ON parent.`code` = 'platform:settings'
 SET child.`parentId` = parent.`id`
 WHERE child.`code` IN (
   'platform:user',
@@ -222,15 +222,15 @@ ON DUPLICATE KEY UPDATE
   `remark` = VALUES(`remark`),
   `isSystem` = VALUES(`isSystem`);
 
-INSERT IGNORE INTO `role_permissions` (`rolesId`, `permissionsId`)
+INSERT IGNORE INTO `role_menus` (`roleId`, `menuId`)
 SELECT '00000000-0000-0000-0000-000000000101', p.`id`
-FROM `permissions` p
+FROM `menus` p
 WHERE p.`scope` = 'platform';
 
-INSERT IGNORE INTO `tenant_menu_permissions` (`tenantId`, `permissionsId`)
+INSERT IGNORE INTO `tenant_menu_permissions` (`tenantId`, `menuId`)
 SELECT t.`id`, p.`id`
 FROM `tenants` t
-CROSS JOIN `permissions` p
+CROSS JOIN `menus` p
 WHERE p.`scope` = 'tenant'
   AND p.`type` = 'MENU';
 

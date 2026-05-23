@@ -51,9 +51,9 @@ export class RolesController {
     return this.rolesService.selectRoleList(req.user.tenantId);
   }
 
-  @Get('permissions/tree')
-  async permissionTree(@Req() req) {
-    return this.rolesService.getPermissionTree(req.user.tenantId);
+  @Get('menus/tree')
+  async menuTree(@Req() req) {
+    return this.rolesService.getMenuTree(req.user.tenantId);
   }
 
   @Post('save')

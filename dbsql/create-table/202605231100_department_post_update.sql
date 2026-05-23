@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS `posts` (
   UNIQUE KEY `UQ_posts_tenant_code` (`tenantId`,`postCode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-INSERT INTO `permissions` (`code`, `scope`, `name`, `type`, `parentId`, `routePath`, `description`)
+INSERT INTO `menus` (`code`, `scope`, `name`, `type`, `parentId`, `routePath`, `description`)
 VALUES
   ('platform:dept', 'platform', '平台部门', 'MENU', 0, '/settings/dept', '平台部门'),
   ('platform:post', 'platform', '平台岗位', 'MENU', 0, '/settings/post', '平台岗位'),
@@ -51,20 +51,20 @@ ON DUPLICATE KEY UPDATE
   `routePath` = VALUES(`routePath`),
   `description` = VALUES(`description`);
 
-UPDATE `permissions` child
-JOIN `permissions` parent ON parent.`code` = 'platform:settings'
+UPDATE `menus` child
+JOIN `menus` parent ON parent.`code` = 'platform:settings'
 SET child.`parentId` = parent.`id`
 WHERE child.`code` IN ('platform:dept', 'platform:post');
 
-INSERT IGNORE INTO `role_permissions` (`rolesId`, `permissionsId`)
+INSERT IGNORE INTO `role_menus` (`roleId`, `menuId`)
 SELECT '00000000-0000-0000-0000-000000000101', p.`id`
-FROM `permissions` p
+FROM `menus` p
 WHERE p.`code` IN ('platform:dept', 'platform:post');
 
-INSERT IGNORE INTO `tenant_menu_permissions` (`tenantId`, `permissionsId`)
+INSERT IGNORE INTO `tenant_menu_permissions` (`tenantId`, `menuId`)
 SELECT t.`id`, p.`id`
 FROM `tenants` t
-CROSS JOIN `permissions` p
+CROSS JOIN `menus` p
 WHERE p.`code` IN ('tenant:dept', 'tenant:post')
   AND t.`isApproved` = 1
   AND t.`isActive` = 1;

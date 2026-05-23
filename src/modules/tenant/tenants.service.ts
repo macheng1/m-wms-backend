@@ -15,7 +15,7 @@ import { flattenPermissions } from '@/common/constants/permissions.constant';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { Tenant } from './entities/tenant.entity';
 import { Role } from '../roles/entities/role.entity';
-import { Permission } from '../auth/entities/permission.entity';
+import { Menu } from '../auth/entities/menu.entity';
 import { User } from '../users/entities/user.entity';
 import pinyin from 'pinyin';
 import { PortalConfig } from '../portal/entities/portal-config.entity';
@@ -389,14 +389,14 @@ export class TenantsService {
 
   // ...existing code...
   private async initTenantMenuPermissions(manager: EntityManager, tenantId: string) {
-    const tenantMenus = await manager.find(Permission, {
+    const tenantMenus = await manager.find(Menu, {
       where: { scope: 'tenant', type: 'MENU' },
     });
 
-    for (const permission of tenantMenus) {
+    for (const menu of tenantMenus) {
       await manager.query(
-        'INSERT IGNORE INTO tenant_menu_permissions (tenantId, permissionsId) VALUES (?, ?)',
-        [tenantId, permission.id],
+        'INSERT IGNORE INTO tenant_menu_permissions (tenantId, menuId) VALUES (?, ?)',
+        [tenantId, menu.id],
       );
     }
   }
@@ -416,12 +416,9 @@ export class TenantsService {
       // admin 角色分配所有权限，其他角色按模板分配
       const perms = isSuperAdmin
         ? allPermissions
-        : allPermissions.filter((p) => (tpl.permissionCodes as any).includes(p.code));
+        : allPermissions.filter((p) => (tpl.menuCodes as any).includes(p.code));
       console.log('🚀 ~ TenantsService ~ initTenantRoles ~ perms:', perms);
-      // 注意：这里只是用常量生成权限对象，实际入库时仍需用 Permission 实体
-      // 你可以根据 code 查询 Permission 实体，或直接用 code 关联
-      // 这里假设 Permission 实体已初始化，且 code 唯一
-      const permissionEntities = await manager.find(Permission, {
+      const menuEntities = await manager.find(Menu, {
         where: { code: In(perms.map((p) => p.code)), scope: 'tenant' },
       });
       const role = manager.create(Role, {
@@ -430,7 +427,7 @@ export class TenantsService {
         code: tpl.code,
         scope: 'tenant',
         isSystem: true,
-        permissions: permissionEntities,
+        menus: menuEntities,
       });
       const savedRole = await manager.save(role);
       if (isSuperAdmin) adminRole = savedRole;

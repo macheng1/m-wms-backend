@@ -47,19 +47,19 @@ export class CreateRoleDto {
 
   @ApiProperty({
     example: ['tenant:inventory:list', 'tenant:inventory:inbound'],
-    description: '租户权限码集合，只允许 tenant:* 权限',
+    description: '租户菜单码集合，只允许 tenant:* 菜单',
     required: false,
   })
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  permissionCodes?: string[];
+  menuCodes?: string[];
 
-  @ApiProperty({ example: [1, 2], description: '权限ID集合', required: false })
+  @ApiProperty({ example: [1, 2], description: '菜单ID集合', required: false })
   @IsOptional()
   @IsArray()
   @IsNumber({}, { each: true })
-  permissionIds?: number[];
+  menuIds?: number[];
 }
 
 export class UpdateRoleDto extends CreateRoleDto {}

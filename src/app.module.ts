@@ -11,6 +11,7 @@ import { LocationModule } from '@modules/location/location.module';
 import { User } from './modules/users/entities/user.entity';
 import { Tenant } from './modules/tenant/entities/tenant.entity';
 import { Permission } from './modules/auth/entities/permission.entity';
+import { Menu } from './modules/auth/entities/menu.entity';
 import { Role } from './modules/roles/entities/role.entity';
 import { Inventory } from './modules/inventory/entities/inventory.entity';
 import { Order } from './modules/order/entities/order.entity';
@@ -75,7 +76,7 @@ console.log('当前工作目录:', process.cwd());
       }),
     }),
     // 全局注册所有实体的 repository
-    TypeOrmModule.forFeature([User, Tenant, Permission, Role, Inventory, Order]),
+    TypeOrmModule.forFeature([User, Tenant, Permission, Menu, Role, Inventory, Order]),
     // Infrastructure modules
     RedisModule,
     // Business modules

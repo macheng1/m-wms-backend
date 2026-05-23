@@ -32,7 +32,7 @@ export class UsersController {
   @Header('Cache-Control', 'no-cache, no-store, must-revalidate')
   @ApiOperation({
     summary: '获取当前用户信息',
-    description: '通过 Token 识别身份，返回用户画像、所属租户及权限 Code 列表',
+    description: '通过 Token 识别身份，返回用户画像、所属租户及可见菜单树',
   })
   @ApiResponse({ status: 200, description: '成功返回用户信息' })
   @ApiResponse({ status: 401, description: 'Token 无效或已过期' })

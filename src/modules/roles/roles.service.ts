@@ -6,7 +6,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Role } from './entities/role.entity';
 import { DataSource, In, Like, Repository } from 'typeorm';
 import { QueryRoleDto } from './entities/dto/query-role.dto';
-import { Permission } from '../auth/entities/permission.entity';
+import { Menu } from '../auth/entities/menu.entity';
 import { Department } from '../system/entities/department.entity';
 
 // src/modules/roles/roles.service.ts
@@ -15,56 +15,56 @@ export class RolesService {
   constructor(
     @InjectRepository(Role)
     private readonly roleRepository: Repository<Role>,
-    @InjectRepository(Permission)
-    private readonly permissionRepository: Repository<Permission>,
+    @InjectRepository(Menu)
+    private readonly menuRepository: Repository<Menu>,
     @InjectRepository(Department)
     private readonly departmentRepository: Repository<Department>,
     private readonly dataSource: DataSource,
   ) {}
 
-  private async getTenantPermissions(
-    permissionCodes: string[] = [],
-    permissionIds: number[] = [],
+  private async getTenantMenus(
+    menuCodes: string[] = [],
+    menuIds: number[] = [],
     tenantId: string,
-  ): Promise<Permission[]> {
-    if (permissionCodes.length === 0 && permissionIds.length === 0) {
+  ): Promise<Menu[]> {
+    if (menuCodes.length === 0 && menuIds.length === 0) {
       return [];
     }
 
-    const permissions = await this.permissionRepository.find({
+    const menus = await this.menuRepository.find({
       where: {
         scope: 'tenant',
-        ...(permissionIds.length > 0 ? { id: In(permissionIds) } : { code: In(permissionCodes) }),
+        ...(menuIds.length > 0 ? { id: In(menuIds) } : { code: In(menuCodes) }),
       },
     });
 
-    const expectedValues = permissionIds.length > 0 ? permissionIds : permissionCodes;
-    if (permissions.length !== expectedValues.length) {
-      const existingCodes = new Set(permissions.map((permission) => permission.code));
-      const existingIds = new Set(permissions.map((permission) => permission.id));
+    const expectedValues = menuIds.length > 0 ? menuIds : menuCodes;
+    if (menus.length !== expectedValues.length) {
+      const existingCodes = new Set(menus.map((menu) => menu.code));
+      const existingIds = new Set(menus.map((menu) => menu.id));
       const invalidValues =
-        permissionIds.length > 0
-          ? permissionIds.filter((id) => !existingIds.has(id))
-          : permissionCodes.filter((code) => !existingCodes.has(code));
-      throw new BusinessException(`存在不可分配的租户权限：${invalidValues.join(', ')}`);
+        menuIds.length > 0
+          ? menuIds.filter((id) => !existingIds.has(id))
+          : menuCodes.filter((code) => !existingCodes.has(code));
+      throw new BusinessException(`存在不可分配的租户菜单：${invalidValues.join(', ')}`);
     }
 
-    const menuPermissions = permissions.filter((permission) => permission.type === 'MENU');
-    if (menuPermissions.length > 0) {
+    const menuItems = menus.filter((menu) => menu.type === 'MENU');
+    if (menuItems.length > 0) {
       const grantedRows: Array<{ code: string }> = await this.dataSource.query(
         `
-          SELECT p.code
+          SELECT m.code
           FROM tenant_menu_permissions tmp
-          INNER JOIN permissions p ON p.id = tmp.permissionsId
+          INNER JOIN menus m ON m.id = tmp.menuId
           WHERE tmp.tenantId = ?
-            AND p.scope = 'tenant'
-            AND p.type = 'MENU'
+            AND m.scope = 'tenant'
+            AND m.type = 'MENU'
         `,
         [tenantId],
       );
       const grantedCodes = new Set(grantedRows.map((row) => row.code));
-      const invalidMenuCodes = menuPermissions
-        .map((permission) => permission.code)
+      const invalidMenuCodes = menuItems
+        .map((menu) => menu.code)
         .filter((code) => !grantedCodes.has(code));
 
       if (invalidMenuCodes.length > 0) {
@@ -72,7 +72,7 @@ export class RolesService {
       }
     }
 
-    return permissions;
+    return menus;
   }
 
   async create(dto: CreateRoleDto, tenantId: string) {
@@ -82,30 +82,30 @@ export class RolesService {
     });
     if (existing) throw new BusinessException('该角色名称在当前企业中已存在');
 
-    // 2. 租户管理员只能为租户角色分配 tenant 域权限。
-    const permissions = await this.getTenantPermissions(dto.permissionCodes, dto.permissionIds, tenantId);
+    // 2. 租户管理员只能为租户角色分配 tenant 域菜单。
+    const menus = await this.getTenantMenus(dto.menuCodes, dto.menuIds, tenantId);
     const departments = await this.getDepartments(dto.deptIds, tenantId);
 
-    // 3. 创建角色并关联查到的权限实体
-    const { permissionCodes, permissionIds, deptIds, scope, ...roleInfo } = dto;
+    // 3. 创建角色并关联查到的菜单实体
+    const { menuCodes, menuIds, deptIds, scope, ...roleInfo } = dto;
     const role = this.roleRepository.create({
       ...roleInfo,
       scope: 'tenant',
       tenantId, // 强制注入租户 ID，保证数据隔离
-      permissions, // 绑定权限实体对象数组
+      menus,
       departments,
       dataScope: dto.dataScope || 'ALL',
     });
 
     // 4. 保存角色
-    // TypeORM 会自动处理 role_permissions 中间表，将对应的 roleId 和 permissionId 关联起来
+    // TypeORM 会自动处理 role_menus 中间表，将对应的 roleId 和 menuId 关联起来
     return await this.roleRepository.save(role);
   }
 
   // 2. 查询租户下所有角色
   // 分页查询逻辑
   async findAll(query: QueryRoleDto, tenantId: string) {
-    const { page, pageSize, name, isActive, permissionCodes } = query;
+    const { page, pageSize, name, isActive, menuCodes } = query;
 
     // 构建查询条件
     const where: any = { tenantId, scope: 'tenant' };
@@ -123,19 +123,19 @@ export class RolesService {
       skip: (page - 1) * pageSize,
       take: pageSize,
       order: { id: 'ASC' },
-      relations: ['permissions', 'departments'],
+      relations: ['menus', 'departments'],
     };
 
-    // permissionCodes 过滤
-    if (permissionCodes && Array.isArray(permissionCodes) && permissionCodes.length > 0) {
-      findOptions.relations = ['permissions'];
+    // menuCodes 过滤
+    if (menuCodes && Array.isArray(menuCodes) && menuCodes.length > 0) {
+      findOptions.relations = ['menus'];
       // 只能用QueryBuilder实现交集过滤
       const qb = this.roleRepository
         .createQueryBuilder('role')
-        .leftJoinAndSelect('role.permissions', 'permission')
+        .leftJoinAndSelect('role.menus', 'menu')
         .where('role.tenantId = :tenantId', { tenantId })
         .andWhere('role.scope = :scope', { scope: 'tenant' })
-        .andWhere('permission.code IN (:...permissionCodes)', { permissionCodes });
+        .andWhere('menu.code IN (:...menuCodes)', { menuCodes });
 
       if (name) {
         qb.andWhere('role.name LIKE :name', { name: `%${name}%` });
@@ -158,13 +158,13 @@ export class RolesService {
 
     const [list, total] = await this.roleRepository.findAndCount(findOptions);
 
-    // 增加 permissionsNames 字段
+    // 增加 menuNames 字段
     const userCounts = await this.getRoleUserCounts(list.map((role) => role.id));
     const listWithNames = list.map((role) => ({
       ...role,
-      permissionsNames: (role.permissions || []).map((p) => p.name).join(', '),
-      permissionCodes: (role.permissions || []).map((p) => p.code),
-      permissionIds: (role.permissions || []).map((p) => p.id),
+      menuNames: (role.menus || []).map((menu) => menu.name).join(', '),
+      menuCodes: (role.menus || []).map((menu) => menu.code),
+      menuIds: (role.menus || []).map((menu) => menu.id),
       deptIds: (role.departments || []).map((dept) => dept.id),
       userCount: userCounts.get(role.id) || 0,
     }));
@@ -179,19 +179,19 @@ export class RolesService {
 
   // 更新逻辑 (确保 tenantId 安全隔离)
   async update(id: string, dto: UpdateRoleDto, tenantId: string) {
-    // 1. 先查找该租户下的角色，并显式加载 permissions 关联
+    // 1. 先查找该租户下的角色，并显式加载 menus 关联
     const role = await this.roleRepository.findOne({
       where: { id, tenantId, scope: 'tenant' },
-      relations: ['permissions', 'departments'], // 必须加载关联，否则 TypeORM 无法正确对比差异进行更新
+      relations: ['menus', 'departments'], // 必须加载关联，否则 TypeORM 无法正确对比差异进行更新
     });
 
     if (!role) {
       throw new BusinessException('角色不存在或无权操作');
     }
 
-    // 2. 如果 DTO 中包含了权限码数组，则进行转换
-    if (dto.permissionCodes || dto.permissionIds) {
-      role.permissions = await this.getTenantPermissions(dto.permissionCodes, dto.permissionIds, tenantId);
+    // 2. 如果 DTO 中包含了菜单码数组，则进行转换
+    if (dto.menuCodes || dto.menuIds) {
+      role.menus = await this.getTenantMenus(dto.menuCodes, dto.menuIds, tenantId);
     }
 
     if (dto.deptIds) {
@@ -199,12 +199,12 @@ export class RolesService {
     }
 
     // 3. 更新其他基础字段（如 name, remark, isActive）
-    // 注意：不要直接 Object.assign(role, dto)，因为 dto 里的 permissionCodes 是字符串数组
-    const { permissionCodes, permissionIds, deptIds, scope, ...baseInfo } = dto;
+    // 注意：不要直接 Object.assign(role, dto)，因为 dto 里的 menuCodes 是字符串数组
+    const { menuCodes, menuIds, deptIds, scope, ...baseInfo } = dto;
     Object.assign(role, baseInfo, { scope: 'tenant', dataScope: dto.dataScope || role.dataScope || 'ALL' });
 
     // 4. 保存角色
-    // TypeORM 会自动处理中间表 role_permissions 的更新
+    // TypeORM 会自动处理中间表 role_menus 的更新
     return await this.roleRepository.save(role);
   }
   // 4. 删除角色
@@ -238,14 +238,14 @@ export class RolesService {
   async findOne(id: string, tenantId: string) {
     const role = await this.roleRepository.findOne({
       where: { id, tenantId, scope: 'tenant' },
-      relations: ['permissions', 'departments'],
+      relations: ['menus', 'departments'],
     });
     if (!role) throw new BusinessException('角色不存在或无权操作');
-    // 增加 permissionCodes 字段
+    // 增加 menuCodes 字段
     return {
       ...role,
-      permissionCodes: (role.permissions || []).map((p) => p.code),
-      permissionIds: (role.permissions || []).map((p) => p.id),
+      menuCodes: (role.menus || []).map((menu) => menu.code),
+      menuIds: (role.menus || []).map((menu) => menu.id),
       deptIds: (role.departments || []).map((dept) => dept.id),
     };
   }
@@ -254,9 +254,9 @@ export class RolesService {
     const list = await this.roleRepository.find({
       where: { tenantId, scope: 'tenant', isActive: 1 },
       order: { createdAt: 'ASC' },
-      relations: ['permissions'],
+      relations: ['menus'],
     });
-    // 增加 permissionsNames 字段
+    // 增加 menuNames 字段
     return list.map((role) => ({
       ...role,
     }));
@@ -270,22 +270,22 @@ export class RolesService {
     return this.create(dto, tenantId);
   }
 
-  async getPermissionTree(tenantId: string) {
-    const rows: Permission[] = await this.dataSource.query(
+  async getMenuTree(tenantId: string) {
+    const rows: Menu[] = await this.dataSource.query(
       `
-        SELECT p.*
-        FROM permissions p
+        SELECT m.*
+        FROM menus m
         LEFT JOIN tenant_menu_permissions tmp
-          ON tmp.permissionsId = p.id AND tmp.tenantId = ?
-        WHERE p.scope = 'tenant'
-          AND p.isActive = 1
-          AND (p.type <> 'MENU' OR tmp.permissionsId IS NOT NULL)
-        ORDER BY p.parentId ASC, p.sortOrder ASC, p.id ASC
+          ON tmp.menuId = m.id AND tmp.tenantId = ?
+        WHERE m.scope = 'tenant'
+          AND m.isActive = 1
+          AND (m.type <> 'MENU' OR tmp.menuId IS NOT NULL)
+        ORDER BY m.parentId ASC, m.sortOrder ASC, m.id ASC
       `,
       [tenantId],
     );
 
-    return this.buildPermissionTree(rows);
+    return this.buildMenuTree(rows);
   }
 
   private async getDepartments(deptIds: string[] = [], tenantId: string) {
@@ -319,12 +319,12 @@ export class RolesService {
     return countMap;
   }
 
-  private buildPermissionTree(permissions: Permission[], parentId = 0): Array<Permission & { children?: Permission[] }> {
-    return permissions
-      .filter((permission) => Number(permission.parentId || 0) === parentId)
-      .map((permission) => {
-        const children = this.buildPermissionTree(permissions, permission.id);
-        return children.length > 0 ? { ...permission, children } : permission;
+  private buildMenuTree(menus: Menu[], parentId = 0): Array<Menu & { children?: Menu[] }> {
+    return menus
+      .filter((menu) => Number(menu.parentId || 0) === parentId)
+      .map((menu) => {
+        const children = this.buildMenuTree(menus, menu.id);
+        return children.length > 0 ? { ...menu, children } : menu;
       });
   }
 }
