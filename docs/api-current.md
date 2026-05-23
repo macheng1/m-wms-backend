@@ -346,7 +346,7 @@
 - `POST /api/admin/platform/menus/save`：平台域保存平台菜单，支持 `type/code/name/routePath/componentPath/parentId/icon/sortOrder/isHidden/isActive/description`，`type` 可选 `DIRECTORY` 目录、`MENU` 菜单、`BUTTON` 按钮
 - `POST /api/admin/platform/menus/:id/delete`：平台域删除平台菜单；存在子菜单或平台角色绑定时会拒绝删除
 - `GET /api/admin/platform/roles`：平台域角色列表
-- `POST /api/admin/platform/roles/save`：平台域保存角色，可绑定平台权限和 `dataScope/deptIds`
+- `POST /api/admin/platform/roles/save`：平台域保存角色，可绑定平台菜单/按钮权限和 `dataScope/deptIds`
 - `POST /api/admin/platform/users/list`：平台域平台用户分页列表
 - `GET /api/admin/platform/users/:id`：平台域平台用户详情
 - `POST /api/admin/platform/users/save`：平台域保存平台用户，可绑定平台角色、平台部门和平台岗位；新建时必须传 `password`

@@ -28,7 +28,6 @@ VALUES
   ('platform:user', 'platform', '平台用户', 'MENU', 0, '平台用户'),
   ('platform:role', 'platform', '平台角色', 'MENU', 0, '平台角色'),
   ('platform:menu', 'platform', '平台菜单', 'MENU', 0, '平台菜单'),
-  ('platform:permission', 'platform', '平台权限', 'MENU', 0, '平台权限'),
   ('platform:audit-log', 'platform', '平台审计', 'MENU', 0, '平台操作审计'),
   ('platform:config', 'platform', '平台配置', 'MENU', 0, '平台配置'),
   ('platform:dept', 'platform', '平台部门', 'MENU', 0, '平台部门'),
@@ -95,7 +94,6 @@ SET `routePath` = CASE `code`
   WHEN 'platform:user' THEN '/settings/platform-users'
   WHEN 'platform:role' THEN '/settings/platform-roles'
   WHEN 'platform:menu' THEN '/settings/platform-menus'
-  WHEN 'platform:permission' THEN '/settings/platform-permissions'
   WHEN 'platform:audit-log' THEN '/settings/platform-audit-logs'
   WHEN 'platform:config' THEN '/settings/dict'
   WHEN 'platform:dept' THEN '/settings/dept'
@@ -136,7 +134,6 @@ WHERE `code` IN (
   'platform:user',
   'platform:role',
   'platform:menu',
-  'platform:permission',
   'platform:audit-log',
   'platform:config',
   'platform:dept',
@@ -192,7 +189,6 @@ WHERE child.`code` IN (
   'platform:user',
   'platform:role',
   'platform:menu',
-  'platform:permission',
   'platform:config',
   'platform:dept',
   'platform:post',

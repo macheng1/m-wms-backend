@@ -65,7 +65,6 @@ WHERE child.`code` IN (
   'platform:user',
   'platform:role',
   'platform:menu',
-  'platform:permission',
   'platform:config',
   'platform:dept',
   'platform:post',
