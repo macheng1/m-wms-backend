@@ -49,8 +49,8 @@ export class RolesService {
       throw new BusinessException(`存在不可分配的租户菜单：${invalidValues.join(', ')}`);
     }
 
-    const menuItems = menus.filter((menu) => menu.type === 'MENU');
-    if (menuItems.length > 0) {
+    const guardedMenuItems = menus.filter((menu) => menu.type === 'MENU' || menu.type === 'BUTTON');
+    if (guardedMenuItems.length > 0) {
       const grantedRows: Array<{ code: string }> = await this.dataSource.query(
         `
           SELECT m.code
@@ -58,14 +58,14 @@ export class RolesService {
           INNER JOIN menus m ON m.id = tmp.menuId
           WHERE tmp.tenantId = ?
             AND m.scope = 'tenant'
-            AND m.type = 'MENU'
+            AND m.type IN ('MENU', 'BUTTON')
         `,
         [tenantId],
       );
       const grantedCodes = new Set(grantedRows.map((row) => row.code));
-      const invalidMenuCodes = menuItems
-        .map((menu) => menu.code)
-        .filter((code) => !grantedCodes.has(code));
+      const invalidMenuCodes = guardedMenuItems
+        .filter((menu) => !grantedCodes.has(menu.code))
+        .map((menu) => menu.code);
 
       if (invalidMenuCodes.length > 0) {
         throw new BusinessException(`存在未授权给该租户的菜单：${invalidMenuCodes.join(', ')}`);
@@ -279,7 +279,8 @@ export class RolesService {
           ON tmp.menuId = m.id AND tmp.tenantId = ?
         WHERE m.scope = 'tenant'
           AND m.isActive = 1
-          AND (m.type <> 'MENU' OR tmp.menuId IS NOT NULL)
+          AND m.type IN ('DIRECTORY', 'MENU', 'BUTTON')
+          AND (m.type = 'DIRECTORY' OR tmp.menuId IS NOT NULL)
         ORDER BY m.parentId ASC, m.sortOrder ASC, m.id ASC
       `,
       [tenantId],

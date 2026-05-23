@@ -1,6 +1,6 @@
 // src/modules/tenants/dto/create-tenant.dto.ts
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, MinLength, IsOptional, IsPhoneNumber } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, MinLength, IsOptional } from 'class-validator';
 
 export class CreateTenantDto {
   @ApiProperty({ example: 'XH001', description: '企业唯一编码（用于登录）' })
@@ -148,10 +148,10 @@ export class CreateTenantDto {
   qualificationExpire?: Date;
 
   // 联系信息
-  @ApiProperty({ example: 'test@example.com', description: '联系邮箱', required: false })
-  @IsOptional()
-  @IsString()
-  email?: string;
+  @ApiProperty({ example: 'test@example.com', description: '联系邮箱，用于接收入驻审核通知' })
+  @IsNotEmpty({ message: '联系邮箱不能为空' })
+  @IsEmail({}, { message: '联系邮箱格式不正确' })
+  email: string;
 
   @ApiProperty({ example: '0523-88888888', description: '传真', required: false })
   @IsOptional()

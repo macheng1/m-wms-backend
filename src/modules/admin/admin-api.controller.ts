@@ -127,9 +127,23 @@ export class AdminApiController {
   @Post('platform/tenants/list')
   @UseGuards(PlatformAdminGuard)
   @ApiOperation({ summary: '平台域 - 租户分页列表' })
-  listPlatformTenants(@Body() body: { page?: number; pageSize?: number }) {
-    const { page = 1, pageSize = 20 } = body || {};
-    return this.tenantsService.findAll({ page: Number(page), pageSize: Number(pageSize) });
+  listPlatformTenants(
+    @Body()
+    body: {
+      page?: number;
+      pageSize?: number;
+      code?: string;
+      name?: string;
+      lifecycleStatus?: 'pending' | 'active' | 'rejected' | 'disabled' | 'expired';
+      isActive?: number | string;
+    },
+  ) {
+    const { page = 1, pageSize = 20, ...query } = body || {};
+    return this.tenantsService.findAll({
+      page: Number(page),
+      pageSize: Number(pageSize),
+      ...query,
+    });
   }
 
   @Get('platform/tenants/:id/menus')

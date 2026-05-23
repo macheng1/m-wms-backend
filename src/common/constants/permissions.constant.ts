@@ -75,13 +75,14 @@ export const PERMISSION_CONFIG = {
     scope: 'tenant',
     actions: [
       { code: 'tenant:base', name: '基础资料', isMenu: true, routePath: '/base' },
-      { code: 'tenant:unit:list', name: '单位管理', isMenu: true, routePath: '/inventory/unit' },
     ],
   },
-  TENANT_SECURITY: {
-    module: '组织权限',
+  TENANT_SETTINGS: {
+    module: '系统设置',
     scope: 'tenant',
     actions: [
+      { code: 'tenant:settings', name: '系统设置', isMenu: true },
+      { code: 'tenant:menu:list', name: '菜单管理', isMenu: true, routePath: '/settings/permissions' },
       { code: 'tenant:user:list', name: '员工管理', isMenu: true, routePath: '/users' },
       { code: 'tenant:user:create', name: '新增员工' },
       { code: 'tenant:user:update', name: '编辑员工' },
@@ -90,10 +91,9 @@ export const PERMISSION_CONFIG = {
       { code: 'tenant:role:create', name: '新增角色' },
       { code: 'tenant:role:update', name: '编辑角色' },
       { code: 'tenant:role:delete', name: '删除角色' },
-      { code: 'tenant:menu:list', name: '租户菜单', isMenu: true, routePath: '/settings/permissions' },
-      { code: 'tenant:dict', name: '租户字典', isMenu: true, routePath: '/settings/dict' },
       { code: 'tenant:dept', name: '部门管理', isMenu: true, routePath: '/settings/dept' },
       { code: 'tenant:post', name: '岗位管理', isMenu: true, routePath: '/settings/post' },
+      { code: 'tenant:dict', name: '租户字典', isMenu: true, routePath: '/settings/dict' },
       { code: 'tenant:audit-log', name: '操作日志', isMenu: true, routePath: '/settings/operation-logs' },
     ],
   },
@@ -110,6 +110,7 @@ export const PERMISSION_CONFIG = {
       { code: 'tenant:category:list', name: '类目管理', isMenu: true, routePath: '/category/list' },
       { code: 'tenant:attribute:list', name: '属性管理', isMenu: true, routePath: '/product/attr' },
       { code: 'tenant:spec:list', name: '规格管理', isMenu: true, routePath: '/product/spec' },
+      { code: 'tenant:unit:list', name: '单位管理', isMenu: true, routePath: '/inventory/unit' },
     ],
   },
   TENANT_WAREHOUSE: {
@@ -157,7 +158,7 @@ export const PERMISSION_CONFIG = {
     scope: 'tenant',
     actions: [
       { code: 'tenant:portal', name: '官网管理', isMenu: true, routePath: '/website' },
-      { code: 'tenant:portal:config', name: '官网配置', isMenu: true, routePath: '/base' },
+      // { code: 'tenant:portal:config', name: '官网配置', isMenu: true, routePath: '/base' },
       { code: 'tenant:portal:inquiry:list', name: '询盘管理', isMenu: true, routePath: '/website/inquiry' },
     ],
   },

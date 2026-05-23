@@ -78,7 +78,7 @@ export class UsersService {
             INNER JOIN menus m ON m.id = tmp.menuId
             WHERE tmp.tenantId = ?
               AND m.scope = 'tenant'
-              AND m.type = 'MENU'
+              AND m.type IN ('MENU', 'BUTTON')
           `,
           [user.tenantId],
         );
@@ -88,13 +88,13 @@ export class UsersService {
           grantedMenuCodes.forEach((code) => allowedCodes.add(code));
           user.roles.forEach((role) => {
             role.menus
-              .filter((menu) => menu.type !== 'MENU' || grantedMenuCodes.has(menu.code))
+              .filter((menu) => !['MENU', 'BUTTON'].includes(menu.type) || grantedMenuCodes.has(menu.code))
               .forEach((menu) => allowedCodes.add(menu.code));
           });
         } else {
           user.roles.forEach((role) => {
             role.menus
-              .filter((menu) => menu.type !== 'MENU' || grantedMenuCodes.has(menu.code))
+              .filter((menu) => !['MENU', 'BUTTON'].includes(menu.type) || grantedMenuCodes.has(menu.code))
               .forEach((menu) => allowedCodes.add(menu.code));
           });
         }
@@ -138,6 +138,7 @@ export class UsersService {
       .map((menu) => {
         const children = this.buildVisibleMenuTree(menus, Number(menu.id), allowedCodes, includeAll);
         const isAllowed = includeAll || allowedCodes.has(menu.code);
+        if (!includeAll && menu.type === 'DIRECTORY' && children.length === 0) return null;
         if (!isAllowed && children.length === 0) return null;
         return {
           id: menu.id,

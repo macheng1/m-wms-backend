@@ -6,6 +6,7 @@ import { Post } from '@/modules/system/entities/post.entity';
 import { Tenant } from '@/modules/tenant/entities/tenant.entity';
 import { User } from '@/modules/users/entities/user.entity';
 import { OperationLog } from './entities/operation-log.entity';
+import { MailService } from '../mail/mail.service';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
@@ -41,6 +42,7 @@ export class AdminPlatformService {
     @InjectRepository(OperationLog)
     private readonly operationLogRepo: Repository<OperationLog>,
     private readonly dataSource: DataSource,
+    private readonly mailService: MailService,
   ) {}
 
   async platformDashboard() {
@@ -189,10 +191,12 @@ export class AdminPlatformService {
   }
 
   findTenantMenus() {
-    return this.menuRepo.find({
-      where: { scope: 'tenant', type: 'MENU' },
-      order: { id: 'ASC' },
-    });
+    return this.menuRepo
+      .find({
+        where: { scope: 'tenant', type: In(['DIRECTORY', 'MENU', 'BUTTON']) },
+        order: { sortOrder: 'ASC', id: 'ASC' },
+      })
+      .then((menus) => this.buildMenuTree(menus));
   }
 
   async findTenantMenuGrant(tenantId: string) {
@@ -209,7 +213,7 @@ export class AdminPlatformService {
         INNER JOIN menus m ON m.id = tmp.menuId
         WHERE tmp.tenantId = ?
           AND m.scope = 'tenant'
-          AND m.type = 'MENU'
+          AND m.type IN ('DIRECTORY', 'MENU', 'BUTTON')
       `,
       [tenantId],
     );
@@ -236,7 +240,7 @@ export class AdminPlatformService {
             where: {
               code: In(uniqueCodes),
               scope: 'tenant',
-              type: 'MENU',
+              type: In(['DIRECTORY', 'MENU', 'BUTTON']),
             },
           });
 
@@ -580,7 +584,40 @@ export class AdminPlatformService {
       if (tenant.lifecycleStatus === 'rejected') tenant.isApproved = 0;
     }
 
-    return this.tenantRepo.save(tenant);
+    const savedTenant = await this.tenantRepo.save(tenant);
+    await this.sendTenantLifecycleEmail(savedTenant);
+    return savedTenant;
+  }
+
+  private async sendTenantLifecycleEmail(tenant: Tenant) {
+    if (!tenant.email) return;
+
+    if (tenant.lifecycleStatus === 'active') {
+      await this.mailService.sendMail({
+        to: tenant.email,
+        subject: `企业入驻审核通过 - ${tenant.name}`,
+        text: `您好，${tenant.name} 的入驻申请已审核通过。企业编码：${tenant.code}。请使用注册时设置的管理员账号登录系统。`,
+        html: `
+          <p>您好，</p>
+          <p><strong>${tenant.name}</strong> 的入驻申请已审核通过。</p>
+          <p>企业编码：<strong>${tenant.code}</strong></p>
+          <p>请使用注册时设置的管理员账号登录系统。</p>
+        `,
+      });
+    }
+
+    if (tenant.lifecycleStatus === 'rejected') {
+      await this.mailService.sendMail({
+        to: tenant.email,
+        subject: `企业入驻审核未通过 - ${tenant.name}`,
+        text: `您好，${tenant.name} 的入驻申请未通过审核。${tenant.auditRemark ? `原因：${tenant.auditRemark}` : ''}`,
+        html: `
+          <p>您好，</p>
+          <p><strong>${tenant.name}</strong> 的入驻申请未通过审核。</p>
+          ${tenant.auditRemark ? `<p>原因：${tenant.auditRemark}</p>` : ''}
+        `,
+      });
+    }
   }
 
   async deleteMenu(id: number) {

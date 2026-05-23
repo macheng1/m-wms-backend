@@ -5,13 +5,13 @@ import {
   InternalServerErrorException,
   Logger,
   BadRequestException,
+  HttpException,
 } from '@nestjs/common';
-import { DataSource, EntityManager, In } from 'typeorm';
+import { DataSource, EntityManager, In, Like } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { ConfigService } from '@nestjs/config';
 
 import { ROLE_TEMPLATES } from '@/common/constants/role-templates.constant';
-import { flattenPermissions } from '@/common/constants/permissions.constant';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { Tenant } from './entities/tenant.entity';
 import { Role } from '../roles/entities/role.entity';
@@ -36,41 +36,37 @@ export class TenantsService {
    * 核心业务：租户入驻全自动化流程
    */
   async onboard(dto: CreateTenantDto) {
-    // 1. 预检查：在进入事务前拦截明显错误，节省数据库连接资源
-    await this.validateBeforeOnboard(dto);
+    const normalizedDto = this.normalizeOnboardDto(dto);
+    this.validateRequiredOnboardFields(normalizedDto);
 
     try {
       const result = await this.dataSource.transaction(async (manager) => {
-        // Step A: 创建租户主体
-        const tenant = await this.createTenant(manager, dto);
+        await this.validateBeforeOnboard(manager, normalizedDto);
+        const tenant = await this.createTenant(manager, normalizedDto);
+        const menuGrantCount = await this.initTenantMenuPermissions(manager, tenant.id);
+        const { adminRole, roleCount } = await this.initTenantRoles(manager, tenant.id);
+        const adminUser = await this.createAdminUser(manager, tenant.id, normalizedDto, adminRole);
+        await this.initPortalConfig(manager, tenant);
 
-        // Step B: 初始化该租户可使用的统一菜单
-        await this.initTenantMenuPermissions(manager, tenant.id);
-
-        // Step C: 初始化角色与权限
-        const { adminRole } = await this.initTenantRoles(manager, tenant.id);
-
-        // Step D: 创建租户超级管理员
-        const adminUser = await this.createAdminUser(manager, tenant.id, dto, adminRole);
-
-        // 返回给拦截器的数据负载
         return {
           tenantId: tenant.id,
           tenantCode: tenant.code,
           tenantName: tenant.name,
           adminId: adminUser.id,
           username: adminUser.username,
+          menuGrantCount,
+          roleCount,
         };
       });
 
       // 2. 入驻成功后删除验证码（防止重复使用）
-      await this.smsService.deleteCode(dto.contactPhone);
+      await this.smsService.deleteCode(normalizedDto.contactPhone);
 
       return result;
     } catch (error) {
       this.logger.error(`租户入驻失败: ${error.message}`, error.stack);
       // 如果是已知的业务异常则直接抛出，否则封装为 500
-      if (error instanceof ConflictException) throw error;
+      if (error instanceof HttpException) throw error;
       throw new InternalServerErrorException('系统在处理租户入驻时发生未知错误');
     }
   }
@@ -78,9 +74,35 @@ export class TenantsService {
   /**
    * 分页查询租户列表
    */
-  async findAll({ page = 1, pageSize = 20 }: { page: number; pageSize: number }) {
+  async findAll({
+    page = 1,
+    pageSize = 20,
+    code,
+    name,
+    lifecycleStatus,
+    isActive,
+  }: {
+    page: number;
+    pageSize: number;
+    code?: string;
+    name?: string;
+    lifecycleStatus?: 'pending' | 'active' | 'rejected' | 'disabled' | 'expired';
+    isActive?: number | string;
+  }) {
     const repo = this.dataSource.getRepository(Tenant);
+    const where: any = {};
+
+    if (code) where.code = Like(`%${code}%`);
+    if (name) where.name = Like(`%${name}%`);
+    if (lifecycleStatus) where.lifecycleStatus = lifecycleStatus;
+
+    const activeValue = Number(isActive);
+    if (activeValue === 0 || activeValue === 1) {
+      where.isActive = activeValue;
+    }
+
     const [list, total] = await repo.findAndCount({
+      where,
       skip: (page - 1) * pageSize,
       take: pageSize,
       order: { createdAt: 'DESC' },
@@ -299,6 +321,30 @@ export class TenantsService {
     // 3. 组合返回
     return `ENT_${initials}_${random}`;
   }
+
+  private normalizeOnboardDto(dto: CreateTenantDto): CreateTenantDto {
+    return {
+      ...dto,
+      code: dto.code?.trim(),
+      name: dto.name?.trim(),
+      contactPhone: dto.contactPhone?.trim(),
+      contactPerson: dto.contactPerson?.trim(),
+      email: dto.email?.trim(),
+      adminUser: dto.adminUser?.trim(),
+      industryCode: dto.industryCode?.trim(),
+      industryName: dto.industryName?.trim(),
+      industryType: dto.industryType?.trim(),
+    };
+  }
+
+  private validateRequiredOnboardFields(dto: CreateTenantDto) {
+    if (!dto.name) throw new BadRequestException('企业名称不能为空');
+    if (!dto.contactPhone) throw new BadRequestException('联系电话不能为空');
+    if (!dto.email) throw new BadRequestException('联系邮箱不能为空');
+    if (!dto.smsCode) throw new BadRequestException('验证码不能为空');
+    if (!dto.adminUser) throw new BadRequestException('管理员账号不能为空');
+    if (!dto.adminPass) throw new BadRequestException('管理员密码不能为空');
+  }
   /**
    * 删除租户
    */
@@ -312,7 +358,7 @@ export class TenantsService {
   /**
    * 优化后的逻辑拆分 1：预校验（手机验证码、企业全称）
    */
-  private async validateBeforeOnboard(dto: CreateTenantDto) {
+  private async validateBeforeOnboard(manager: EntityManager, dto: CreateTenantDto) {
     // 1. 验证手机验证码
     const isValidCode = await this.smsService.verifyCode(dto.contactPhone, dto.smsCode);
     if (!isValidCode) {
@@ -320,17 +366,27 @@ export class TenantsService {
     }
 
     // 2. 检查企业全称是否已存在
-    const existingTenant = await this.dataSource.getRepository(Tenant).findOne({
+    const tenantRepo = manager.getRepository(Tenant);
+    const existingTenant = await tenantRepo.findOne({
       where: { name: dto.name },
     });
     if (existingTenant) {
       throw new BusinessException(`企业 "${dto.name}" 已存在`);
     }
+
+    if (dto.code) {
+      const existingCode = await tenantRepo.findOne({
+        where: { code: dto.code },
+      });
+      if (existingCode) {
+        throw new BusinessException(`企业编码 "${dto.code}" 已存在`);
+      }
+    }
   }
 
   private async createTenant(manager: EntityManager, dto: CreateTenantDto): Promise<Tenant> {
     // 1. 生成企业编码和官网链接
-    const code = dto.code || this.generateEnterpriseCode(dto.name);
+    const code = dto.code || (await this.generateUniqueEnterpriseCode(manager, dto.name));
 
     // 2. 统一生成官网地址（不再区分环境）
     const baseDomain =
@@ -347,13 +403,20 @@ export class TenantsService {
       code: code.trim(),
       website,
       industryType: dto.industryType || '未分类',
+      isApproved: 0,
+      isActive: 0,
+      lifecycleStatus: 'pending',
     });
-    const savedTenant = await manager.save(tenant);
+    return await manager.save(tenant);
+  }
 
-    // 💡 4. 自动初始化网站通用配置
-    await this.initPortalConfig(manager, savedTenant);
-
-    return savedTenant;
+  private async generateUniqueEnterpriseCode(manager: EntityManager, enterpriseName: string) {
+    for (let i = 0; i < 10; i += 1) {
+      const code = this.generateEnterpriseCode(enterpriseName);
+      const exists = await manager.exists(Tenant, { where: { code } });
+      if (!exists) return code;
+    }
+    throw new InternalServerErrorException('企业编码生成失败，请稍后重试');
   }
 
   /**
@@ -387,10 +450,9 @@ export class TenantsService {
     return await manager.save(defaultConfig);
   }
 
-  // ...existing code...
   private async initTenantMenuPermissions(manager: EntityManager, tenantId: string) {
     const tenantMenus = await manager.find(Menu, {
-      where: { scope: 'tenant', type: 'MENU' },
+      where: { scope: 'tenant', type: In(['DIRECTORY', 'MENU', 'BUTTON']) },
     });
 
     for (const menu of tenantMenus) {
@@ -399,6 +461,8 @@ export class TenantsService {
         [tenantId, menu.id],
       );
     }
+
+    return tenantMenus.length;
   }
 
   /**
@@ -407,20 +471,18 @@ export class TenantsService {
   private async initTenantRoles(manager: EntityManager, tenantId: string) {
     let adminRole: Role;
 
-    // 1. 获取所有权限（直接用常量，保证和菜单一致）
-    const allPermissions = flattenPermissions();
+    // 1. 角色直接关联 menus 表。管理员默认拥有当前租户域全部菜单和按钮。
+    const allTenantMenus = await manager.find(Menu, {
+      where: { scope: 'tenant' },
+    });
 
     // 2. 循环创建角色
     for (const tpl of Object.values(ROLE_TEMPLATES)) {
       const isSuperAdmin = tpl.code === 'ADMIN';
       // admin 角色分配所有权限，其他角色按模板分配
-      const perms = isSuperAdmin
-        ? allPermissions
-        : allPermissions.filter((p) => (tpl.menuCodes as any).includes(p.code));
-      console.log('🚀 ~ TenantsService ~ initTenantRoles ~ perms:', perms);
-      const menuEntities = await manager.find(Menu, {
-        where: { code: In(perms.map((p) => p.code)), scope: 'tenant' },
-      });
+      const menuEntities = isSuperAdmin
+        ? allTenantMenus
+        : allTenantMenus.filter((menu) => (tpl.menuCodes as readonly string[]).includes(menu.code));
       const role = manager.create(Role, {
         tenantId,
         name: tpl.name,
@@ -432,7 +494,12 @@ export class TenantsService {
       const savedRole = await manager.save(role);
       if (isSuperAdmin) adminRole = savedRole;
     }
-    return { adminRole };
+
+    if (!adminRole) {
+      throw new InternalServerErrorException('租户管理员角色初始化失败');
+    }
+
+    return { adminRole, roleCount: Object.keys(ROLE_TEMPLATES).length };
   }
   /**
    * 逻辑拆分 4：创建管理员
@@ -448,7 +515,11 @@ export class TenantsService {
       tenantId,
       username: dto.adminUser,
       password: hashedPassword,
-      nickname: '系统管理员',
+      realName: '系统管理员',
+      phone: dto.contactPhone,
+      email: dto.email,
+      isActive: 1,
+      isPlatformAdmin: 0,
       roles: [role],
     });
     return await manager.save(user);

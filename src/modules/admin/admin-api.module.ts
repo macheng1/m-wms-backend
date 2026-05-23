@@ -10,9 +10,10 @@ import { OperationLog } from './entities/operation-log.entity';
 import { AdminPlatformService } from './admin-platform.service';
 import { Department } from '../system/entities/department.entity';
 import { Post } from '../system/entities/post.entity';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
-  imports: [TenantModule, TypeOrmModule.forFeature([Menu, Role, User, Tenant, Department, Post, OperationLog])],
+  imports: [TenantModule, MailModule, TypeOrmModule.forFeature([Menu, Role, User, Tenant, Department, Post, OperationLog])],
   controllers: [AdminApiController],
   providers: [AdminPlatformService],
 })
