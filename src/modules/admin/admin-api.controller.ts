@@ -301,6 +301,26 @@ export class AdminApiController {
     });
   }
 
+  @Post('platform/roles/:id/delete')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 删除平台角色' })
+  deletePlatformRole(@Param('id') id: string, @Req() req) {
+    return this.adminPlatformService.deleteRole(id).then(async (role) => {
+      await this.adminPlatformService.recordAudit({
+        user: req.user,
+        scope: 'platform',
+        module: 'platform-role',
+        action: 'delete',
+        targetType: 'role',
+        targetId: role.id,
+        description: `删除平台角色：${role.name}`,
+        beforeData: role,
+        ip: req.ip,
+      });
+      return role;
+    });
+  }
+
   @Post('platform/users/list')
   @UseGuards(PlatformAdminGuard)
   @ApiOperation({ summary: '平台域 - 平台用户分页列表' })
@@ -356,6 +376,26 @@ export class AdminApiController {
   @ApiOperation({ summary: '平台域 - 平台用户状态变更' })
   updatePlatformUserStatus(@Param('id') id: string, @Body() body: { isActive: number }) {
     return this.adminPlatformService.updateUserStatus(id, body.isActive);
+  }
+
+  @Post('platform/users/:id/delete')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 删除平台用户' })
+  deletePlatformUser(@Param('id') id: string, @Req() req) {
+    return this.adminPlatformService.deleteUser(id, req.user?.id).then(async (user) => {
+      await this.adminPlatformService.recordAudit({
+        user: req.user,
+        scope: 'platform',
+        module: 'platform-user',
+        action: 'delete',
+        targetType: 'user',
+        targetId: user.id,
+        description: `删除平台用户：${user.username}`,
+        beforeData: user,
+        ip: req.ip,
+      });
+      return user;
+    });
   }
 
   @Post('platform/menus/save')

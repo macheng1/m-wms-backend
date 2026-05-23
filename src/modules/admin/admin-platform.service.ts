@@ -319,6 +319,34 @@ export class AdminPlatformService {
     return this.roleRepo.save(role);
   }
 
+  async deleteRole(id: string) {
+    const role = await this.roleRepo.findOne({
+      where: { id, scope: 'platform', tenantId: IsNull() },
+    });
+    if (!role) {
+      throw new BusinessException('平台角色不存在');
+    }
+    if (role.isSystem) {
+      throw new BusinessException('系统角色不允许删除');
+    }
+
+    const [userRow]: Array<{ total: string | number }> = await this.dataSource.query(
+      'SELECT COUNT(*) AS total FROM user_roles WHERE rolesId = ?',
+      [id],
+    );
+    if (Number(userRow?.total || 0) > 0) {
+      throw new BusinessException('该角色已分配给平台用户，请先解除用户角色后再删除');
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.query('DELETE FROM role_menus WHERE roleId = ?', [id]);
+      await manager.query('DELETE FROM role_departments WHERE roleId = ?', [id]);
+      await manager.remove(role);
+    });
+
+    return { id: role.id, name: role.name, code: role.code };
+  }
+
   async findUsers(query: {
     page?: number;
     pageSize?: number;
@@ -489,6 +517,40 @@ export class AdminPlatformService {
     user.isActive = isActive;
     await this.userRepo.save(user);
     return { id, isActive };
+  }
+
+  async deleteUser(id: string, currentUserId?: string) {
+    if (currentUserId && String(currentUserId) === String(id)) {
+      throw new BusinessException('不能删除当前登录账号');
+    }
+
+    const user = await this.userRepo.findOne({
+      where: {
+        id,
+        tenantId: IsNull(),
+        isPlatformAdmin: 1,
+      },
+    });
+    if (!user) {
+      throw new BusinessException('平台用户不存在');
+    }
+
+    const platformUserCount = await this.userRepo.count({
+      where: {
+        tenantId: IsNull(),
+        isPlatformAdmin: 1,
+      },
+    });
+    if (platformUserCount <= 1) {
+      throw new BusinessException('至少保留一个平台用户');
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.query('DELETE FROM user_roles WHERE usersId = ?', [id]);
+      await manager.remove(user);
+    });
+
+    return { id: user.id, username: user.username };
   }
 
   async saveMenu(dto: {
