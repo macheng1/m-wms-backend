@@ -4,8 +4,10 @@ import { Entity, Column, ManyToMany, JoinTable } from 'typeorm';
 
 import { Permission } from '../../auth/entities/permission.entity';
 import { TenantBaseEntity } from '@/database/base.entity';
+import { Department } from '@/modules/system/entities/department.entity';
 
 export type RoleScope = 'platform' | 'tenant';
+export type RoleDataScope = 'ALL' | 'CUSTOM' | 'DEPT' | 'DEPT_AND_CHILD' | 'SELF';
 
 @Entity('roles')
 export class Role extends TenantBaseEntity {
@@ -26,8 +28,23 @@ export class Role extends TenantBaseEntity {
   remark: string;
   @Column({ default: false, comment: '是否为系统初始化角色' })
   isSystem: boolean;
+  @Column({
+    type: 'enum',
+    enum: ['ALL', 'CUSTOM', 'DEPT', 'DEPT_AND_CHILD', 'SELF'],
+    default: 'ALL',
+    comment: '数据权限范围：全部、自定义部门、本部门、本部门及以下、仅本人',
+  })
+  dataScope: RoleDataScope;
 
   @ManyToMany(() => Permission)
   @JoinTable({ name: 'role_permissions' })
   permissions: Permission[];
+
+  @ManyToMany(() => Department)
+  @JoinTable({
+    name: 'role_departments',
+    joinColumn: { name: 'roleId', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'departmentId', referencedColumnName: 'id' },
+  })
+  departments: Department[];
 }

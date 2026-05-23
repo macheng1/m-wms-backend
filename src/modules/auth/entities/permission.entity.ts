@@ -25,6 +25,9 @@ export class Permission {
   @Column({ nullable: true, comment: '前端菜单路由，对应 my-wms 的实际页面路径' })
   routePath: string | null;
 
+  @Column({ nullable: true, comment: '前端组件路径，动态路由场景使用' })
+  componentPath: string | null;
+
   @Column({ nullable: true, comment: '前端菜单图标标识' })
   icon: string | null;
 
@@ -34,11 +37,14 @@ export class Permission {
   @Column({ type: 'tinyint', default: 0, comment: '是否隐藏菜单' })
   isHidden: number;
 
+  @Column({ type: 'tinyint', default: 1, comment: '状态：1启用，0停用' })
+  isActive: number;
+
   @Column({
     type: 'enum',
-    enum: ['MENU', 'BUTTON', 'API'],
+    enum: ['DIRECTORY', 'MENU', 'BUTTON', 'API'],
     default: 'MENU',
-    comment: '权限类型：菜单、按钮、接口',
+    comment: '权限类型：目录、菜单、按钮、接口',
   })
   type: string; // 替换 isMenu，更具扩展性
 

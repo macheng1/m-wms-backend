@@ -1,10 +1,12 @@
 // src/modules/users/users.service.ts
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Like, Repository } from 'typeorm';
+import { DataSource, In, Like, Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs'; // 修复导入，确保运行时可用
 import { User } from './entities/user.entity';
 import { Role } from '../roles/entities/role.entity';
+import { Department } from '../system/entities/department.entity';
+import { Post } from '../system/entities/post.entity';
 import { BusinessException } from '@/common/filters/business.exception';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -18,6 +20,12 @@ export class UsersService {
   constructor(
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
+    @InjectRepository(Role)
+    private readonly roleRepo: Repository<Role>,
+    @InjectRepository(Department)
+    private readonly departmentRepo: Repository<Department>,
+    @InjectRepository(Post)
+    private readonly postRepo: Repository<Post>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -89,9 +97,12 @@ export class UsersService {
    * 2. 分页查找 (page) - 按创建时间正序
    */
   async findPage(query: QueryUserDto, tenantId: string) {
-    const { page, pageSize, username, isActive } = query;
+    const { page = 1, pageSize = 20, username, realName, phone, deptId, isActive } = query;
     const where: any = { tenantId };
     if (username) where.username = Like(`%${username}%`);
+    if (realName) where.realName = Like(`%${realName}%`);
+    if (phone) where.phone = Like(`%${phone}%`);
+    if (deptId) where.deptId = deptId;
     if (isActive !== undefined) where.isActive = isActive;
 
     const [list, total] = await this.userRepo.findAndCount({
@@ -99,13 +110,16 @@ export class UsersService {
       skip: (page - 1) * pageSize,
       take: pageSize,
       order: { createdAt: 'ASC' },
-      relations: ['roles'],
+      relations: ['roles', 'department', 'post'],
     });
 
     // 新增：为每个用户增加 roleNames 字段
     const listWithRoleNames = list.map((user) => ({
       ...user,
       roleNames: user.roles?.map((r) => r.name) || [],
+      roleIds: user.roles?.map((r) => r.id) || [],
+      deptName: user.department?.deptName || null,
+      postName: user.post?.postName || null,
     }));
 
     return { list: listWithRoleNames, total, page, pageSize };
@@ -115,9 +129,16 @@ export class UsersService {
    * 3. 保存新员工 (save)
    */
   async save(dto: CreateUserDto, tenantId: string) {
+    if ((dto as any).id) {
+      return this.update(dto as UpdateUserDto, tenantId);
+    }
+
     // 检查账号是否重复
     const existing = await this.userRepo.findOne({ where: { username: dto.username, tenantId } });
     if (existing) throw new BusinessException('用户名已存在');
+
+    await this.validateOrg(dto.deptId, dto.postId, tenantId);
+    const roles = await this.resolveRoles(dto.roleIds, tenantId);
 
     // 核心优化：保存前必须加密密码
     const hashedPassword = await bcrypt.hash(dto.password, 10);
@@ -128,7 +149,7 @@ export class UsersService {
       tenantId,
     });
 
-    if (dto.roleIds) user.roles = dto.roleIds.map((id) => ({ id }) as Role);
+    user.roles = roles;
 
     return await this.userRepo.save(user);
   }
@@ -144,11 +165,13 @@ export class UsersService {
 
     if (!user) throw new BusinessException('未找到该员工');
 
+    await this.validateOrg(dto.deptId, dto.postId, tenantId);
+
     // 如果涉及角色变更，重新映射多对多关系
-    if (dto.roleIds) user.roles = dto.roleIds.map((id) => ({ id }) as Role);
+    if (dto.roleIds) user.roles = await this.resolveRoles(dto.roleIds, tenantId);
 
     // 合并其他字段 (排除密码，密码有专门的重置接口)
-    const { password, ...updateInfo } = dto;
+    const { password, roleIds, ...updateInfo } = dto;
     Object.assign(user, updateInfo);
 
     return await this.userRepo.save(user);
@@ -207,7 +230,7 @@ export class UsersService {
   async getDetail(id: string, tenantId: string) {
     const user = await this.userRepo.findOne({
       where: { id, tenantId },
-      relations: ['roles', 'roles.permissions', 'tenant'],
+      relations: ['roles', 'roles.permissions', 'tenant', 'department', 'post'],
     });
     if (!user) throw new NotFoundException('该员工不存在');
 
@@ -217,11 +240,48 @@ export class UsersService {
       username: user.username,
       avatar: user.avatar,
       realName: user.realName,
+      phone: user.phone,
+      email: user.email,
       userType: user.isPlatformAdmin === 1 ? 'platform' : 'tenant',
       tenantId: user.tenantId,
       tenantName: user.tenant?.name || '系统运营',
+      deptId: user.deptId,
+      deptName: user.department?.deptName || null,
+      postId: user.postId,
+      postName: user.post?.postName || null,
       isActive: user.isActive,
       roleIds,
     };
+  }
+
+  private async resolveRoles(roleIds: string[] = [], tenantId: string) {
+    if (!roleIds.length) return [];
+
+    const roles = await this.roleRepo.find({
+      where: {
+        id: In(roleIds),
+        tenantId,
+        scope: 'tenant',
+        isActive: 1,
+      },
+    });
+
+    if (roles.length !== roleIds.length) {
+      throw new BusinessException('存在不可分配或已停用的角色');
+    }
+
+    return roles;
+  }
+
+  private async validateOrg(deptId: string | undefined, postId: string | undefined, tenantId: string) {
+    if (deptId) {
+      const department = await this.departmentRepo.findOne({ where: { id: deptId, tenantId } });
+      if (!department) throw new BusinessException('部门不存在或无权使用');
+    }
+
+    if (postId) {
+      const post = await this.postRepo.findOne({ where: { id: postId, tenantId } });
+      if (!post) throw new BusinessException('岗位不存在或无权使用');
+    }
   }
 }

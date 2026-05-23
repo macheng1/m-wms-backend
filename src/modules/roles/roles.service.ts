@@ -7,6 +7,7 @@ import { Role } from './entities/role.entity';
 import { DataSource, In, Like, Repository } from 'typeorm';
 import { QueryRoleDto } from './entities/dto/query-role.dto';
 import { Permission } from '../auth/entities/permission.entity';
+import { Department } from '../system/entities/department.entity';
 
 // src/modules/roles/roles.service.ts
 @Injectable()
@@ -16,28 +17,36 @@ export class RolesService {
     private readonly roleRepository: Repository<Role>,
     @InjectRepository(Permission)
     private readonly permissionRepository: Repository<Permission>,
+    @InjectRepository(Department)
+    private readonly departmentRepository: Repository<Department>,
     private readonly dataSource: DataSource,
   ) {}
 
   private async getTenantPermissions(
     permissionCodes: string[] = [],
+    permissionIds: number[] = [],
     tenantId: string,
   ): Promise<Permission[]> {
-    if (permissionCodes.length === 0) {
+    if (permissionCodes.length === 0 && permissionIds.length === 0) {
       return [];
     }
 
     const permissions = await this.permissionRepository.find({
       where: {
-        code: In(permissionCodes),
         scope: 'tenant',
+        ...(permissionIds.length > 0 ? { id: In(permissionIds) } : { code: In(permissionCodes) }),
       },
     });
 
-    if (permissions.length !== permissionCodes.length) {
+    const expectedValues = permissionIds.length > 0 ? permissionIds : permissionCodes;
+    if (permissions.length !== expectedValues.length) {
       const existingCodes = new Set(permissions.map((permission) => permission.code));
-      const invalidCodes = permissionCodes.filter((code) => !existingCodes.has(code));
-      throw new BusinessException(`存在不可分配的租户权限：${invalidCodes.join(', ')}`);
+      const existingIds = new Set(permissions.map((permission) => permission.id));
+      const invalidValues =
+        permissionIds.length > 0
+          ? permissionIds.filter((id) => !existingIds.has(id))
+          : permissionCodes.filter((code) => !existingCodes.has(code));
+      throw new BusinessException(`存在不可分配的租户权限：${invalidValues.join(', ')}`);
     }
 
     const menuPermissions = permissions.filter((permission) => permission.type === 'MENU');
@@ -74,15 +83,18 @@ export class RolesService {
     if (existing) throw new BusinessException('该角色名称在当前企业中已存在');
 
     // 2. 租户管理员只能为租户角色分配 tenant 域权限。
-    const permissions = await this.getTenantPermissions(dto.permissionCodes, tenantId);
+    const permissions = await this.getTenantPermissions(dto.permissionCodes, dto.permissionIds, tenantId);
+    const departments = await this.getDepartments(dto.deptIds, tenantId);
 
     // 3. 创建角色并关联查到的权限实体
-    const { permissionCodes, scope, ...roleInfo } = dto;
+    const { permissionCodes, permissionIds, deptIds, scope, ...roleInfo } = dto;
     const role = this.roleRepository.create({
       ...roleInfo,
       scope: 'tenant',
       tenantId, // 强制注入租户 ID，保证数据隔离
       permissions, // 绑定权限实体对象数组
+      departments,
+      dataScope: dto.dataScope || 'ALL',
     });
 
     // 4. 保存角色
@@ -111,7 +123,7 @@ export class RolesService {
       skip: (page - 1) * pageSize,
       take: pageSize,
       order: { id: 'ASC' },
-      relations: ['permissions'],
+      relations: ['permissions', 'departments'],
     };
 
     // permissionCodes 过滤
@@ -147,9 +159,14 @@ export class RolesService {
     const [list, total] = await this.roleRepository.findAndCount(findOptions);
 
     // 增加 permissionsNames 字段
+    const userCounts = await this.getRoleUserCounts(list.map((role) => role.id));
     const listWithNames = list.map((role) => ({
       ...role,
       permissionsNames: (role.permissions || []).map((p) => p.name).join(', '),
+      permissionCodes: (role.permissions || []).map((p) => p.code),
+      permissionIds: (role.permissions || []).map((p) => p.id),
+      deptIds: (role.departments || []).map((dept) => dept.id),
+      userCount: userCounts.get(role.id) || 0,
     }));
     return {
       list: listWithNames,
@@ -165,7 +182,7 @@ export class RolesService {
     // 1. 先查找该租户下的角色，并显式加载 permissions 关联
     const role = await this.roleRepository.findOne({
       where: { id, tenantId, scope: 'tenant' },
-      relations: ['permissions'], // 必须加载关联，否则 TypeORM 无法正确对比差异进行更新
+      relations: ['permissions', 'departments'], // 必须加载关联，否则 TypeORM 无法正确对比差异进行更新
     });
 
     if (!role) {
@@ -173,14 +190,18 @@ export class RolesService {
     }
 
     // 2. 如果 DTO 中包含了权限码数组，则进行转换
-    if (dto.permissionCodes) {
-      role.permissions = await this.getTenantPermissions(dto.permissionCodes, tenantId);
+    if (dto.permissionCodes || dto.permissionIds) {
+      role.permissions = await this.getTenantPermissions(dto.permissionCodes, dto.permissionIds, tenantId);
+    }
+
+    if (dto.deptIds) {
+      role.departments = await this.getDepartments(dto.deptIds, tenantId);
     }
 
     // 3. 更新其他基础字段（如 name, remark, isActive）
     // 注意：不要直接 Object.assign(role, dto)，因为 dto 里的 permissionCodes 是字符串数组
-    const { permissionCodes, scope, ...baseInfo } = dto;
-    Object.assign(role, baseInfo, { scope: 'tenant' });
+    const { permissionCodes, permissionIds, deptIds, scope, ...baseInfo } = dto;
+    Object.assign(role, baseInfo, { scope: 'tenant', dataScope: dto.dataScope || role.dataScope || 'ALL' });
 
     // 4. 保存角色
     // TypeORM 会自动处理中间表 role_permissions 的更新
@@ -215,21 +236,21 @@ export class RolesService {
   }
   // 辅助方法：确保查询时不跨租户
   async findOne(id: string, tenantId: string) {
-    console.log('🚀 ~ RolesService ~ findOne ~ tenantId:', tenantId);
     const role = await this.roleRepository.findOne({
       where: { id, tenantId, scope: 'tenant' },
-      relations: ['permissions'],
+      relations: ['permissions', 'departments'],
     });
     if (!role) throw new BusinessException('角色不存在或无权操作');
     // 增加 permissionCodes 字段
     return {
       ...role,
       permissionCodes: (role.permissions || []).map((p) => p.code),
+      permissionIds: (role.permissions || []).map((p) => p.id),
+      deptIds: (role.departments || []).map((dept) => dept.id),
     };
   }
   // 查询所有激活的角色（不分页）
   async selectRoleList(tenantId: string) {
-    console.log('🚀 ~ RolesService ~ selectRoleList ~ tenantId:', tenantId);
     const list = await this.roleRepository.find({
       where: { tenantId, scope: 'tenant', isActive: 1 },
       order: { createdAt: 'ASC' },
@@ -239,5 +260,71 @@ export class RolesService {
     return list.map((role) => ({
       ...role,
     }));
+  }
+
+  async save(dto: UpdateRoleDto & { id?: string }, tenantId: string) {
+    if (dto.id) {
+      return this.update(dto.id, dto, tenantId);
+    }
+
+    return this.create(dto, tenantId);
+  }
+
+  async getPermissionTree(tenantId: string) {
+    const rows: Permission[] = await this.dataSource.query(
+      `
+        SELECT p.*
+        FROM permissions p
+        LEFT JOIN tenant_menu_permissions tmp
+          ON tmp.permissionsId = p.id AND tmp.tenantId = ?
+        WHERE p.scope = 'tenant'
+          AND p.isActive = 1
+          AND (p.type <> 'MENU' OR tmp.permissionsId IS NOT NULL)
+        ORDER BY p.parentId ASC, p.sortOrder ASC, p.id ASC
+      `,
+      [tenantId],
+    );
+
+    return this.buildPermissionTree(rows);
+  }
+
+  private async getDepartments(deptIds: string[] = [], tenantId: string) {
+    if (!deptIds.length) return [];
+
+    const departments = await this.departmentRepository.find({
+      where: { id: In(deptIds), tenantId },
+    });
+    if (departments.length !== deptIds.length) {
+      throw new BusinessException('存在不可分配的数据权限部门');
+    }
+
+    return departments;
+  }
+
+  private async getRoleUserCounts(roleIds: string[]) {
+    const countMap = new Map<string, number>();
+    if (!roleIds.length) return countMap;
+
+    const rows: Array<{ rolesId: string; count: string }> = await this.dataSource.query(
+      `
+        SELECT rolesId, COUNT(*) AS count
+        FROM user_roles
+        WHERE rolesId IN (?)
+        GROUP BY rolesId
+      `,
+      [roleIds],
+    );
+
+    rows.forEach((row) => countMap.set(row.rolesId, Number(row.count)));
+    return countMap;
+  }
+
+  private buildPermissionTree(permissions: Permission[], parentId = 0): Array<Permission & { children?: Permission[] }> {
+    return permissions
+      .filter((permission) => Number(permission.parentId || 0) === parentId)
+      .map((permission) => {
+        const children = this.buildPermissionTree(permissions, permission.id);
+        return children.length > 0 ? { ...permission, children } : permission;
+      });
   }
 }

@@ -43,6 +43,7 @@ export const PERMISSION_CONFIG = {
     module: '平台权限',
     scope: 'platform',
     actions: [
+      { code: 'platform:settings', name: '系统设置', isMenu: true, routePath: '/settings' },
       { code: 'platform:user', name: '平台用户', isMenu: true, routePath: '/settings/platform-users' },
       { code: 'platform:role', name: '平台角色', isMenu: true, routePath: '/settings/platform-roles' },
       { code: 'platform:menu', name: '平台菜单', isMenu: true, routePath: '/settings/platform-menus' },
@@ -63,7 +64,11 @@ export const PERMISSION_CONFIG = {
   PLATFORM_CONFIG: {
     module: '平台配置',
     scope: 'platform',
-    actions: [{ code: 'platform:config', name: '平台配置', isMenu: true, routePath: '/settings/dict' }],
+    actions: [
+      { code: 'platform:config', name: '平台配置', isMenu: true, routePath: '/settings/dict' },
+      { code: 'platform:dept', name: '平台部门', isMenu: true, routePath: '/settings/dept' },
+      { code: 'platform:post', name: '平台岗位', isMenu: true, routePath: '/settings/post' },
+    ],
   },
 
   TENANT_DASHBOARD: {
@@ -93,6 +98,8 @@ export const PERMISSION_CONFIG = {
       { code: 'tenant:role:delete', name: '删除角色' },
       { code: 'tenant:menu:list', name: '租户菜单', isMenu: true, routePath: '/settings/permissions' },
       { code: 'tenant:dict', name: '租户字典', isMenu: true, routePath: '/settings/dict' },
+      { code: 'tenant:dept', name: '部门管理', isMenu: true, routePath: '/settings/dept' },
+      { code: 'tenant:post', name: '岗位管理', isMenu: true, routePath: '/settings/post' },
       { code: 'tenant:audit-log', name: '操作日志', isMenu: true, routePath: '/settings/operation-logs' },
     ],
   },

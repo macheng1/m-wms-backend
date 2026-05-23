@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Header, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
 
 import { UsersService } from './users.service';
@@ -60,7 +60,7 @@ export class UsersController {
    */
   @Post('save')
   @UseGuards(JwtAuthGuard)
-  async save(@Body() createUserDto: CreateUserDto, @Req() req) {
+  async save(@Body() createUserDto: CreateUserDto & { id?: string }, @Req() req) {
     const result = await this.usersService.save(createUserDto, req.user.tenantId);
     await this.recordTenantAudit(req, 'user', 'save', result?.id, `保存员工：${result?.username || createUserDto.username}`);
     return result;
@@ -133,6 +133,12 @@ export class UsersController {
   @Post('detail')
   @UseGuards(JwtAuthGuard)
   async getUserDetail(@Body('id') id: string, @Req() req) {
+    return this.usersService.getDetail(id, req.user.tenantId);
+  }
+
+  @Get(':id')
+  @UseGuards(JwtAuthGuard)
+  async getUserDetailById(@Param('id') id: string, @Req() req) {
     return this.usersService.getDetail(id, req.user.tenantId);
   }
 

@@ -56,10 +56,12 @@ CREATE TABLE IF NOT EXISTS `permissions` (
   `scope` enum('platform','tenant') NOT NULL DEFAULT 'tenant' COMMENT '权限归属域：platform-平台超级管理员，tenant-租户管理员/员工',
   `name` varchar(255) NOT NULL COMMENT '权限名称',
   `routePath` varchar(255) DEFAULT NULL COMMENT '前端菜单路由，对应 my-wms 的实际页面路径',
+  `componentPath` varchar(255) DEFAULT NULL COMMENT '前端组件路径，动态路由场景使用',
   `icon` varchar(255) DEFAULT NULL COMMENT '前端菜单图标标识',
   `sortOrder` int NOT NULL DEFAULT 0 COMMENT '菜单排序',
   `isHidden` tinyint NOT NULL DEFAULT 0 COMMENT '是否隐藏菜单',
-  `type` enum('MENU','BUTTON','API') NOT NULL DEFAULT 'MENU' COMMENT '权限类型：菜单、按钮、接口',
+  `isActive` tinyint NOT NULL DEFAULT 1 COMMENT '状态：1启用，0停用',
+  `type` enum('DIRECTORY','MENU','BUTTON','API') NOT NULL DEFAULT 'MENU' COMMENT '权限类型：目录、菜单、按钮、接口',
   `parentId` int NOT NULL DEFAULT 0 COMMENT '父级权限ID，用于后台配置时的树形展示',
   `description` varchar(255) DEFAULT NULL COMMENT '描述信息',
   `createdAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '创建时间',
@@ -125,6 +127,7 @@ CREATE TABLE IF NOT EXISTS `roles` (
   `scope` enum('platform','tenant') NOT NULL DEFAULT 'tenant' COMMENT '角色归属域：platform-平台角色，tenant-租户角色',
   `remark` varchar(255) DEFAULT NULL COMMENT '备注',
   `isSystem` tinyint(1) NOT NULL DEFAULT 0 COMMENT '是否为系统初始化角色',
+  `dataScope` enum('ALL','CUSTOM','DEPT','DEPT_AND_CHILD','SELF') NOT NULL DEFAULT 'ALL' COMMENT '数据权限范围',
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -142,11 +145,15 @@ CREATE TABLE IF NOT EXISTS `users` (
   `avatar` varchar(255) DEFAULT NULL COMMENT '头像地址',
   `firstName` varchar(255) DEFAULT NULL COMMENT '名',
   `lastName` varchar(255) DEFAULT NULL COMMENT '姓',
+  `deptId` char(36) DEFAULT NULL COMMENT '所属部门ID',
+  `postId` char(36) DEFAULT NULL COMMENT '所属岗位ID',
   `isPlatformAdmin` tinyint NOT NULL DEFAULT 0 COMMENT '是否为平台级超级管理员',
   `isActive` tinyint NOT NULL DEFAULT 1 COMMENT '账号是否激活',
   PRIMARY KEY (`id`),
   UNIQUE KEY `IDX_users_tenant_username` (`tenantId`,`username`),
   KEY `IDX_users_tenant` (`tenantId`),
+  KEY `IDX_users_dept` (`deptId`),
+  KEY `IDX_users_post` (`postId`),
   CONSTRAINT `FK_users_tenant` FOREIGN KEY (`tenantId`) REFERENCES `tenants` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -426,6 +433,49 @@ CREATE TABLE IF NOT EXISTS `operation_logs` (
   PRIMARY KEY (`id`),
   KEY `IDX_operation_logs_tenant_created` (`tenantId`,`createdAt`),
   KEY `IDX_operation_logs_user_created` (`userId`,`createdAt`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `departments` (
+  `id` char(36) NOT NULL,
+  `createdAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '创建时间',
+  `updatedAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '最后更新时间',
+  `deletedAt` datetime(6) DEFAULT NULL COMMENT '删除时间（伪删除标记）',
+  `tenantId` char(36) DEFAULT NULL COMMENT '租户ID，如果是平台管理员则为空',
+  `parentId` char(36) DEFAULT NULL COMMENT '父部门ID，顶级为空',
+  `deptCode` varchar(50) NOT NULL COMMENT '部门编码',
+  `deptName` varchar(100) NOT NULL COMMENT '部门名称',
+  `orderNum` int NOT NULL DEFAULT 0 COMMENT '显示顺序',
+  `leader` varchar(100) DEFAULT NULL COMMENT '负责人',
+  `phone` varchar(50) DEFAULT NULL COMMENT '联系电话',
+  `email` varchar(100) DEFAULT NULL COMMENT '邮箱',
+  `isActive` tinyint NOT NULL DEFAULT 1 COMMENT '状态：1正常，0停用',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `UQ_departments_tenant_code` (`tenantId`,`deptCode`),
+  KEY `IDX_departments_tenant_parent` (`tenantId`,`parentId`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `posts` (
+  `id` char(36) NOT NULL,
+  `createdAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '创建时间',
+  `updatedAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '最后更新时间',
+  `deletedAt` datetime(6) DEFAULT NULL COMMENT '删除时间（伪删除标记）',
+  `tenantId` char(36) DEFAULT NULL COMMENT '租户ID，如果是平台管理员则为空',
+  `postCode` varchar(50) NOT NULL COMMENT '岗位编码',
+  `postName` varchar(100) NOT NULL COMMENT '岗位名称',
+  `postSort` int NOT NULL DEFAULT 0 COMMENT '显示顺序',
+  `isActive` tinyint NOT NULL DEFAULT 1 COMMENT '状态：1正常，0停用',
+  `remark` varchar(255) DEFAULT NULL COMMENT '备注',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `UQ_posts_tenant_code` (`tenantId`,`postCode`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `role_departments` (
+  `roleId` char(36) NOT NULL,
+  `departmentId` char(36) NOT NULL,
+  PRIMARY KEY (`roleId`,`departmentId`),
+  KEY `IDX_role_departments_departmentId` (`departmentId`),
+  CONSTRAINT `FK_role_departments_role` FOREIGN KEY (`roleId`) REFERENCES `roles` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `FK_role_departments_department` FOREIGN KEY (`departmentId`) REFERENCES `departments` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `user_roles` (

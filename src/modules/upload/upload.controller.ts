@@ -26,6 +26,10 @@ export class UploadController {
             format: 'binary',
           },
         },
+        path: {
+          type: 'string',
+          description: '自定义上传目录，例如 avatar、product、tenant/logo',
+        },
       },
     },
   })
@@ -39,6 +43,6 @@ export class UploadController {
     if (!files || !files || !Array.isArray(files) || files.length === 0) {
       throw new Error('No files uploaded');
     }
-    return this.uploadService.uploadMultiple(files);
+    return this.uploadService.uploadMultiple(files, body?.path);
   }
 }

@@ -6,9 +6,10 @@ import { Role } from './entities/role.entity';
 import { Permission } from '../auth/entities/permission.entity';
 import { RolesController } from './roles.controller';
 import { OperationLog } from '../admin/entities/operation-log.entity';
+import { Department } from '../system/entities/department.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Role, Permission, OperationLog])],
+  imports: [TypeOrmModule.forFeature([Role, Permission, Department, OperationLog])],
   controllers: [
     // 2. 注册刚才规范化的控制器
     RolesController,

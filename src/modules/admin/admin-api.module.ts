@@ -8,9 +8,11 @@ import { User } from '../users/entities/user.entity';
 import { Tenant } from '../tenant/entities/tenant.entity';
 import { OperationLog } from './entities/operation-log.entity';
 import { AdminPlatformService } from './admin-platform.service';
+import { Department } from '../system/entities/department.entity';
+import { Post } from '../system/entities/post.entity';
 
 @Module({
-  imports: [TenantModule, TypeOrmModule.forFeature([Permission, Role, User, Tenant, OperationLog])],
+  imports: [TenantModule, TypeOrmModule.forFeature([Permission, Role, User, Tenant, Department, Post, OperationLog])],
   controllers: [AdminApiController],
   providers: [AdminPlatformService],
 })

@@ -141,10 +141,11 @@
 - 修改实体字段后必须评估 `dbsql/` SQL 和 migration，不允许依赖 `synchronize`。
 - 项目禁止使用 `DB_SYNCHRONIZE=true` 自动创建或修改表结构；运行时配置强制 `synchronize: false`。
 - 所有人工维护的数据库 SQL 统一放在 `dbsql/`：
-  - 初始化建表 SQL：`dbsql/init-schema.sql`。
-  - 建表、新增字段、删除字段、修改字段、索引、约束：`dbsql/YYYYMMDDHHMM_业务说明_schema.sql`。
-  - 初始化数据、维护数据、权限、角色模板、字典、菜单、基础单位：`dbsql/YYYYMMDDHHMM_业务说明_data.sql`。
-  - 删除字段、删除数据、修改字段类型等高风险操作：提供 `dbsql/YYYYMMDDHHMM_业务说明_rollback.sql` 或写明回滚方案。
+  - 空库初始化建表 SQL：`dbsql/init/init-schema.sql`。
+  - 旧库新增表：`dbsql/create-table/YYYYMMDDHHMM_业务说明_update.sql`。
+  - 旧库已有表加字段、改字段、索引、约束：`dbsql/alter-table/YYYYMMDDHHMM_业务说明_update.sql`。
+  - 初始化数据、维护数据、权限、角色模板、字典、菜单、基础单位：`dbsql/init-data/YYYYMMDDHHMM_业务说明_data.sql`。
+  - 删除字段、删除数据、修改字段类型等高风险操作：提供 `dbsql/rollback/YYYYMMDDHHMM_业务说明_rollback.sql` 或写明回滚方案。
 - DB 设计阶段负责识别系统运行所需的基础数据，包括权限、角色模板、字典、菜单、基础单位、平台默认配置等，并产出幂等 data SQL。
 - TypeORM migration 可以继续放在 `src/database/migrations/`，但 PRD 产生的人工 SQL 方案、初始化数据和维护数据必须同步沉淀到 `dbsql/`。
 

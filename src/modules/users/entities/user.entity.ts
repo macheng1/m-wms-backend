@@ -1,6 +1,8 @@
 // src/modules/users/entities/user.entity.ts
 import { TenantBaseEntity } from '@/database/base.entity';
 import { Role } from '@/modules/roles/entities/role.entity';
+import { Department } from '@/modules/system/entities/department.entity';
+import { Post } from '@/modules/system/entities/post.entity';
 import { Tenant } from '@/modules/tenant/entities/tenant.entity';
 import { Column, Entity, JoinColumn, JoinTable, ManyToMany, ManyToOne, Index } from 'typeorm';
 
@@ -30,6 +32,12 @@ export class User extends TenantBaseEntity {
 
   @Column({ nullable: true, comment: '姓' })
   lastName: string;
+
+  @Column({ type: 'char', length: 36, nullable: true, comment: '所属部门ID' })
+  deptId: string | null;
+
+  @Column({ type: 'char', length: 36, nullable: true, comment: '所属岗位ID' })
+  postId: string | null;
 
   /**
    * 新增：平台超级管理员标识
@@ -62,4 +70,12 @@ export class User extends TenantBaseEntity {
   @ManyToOne(() => Tenant)
   @JoinColumn({ name: 'tenantId' })
   tenant: Tenant;
+
+  @ManyToOne(() => Department)
+  @JoinColumn({ name: 'deptId' })
+  department: Department;
+
+  @ManyToOne(() => Post)
+  @JoinColumn({ name: 'postId' })
+  post: Post;
 }

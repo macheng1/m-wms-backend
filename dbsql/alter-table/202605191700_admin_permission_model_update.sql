@@ -5,7 +5,7 @@
 -- 说明：本脚本支持重复执行；已存在的字段会自动跳过。
 -- 常见错误：
 -- 1. 1060 Duplicate column name：说明字段已存在，当前脚本会自动跳过。
--- 2. 如果是空库已执行 init-schema.sql，则无需执行本脚本，只需执行 data.sql。
+-- 2. 如果是空库已执行 init/init-schema.sql，则无需执行本脚本，只需执行 init-data/*_data.sql。
 
 SET @sql = IF(
   (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'permissions' AND COLUMN_NAME = 'scope') = 0,
@@ -29,6 +29,13 @@ SET @sql = IF(
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @sql = IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'permissions' AND COLUMN_NAME = 'componentPath') = 0,
+  "ALTER TABLE `permissions` ADD COLUMN `componentPath` varchar(255) DEFAULT NULL COMMENT '前端组件路径，动态路由场景使用' AFTER `routePath`",
+  "SELECT 'skip permissions.componentPath'"
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = IF(
   (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'permissions' AND COLUMN_NAME = 'sortOrder') = 0,
   "ALTER TABLE `permissions` ADD COLUMN `sortOrder` int NOT NULL DEFAULT 0 COMMENT '菜单排序' AFTER `icon`",
   "SELECT 'skip permissions.sortOrder'"
@@ -41,6 +48,17 @@ SET @sql = IF(
   "SELECT 'skip permissions.isHidden'"
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'permissions' AND COLUMN_NAME = 'isActive') = 0,
+  "ALTER TABLE `permissions` ADD COLUMN `isActive` tinyint NOT NULL DEFAULT 1 COMMENT '状态：1启用，0停用' AFTER `isHidden`",
+  "SELECT 'skip permissions.isActive'"
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+ALTER TABLE `permissions`
+  MODIFY COLUMN `type` enum('DIRECTORY','MENU','BUTTON','API') NOT NULL DEFAULT 'MENU'
+  COMMENT '权限类型：目录、菜单、按钮、接口';
 
 SET @sql = IF(
   (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'roles' AND COLUMN_NAME = 'scope') = 0,

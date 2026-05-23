@@ -40,6 +40,36 @@ export class RolesController {
     });
   }
 
+  @Get('page')
+  @Header('Cache-Control', 'no-cache, no-store, must-revalidate')
+  async findPage(@Query() query: QueryRoleDto, @Req() req) {
+    return this.rolesService.findAll(query, req.user.tenantId);
+  }
+
+  @Get('options')
+  async options(@Req() req) {
+    return this.rolesService.selectRoleList(req.user.tenantId);
+  }
+
+  @Get('permissions/tree')
+  async permissionTree(@Req() req) {
+    return this.rolesService.getPermissionTree(req.user.tenantId);
+  }
+
+  @Post('save')
+  async save(@Body() dto: UpdateRoleDto & { id?: string }, @Req() req) {
+    const role = await this.rolesService.save(dto, req.user.tenantId);
+    await this.recordTenantAudit(req, 'role', dto.id ? 'update' : 'create', role?.id, `保存角色：${role?.name || dto.name}`);
+    return role;
+  }
+
+  @Post('delete')
+  async deleteByBody(@Body('id') id: string, @Req() req) {
+    const result = await this.rolesService.remove(id, req.user.tenantId);
+    await this.recordTenantAudit(req, 'role', 'delete', id, '删除角色');
+    return result;
+  }
+
   // 1. 分页查找所有角色
   @Get()
   @Header('Cache-Control', 'no-cache, no-store, must-revalidate')

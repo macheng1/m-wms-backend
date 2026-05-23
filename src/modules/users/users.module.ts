@@ -5,9 +5,12 @@ import { UsersService } from './users.service';
 import { UsersController } from './users.controller';
 import { User } from './entities/user.entity';
 import { OperationLog } from '../admin/entities/operation-log.entity';
+import { Role } from '../roles/entities/role.entity';
+import { Department } from '../system/entities/department.entity';
+import { Post } from '../system/entities/post.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User, OperationLog])],
+  imports: [TypeOrmModule.forFeature([User, Role, Department, Post, OperationLog])],
   providers: [UsersService],
   controllers: [UsersController],
   /**

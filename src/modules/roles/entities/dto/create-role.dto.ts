@@ -1,7 +1,7 @@
 // src/modules/roles/dto/create-role.dto.ts
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, IsArray, IsOptional, IsIn } from 'class-validator';
-import { RoleScope } from '../role.entity';
+import { IsNotEmpty, IsString, IsArray, IsOptional, IsIn, IsNumber } from 'class-validator';
+import { RoleDataScope, RoleScope } from '../role.entity';
 
 export class CreateRoleDto {
   @ApiProperty({ example: '仓库主管', description: '角色名称' })
@@ -10,6 +10,11 @@ export class CreateRoleDto {
   name: string;
   @IsOptional()
   isActive?: number = 1; // 1启用 0禁用
+
+  @ApiProperty({ example: 'WAREHOUSE_MANAGER', description: '角色编码', required: false })
+  @IsOptional()
+  @IsString()
+  code?: string;
 
   @ApiProperty({
     example: 'tenant',
@@ -26,12 +31,35 @@ export class CreateRoleDto {
   remark?: string;
 
   @ApiProperty({
-    example: ['tenant:inventory:list', 'tenant:inventory:inbound'],
-    description: '租户权限码集合，只允许 tenant:* 权限',
+    example: 'ALL',
+    description: '数据权限范围：ALL 全部、CUSTOM 自定义部门、DEPT 本部门、DEPT_AND_CHILD 本部门及以下、SELF 仅本人',
+    required: false,
   })
+  @IsOptional()
+  @IsIn(['ALL', 'CUSTOM', 'DEPT', 'DEPT_AND_CHILD', 'SELF'])
+  dataScope?: RoleDataScope = 'ALL';
+
+  @ApiProperty({ example: ['uuid'], description: '自定义数据权限部门ID集合', required: false })
+  @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  permissionCodes: string[];
+  deptIds?: string[];
+
+  @ApiProperty({
+    example: ['tenant:inventory:list', 'tenant:inventory:inbound'],
+    description: '租户权限码集合，只允许 tenant:* 权限',
+    required: false,
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  permissionCodes?: string[];
+
+  @ApiProperty({ example: [1, 2], description: '权限ID集合', required: false })
+  @IsOptional()
+  @IsArray()
+  @IsNumber({}, { each: true })
+  permissionIds?: number[];
 }
 
 export class UpdateRoleDto extends CreateRoleDto {}

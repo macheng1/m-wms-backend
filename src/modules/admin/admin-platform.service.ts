@@ -1,6 +1,8 @@
 import { BusinessException } from '@/common/filters/business.exception';
 import { Permission } from '@/modules/auth/entities/permission.entity';
 import { Role } from '@/modules/roles/entities/role.entity';
+import { Department } from '@/modules/system/entities/department.entity';
+import { Post } from '@/modules/system/entities/post.entity';
 import { Tenant } from '@/modules/tenant/entities/tenant.entity';
 import { User } from '@/modules/users/entities/user.entity';
 import { OperationLog } from './entities/operation-log.entity';
@@ -8,6 +10,18 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
 import { DataSource, In, IsNull, Like, Repository } from 'typeorm';
+
+type PlatformMenuQuery = {
+  page?: number;
+  pageSize?: number;
+  type?: 'DIRECTORY' | 'MENU' | 'BUTTON' | 'all';
+  name?: string;
+  code?: string;
+  routePath?: string;
+  isHidden?: number;
+};
+
+type PlatformMenuType = 'DIRECTORY' | 'MENU' | 'BUTTON';
 
 @Injectable()
 export class AdminPlatformService {
@@ -20,6 +34,10 @@ export class AdminPlatformService {
     private readonly userRepo: Repository<User>,
     @InjectRepository(Tenant)
     private readonly tenantRepo: Repository<Tenant>,
+    @InjectRepository(Department)
+    private readonly departmentRepo: Repository<Department>,
+    @InjectRepository(Post)
+    private readonly postRepo: Repository<Post>,
     @InjectRepository(OperationLog)
     private readonly operationLogRepo: Repository<OperationLog>,
     private readonly dataSource: DataSource,
@@ -121,9 +139,53 @@ export class AdminPlatformService {
 
   findMenus() {
     return this.permissionRepo.find({
-      where: { scope: 'platform', type: 'MENU' },
-      order: { id: 'ASC' },
+      where: { scope: 'platform', type: In(['DIRECTORY', 'MENU', 'BUTTON']) },
+      order: { sortOrder: 'ASC', id: 'ASC' },
     });
+  }
+
+  async findMenusPage(query: PlatformMenuQuery) {
+    const page = Number(query.page || 1);
+    const pageSize = Number(query.pageSize || 20);
+    const where: any = {
+      scope: 'platform',
+      type: In(['DIRECTORY', 'MENU', 'BUTTON']),
+    };
+
+    if (query.type === 'DIRECTORY' || query.type === 'MENU' || query.type === 'BUTTON') {
+      where.type = query.type;
+    }
+    if (query.name) where.name = Like(`%${query.name}%`);
+    if (query.code) where.code = Like(`%${query.code}%`);
+    if (query.routePath) where.routePath = Like(`%${query.routePath}%`);
+    const isHidden = Number(query.isHidden);
+    if (isHidden === 0 || isHidden === 1) where.isHidden = isHidden;
+
+    const [list, total] = await this.permissionRepo.findAndCount({
+      where,
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      order: { sortOrder: 'ASC', id: 'ASC' },
+    });
+
+    return { list, total, page, pageSize };
+  }
+
+  async findMenuDetail(id: number) {
+    const menu = await this.permissionRepo.findOne({
+      where: { id, scope: 'platform', type: In(['DIRECTORY', 'MENU', 'BUTTON']) },
+    });
+
+    if (!menu) {
+      throw new BusinessException('平台菜单不存在');
+    }
+
+    return menu;
+  }
+
+  async findMenuTree() {
+    const menus = await this.findMenus();
+    return this.buildMenuTree(menus);
   }
 
   findTenantMenus() {
@@ -200,9 +262,16 @@ export class AdminPlatformService {
   async findRoles() {
     return this.roleRepo.find({
       where: { scope: 'platform', tenantId: IsNull() },
-      relations: ['permissions'],
+      relations: ['permissions', 'departments'],
       order: { createdAt: 'ASC' },
-    });
+    }).then((roles) =>
+      roles.map((role) => ({
+        ...role,
+        permissionCodes: role.permissions?.map((permission) => permission.code) || [],
+        permissionIds: role.permissions?.map((permission) => permission.id) || [],
+        deptIds: role.departments?.map((department) => department.id) || [],
+      })),
+    );
   }
 
   async saveRole(dto: {
@@ -212,12 +281,16 @@ export class AdminPlatformService {
     remark?: string;
     isActive?: number;
     permissionCodes?: string[];
+    permissionIds?: number[];
+    dataScope?: 'ALL' | 'CUSTOM' | 'DEPT' | 'DEPT_AND_CHILD' | 'SELF';
+    deptIds?: string[];
   }) {
-    const permissions = await this.getPlatformPermissions(dto.permissionCodes || []);
+    const permissions = await this.getPlatformPermissions(dto.permissionCodes || [], dto.permissionIds || []);
+    const departments = await this.getPlatformDepartments(dto.deptIds || []);
     const role = dto.id
       ? await this.roleRepo.findOne({
           where: { id: dto.id, scope: 'platform', tenantId: IsNull() },
-          relations: ['permissions'],
+          relations: ['permissions', 'departments'],
         })
       : this.roleRepo.create({
           tenantId: null,
@@ -235,7 +308,9 @@ export class AdminPlatformService {
     role.isActive = dto.isActive ?? 1;
     role.scope = 'platform';
     role.tenantId = null;
+    role.dataScope = dto.dataScope || role.dataScope || 'ALL';
     role.permissions = permissions;
+    role.departments = departments;
 
     return this.roleRepo.save(role);
   }
@@ -263,7 +338,7 @@ export class AdminPlatformService {
 
     const [list, total] = await this.userRepo.findAndCount({
       where,
-      relations: ['roles'],
+      relations: ['roles', 'department', 'post'],
       skip: (page - 1) * pageSize,
       take: pageSize,
       order: { createdAt: 'ASC' },
@@ -273,6 +348,9 @@ export class AdminPlatformService {
       list: list.map((user) => ({
         ...user,
         roleNames: user.roles?.map((role) => role.name) || [],
+        roleIds: user.roles?.map((role) => role.id) || [],
+        deptName: user.department?.deptName || null,
+        postName: user.post?.postName || null,
       })),
       total,
       page,
@@ -287,7 +365,7 @@ export class AdminPlatformService {
         tenantId: IsNull(),
         isPlatformAdmin: 1,
       },
-      relations: ['roles'],
+      relations: ['roles', 'department', 'post'],
     });
 
     if (!user) {
@@ -299,6 +377,12 @@ export class AdminPlatformService {
       username: user.username,
       realName: user.realName,
       avatar: user.avatar,
+      phone: user.phone,
+      email: user.email,
+      deptId: user.deptId,
+      deptName: user.department?.deptName || null,
+      postId: user.postId,
+      postName: user.post?.postName || null,
       isActive: user.isActive,
       roleIds: user.roles?.map((role) => role.id) || [],
     };
@@ -309,11 +393,16 @@ export class AdminPlatformService {
     username: string;
     password?: string;
     realName?: string;
+    phone?: string;
+    email?: string;
     avatar?: string;
+    deptId?: string | null;
+    postId?: string | null;
     isActive?: number;
     roleIds?: string[];
   }) {
     const roles = await this.getPlatformRoles(dto.roleIds || []);
+    await this.validatePlatformOrg(dto.deptId, dto.postId);
     const user = dto.id
       ? await this.userRepo.findOne({
           where: {
@@ -322,7 +411,20 @@ export class AdminPlatformService {
             isPlatformAdmin: 1,
           },
           relations: ['roles'],
-          select: ['id', 'username', 'password', 'realName', 'avatar', 'isActive', 'isPlatformAdmin', 'tenantId'],
+          select: [
+            'id',
+            'username',
+            'password',
+            'realName',
+            'phone',
+            'email',
+            'avatar',
+            'deptId',
+            'postId',
+            'isActive',
+            'isPlatformAdmin',
+            'tenantId',
+          ],
         })
       : this.userRepo.create({
           tenantId: null,
@@ -350,7 +452,11 @@ export class AdminPlatformService {
 
     user.username = dto.username;
     user.realName = dto.realName || null;
+    user.phone = dto.phone || null;
+    user.email = dto.email || null;
     user.avatar = dto.avatar || null;
+    user.deptId = dto.deptId || null;
+    user.postId = dto.postId || null;
     user.isActive = dto.isActive ?? 1;
     user.isPlatformAdmin = 1;
     user.tenantId = null;
@@ -383,41 +489,62 @@ export class AdminPlatformService {
 
   async saveMenu(dto: {
     id?: number;
+    type?: PlatformMenuType;
     code: string;
     name: string;
     routePath?: string | null;
+    componentPath?: string | null;
     description?: string | null;
     parentId?: number;
     icon?: string | null;
     sortOrder?: number;
     isHidden?: number;
+    isActive?: number;
   }) {
+    const type = dto.type || 'MENU';
     const existing = await this.permissionRepo.findOne({ where: { code: dto.code } });
     if (existing && existing.id !== dto.id) {
       throw new BusinessException('权限码已存在');
     }
 
     const menu = dto.id
-      ? await this.permissionRepo.findOne({ where: { id: dto.id, scope: 'platform' } })
+      ? await this.permissionRepo.findOne({
+          where: { id: dto.id, scope: 'platform', type: In(['DIRECTORY', 'MENU', 'BUTTON']) },
+        })
       : this.permissionRepo.create({
           scope: 'platform',
-          type: 'MENU',
+          type,
         });
 
     if (!menu) {
       throw new BusinessException('平台菜单不存在');
     }
 
+    if (dto.parentId && dto.parentId === dto.id) {
+      throw new BusinessException('上级菜单不能选择自己');
+    }
+
+    if (dto.parentId && dto.parentId > 0) {
+      const parentMenu = await this.permissionRepo.findOne({
+        where: { id: dto.parentId, scope: 'platform', type: In(['DIRECTORY', 'MENU']) },
+      });
+      if (!parentMenu) {
+        throw new BusinessException('上级菜单不存在');
+      }
+    }
+
     menu.code = dto.code;
     menu.name = dto.name;
-    menu.routePath = dto.routePath || null;
+    menu.routePath = type === 'BUTTON' ? null : dto.routePath || null;
+    menu.componentPath = type === 'MENU' ? dto.componentPath || null : null;
     menu.description = dto.description || null;
     menu.parentId = dto.parentId ?? 0;
-    menu.icon = dto.icon || null;
+    menu.icon = type === 'BUTTON' ? null : dto.icon || null;
     menu.sortOrder = dto.sortOrder ?? 0;
     menu.isHidden = dto.isHidden ?? 0;
+    menu.isActive = dto.isActive ?? 1;
     menu.scope = 'platform';
-    menu.type = 'MENU';
+    menu.type = type;
 
     return this.permissionRepo.save(menu);
   }
@@ -457,34 +584,92 @@ export class AdminPlatformService {
   }
 
   async deleteMenu(id: number) {
-    const menu = await this.permissionRepo.findOne({ where: { id, scope: 'platform', type: 'MENU' } });
+    const menu = await this.permissionRepo.findOne({
+      where: { id, scope: 'platform', type: In(['DIRECTORY', 'MENU', 'BUTTON']) },
+    });
     if (!menu) {
       throw new BusinessException('平台菜单不存在');
     }
 
+    const childCount = await this.permissionRepo.count({
+      where: { scope: 'platform', parentId: id },
+    });
+    if (childCount > 0) {
+      throw new BusinessException('请先删除该菜单下的子菜单');
+    }
+
+    const [bindingRow]: Array<{ total: string | number }> = await this.dataSource.query(
+      'SELECT COUNT(*) AS total FROM role_permissions WHERE permissionsId = ?',
+      [id],
+    );
+    if (Number(bindingRow?.total || 0) > 0) {
+      throw new BusinessException('该菜单已绑定平台角色，请先解除角色授权后再删除');
+    }
+
     await this.permissionRepo.remove(menu);
-    return { id };
+    return { id: menu.id, name: menu.name, code: menu.code };
   }
 
-  private async getPlatformPermissions(permissionCodes: string[]) {
-    if (permissionCodes.length === 0) {
+  private buildMenuTree(menus: Permission[], parentId = 0): Array<Permission & { children?: Permission[] }> {
+    return menus
+      .filter((menu) => Number(menu.parentId || 0) === parentId)
+      .map((menu) => {
+        const children = this.buildMenuTree(menus, menu.id);
+        return children.length > 0 ? { ...menu, children } : menu;
+      });
+  }
+
+  private async getPlatformPermissions(permissionCodes: string[], permissionIds: number[] = []) {
+    if (permissionCodes.length === 0 && permissionIds.length === 0) {
       return [];
     }
 
     const permissions = await this.permissionRepo.find({
       where: {
-        code: In(permissionCodes),
         scope: 'platform',
+        ...(permissionIds.length > 0 ? { id: In(permissionIds) } : { code: In(permissionCodes) }),
       },
     });
 
-    if (permissions.length !== permissionCodes.length) {
+    const expectedValues = permissionIds.length > 0 ? permissionIds : permissionCodes;
+    if (permissions.length !== expectedValues.length) {
       const existingCodes = new Set(permissions.map((permission) => permission.code));
-      const invalidCodes = permissionCodes.filter((code) => !existingCodes.has(code));
-      throw new BusinessException(`存在不可分配的平台权限：${invalidCodes.join(', ')}`);
+      const existingIds = new Set(permissions.map((permission) => permission.id));
+      const invalidValues =
+        permissionIds.length > 0
+          ? permissionIds.filter((id) => !existingIds.has(id))
+          : permissionCodes.filter((code) => !existingCodes.has(code));
+      throw new BusinessException(`存在不可分配的平台权限：${invalidValues.join(', ')}`);
     }
 
     return permissions;
+  }
+
+  private async getPlatformDepartments(deptIds: string[]) {
+    if (deptIds.length === 0) {
+      return [];
+    }
+
+    const departments = await this.departmentRepo.find({
+      where: { id: In(deptIds), tenantId: IsNull() },
+    });
+    if (departments.length !== deptIds.length) {
+      throw new BusinessException('存在不可分配的平台部门');
+    }
+
+    return departments;
+  }
+
+  private async validatePlatformOrg(deptId?: string | null, postId?: string | null) {
+    if (deptId) {
+      const department = await this.departmentRepo.findOne({ where: { id: deptId, tenantId: IsNull() } });
+      if (!department) throw new BusinessException('平台部门不存在或无权使用');
+    }
+
+    if (postId) {
+      const post = await this.postRepo.findOne({ where: { id: postId, tenantId: IsNull() } });
+      if (!post) throw new BusinessException('平台岗位不存在或无权使用');
+    }
   }
 
   private async getPlatformRoles(roleIds: string[]) {

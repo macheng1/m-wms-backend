@@ -30,6 +30,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { AdminApiModule } from './modules/admin/admin-api.module';
 import { MiniappApiModule } from './modules/miniapp/miniapp-api.module';
 import { OpenApiModule } from './modules/open/open-api.module';
+import { SystemModule } from './modules/system/system.module';
 console.log('当前运行环境:', process.env.NODE_ENV);
 console.log('当前工作目录:', process.cwd());
 @Module({
@@ -95,6 +96,7 @@ console.log('当前工作目录:', process.cwd());
     MiniappApiModule,
     OpenApiModule,
     NotificationsModule,
+    SystemModule,
   ],
   providers: [
     {

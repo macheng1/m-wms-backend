@@ -1,6 +1,6 @@
 # M-WMS Backend 现有接口文档（基于当前代码）
 
-更新时间：2026-05-19
+更新时间：2026-05-23
 
 ## 1. 全局约定
 
@@ -89,6 +89,9 @@
   - `/api/admin/platform/tenants/:id/reject`：平台域驳回并禁用租户
   - `/api/admin/platform/permissions`：平台域权限列表
   - `/api/admin/platform/menus`：平台域菜单列表
+  - `/api/admin/platform/menus/list`：平台域菜单分页列表
+  - `/api/admin/platform/menus/tree`：平台域菜单树
+  - `/api/admin/platform/menus/:id`：平台域菜单详情
   - `/api/admin/platform/menus/save`：平台域保存菜单
   - `/api/admin/platform/menus/:id/delete`：平台域删除菜单
   - `/api/admin/platform/roles`：平台域角色列表
@@ -200,8 +203,9 @@
     ```
   - 说明：前端通过 `userType` 区分平台域和租户域菜单；租户管理员可能拥有 `permissions: ["*"]`，但仍然是 `userType = "tenant"`。
 - `GET /api/users/page`：用户分页
-- `POST /api/users/save`：新增用户
-- `POST /api/users/update`：更新用户
+- `GET /api/users/:id`：用户详情
+- `POST /api/users/save`：新增用户；Body 支持 `username/password/realName/phone/email/deptId/postId/roleIds/isActive`
+- `POST /api/users/update`：更新用户；Body 支持 `id/realName/phone/email/deptId/postId/roleIds/isActive`
 - `POST /api/users/password`：个人改密
 - `POST /api/users/reset`：管理员重置密码
 - `POST /api/users/status`：用户状态变更
@@ -212,11 +216,17 @@
 
 - `POST /api/roles`：创建角色
 - `GET /api/roles`：角色分页
+- `GET /api/roles/page`：角色分页（推荐给前端使用）
+- `GET /api/roles/options`：角色下拉列表
+- `GET /api/roles/permissions/tree`：当前租户可分配权限树
 - `GET /api/roles/:id`：角色详情
 - `POST /api/roles/:id/update`：更新角色
 - `DELETE /api/roles/:id`：删除角色
 - `POST /api/roles/:id/status`：角色状态变更
+- `POST /api/roles/save`：新增/更新角色；Body 支持 `id/name/code/isActive/remark/permissionCodes/permissionIds/dataScope/deptIds`
+- `POST /api/roles/delete`：删除角色，Body：`{ "id": "" }`
 - `POST /api/roles/selectRoleLists`：角色下拉列表
+  - `dataScope` 可选值：`ALL` 全部数据、`CUSTOM` 自定义部门、`DEPT` 本部门、`DEPT_AND_CHILD` 本部门及以下、`SELF` 仅本人。
 
 ### 4.6 单位 Units
 
@@ -330,13 +340,16 @@
 - `POST /api/admin/platform/tenants/:id/reject`：驳回并禁用租户
 - `GET /api/admin/platform/permissions`：平台域权限列表
 - `GET /api/admin/platform/menus`：平台域菜单列表
-- `POST /api/admin/platform/menus/save`：平台域保存平台菜单，支持 `code/name/routePath/parentId/icon/sortOrder/isHidden/description`
-- `POST /api/admin/platform/menus/:id/delete`：平台域删除平台菜单
+- `POST /api/admin/platform/menus/list`：平台域菜单分页列表，Body：`{ "page": 1, "pageSize": 20, "type": "all|DIRECTORY|MENU|BUTTON", "name": "", "code": "", "routePath": "", "isHidden": -1 }`，`isHidden=-1` 表示全部
+- `GET /api/admin/platform/menus/tree`：平台域菜单树，用于前端树形预览和菜单层级维护
+- `GET /api/admin/platform/menus/:id`：平台域菜单详情
+- `POST /api/admin/platform/menus/save`：平台域保存平台菜单，支持 `type/code/name/routePath/componentPath/parentId/icon/sortOrder/isHidden/isActive/description`，`type` 可选 `DIRECTORY` 目录、`MENU` 菜单、`BUTTON` 按钮
+- `POST /api/admin/platform/menus/:id/delete`：平台域删除平台菜单；存在子菜单或平台角色绑定时会拒绝删除
 - `GET /api/admin/platform/roles`：平台域角色列表
-- `POST /api/admin/platform/roles/save`：平台域保存角色
+- `POST /api/admin/platform/roles/save`：平台域保存角色，可绑定平台权限和 `dataScope/deptIds`
 - `POST /api/admin/platform/users/list`：平台域平台用户分页列表
 - `GET /api/admin/platform/users/:id`：平台域平台用户详情
-- `POST /api/admin/platform/users/save`：平台域保存平台用户，可绑定平台角色；新建时必须传 `password`
+- `POST /api/admin/platform/users/save`：平台域保存平台用户，可绑定平台角色、平台部门和平台岗位；新建时必须传 `password`
 - `POST /api/admin/platform/users/:id/status`：平台域平台用户启用/禁用
 - `POST /api/admin/platform/audit-logs`：平台操作审计分页，Body：`{ "page": 1, "pageSize": 20, "module": "", "username": "" }`
 - `GET /api/admin/tenant/meta`：管理端租户域 API 边界信息
@@ -351,6 +364,15 @@
 - `POST /api/dicts/update`：更新字典项
 - `POST /api/dicts/delete`：删除字典项，系统内置字典不可删除
 - `GET /api/dicts/types`：当前登录身份可管理的字典类型
+- `GET /api/departments/list?deptName=&isActive=-1`：当前租户部门列表
+- `GET /api/departments/tree?deptName=&isActive=-1`：当前租户部门树
+- `GET /api/departments/options`：当前租户启用部门下拉树
+- `POST /api/departments/save`：新增/更新部门，Body 支持 `id/parentId/deptCode/deptName/orderNum/leader/phone/email/isActive`
+- `POST /api/departments/delete`：删除部门，Body：`{ "id": "" }`，存在下级部门时拒绝删除
+- `GET /api/posts/page?postCode=&postName=&isActive=-1&page=1&pageSize=20`：当前租户岗位分页列表
+- `GET /api/posts/options`：当前租户启用岗位下拉列表
+- `POST /api/posts/save`：新增/更新岗位，Body 支持 `id/postCode/postName/postSort/isActive/remark`
+- `POST /api/posts/delete`：删除岗位，Body：`{ "id": "" }`
 - `GET /api/portal/config`：网站配置
 - `PATCH /api/portal/config`：更新网站配置
 - `GET /api/portal/inquiries`：访客询盘分页
@@ -388,20 +410,7 @@
 
 - `GET /api/send/sendSMS?phone=...`（Public）：发送短信验证码
 
-## 5. 当前未生效接口（代码存在，但模块未挂载）
-
-以下接口代码文件存在，但目前不会注册到运行中的应用（`SystemModule` 已从 `AppModule` 移除）：
-
-- `GET /api/dicts/options`
-- `GET /api/dicts/list`
-- `POST /api/dicts/save`
-- `POST /api/dicts/delete`
-- `POST /api/dicts/update`
-
-对应控制器：`src/modules/system/controller/dictionaries.controller.ts`
-
-## 6. 建议的后续维护方式
+## 5. 建议的后续维护方式
 
 - 新增/修改接口后，同步更新本文件。
 - 对外联调优先使用 Swagger：`/api-docs`。
-- 若计划彻底移除字典管理，可删除 `src/modules/system` 目录与相关 DTO/Service/Entity。

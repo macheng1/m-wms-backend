@@ -214,6 +214,38 @@ export class AdminApiController {
     return this.adminPlatformService.findMenus();
   }
 
+  @Post('platform/menus/list')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 菜单分页列表' })
+  listPlatformMenus(
+    @Body()
+    body: {
+      page?: number;
+      pageSize?: number;
+      type?: 'DIRECTORY' | 'MENU' | 'BUTTON' | 'all';
+      name?: string;
+      code?: string;
+      routePath?: string;
+      isHidden?: number;
+    },
+  ) {
+    return this.adminPlatformService.findMenusPage(body || {});
+  }
+
+  @Get('platform/menus/tree')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 菜单树' })
+  getPlatformMenuTree() {
+    return this.adminPlatformService.findMenuTree();
+  }
+
+  @Get('platform/menus/:id')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 菜单详情' })
+  getPlatformMenuDetail(@Param('id') id: string) {
+    return this.adminPlatformService.findMenuDetail(Number(id));
+  }
+
   @Get('platform/roles')
   @UseGuards(PlatformAdminGuard)
   @ApiOperation({ summary: '平台域 - 角色列表' })
@@ -233,6 +265,9 @@ export class AdminApiController {
       remark?: string;
       isActive?: number;
       permissionCodes?: string[];
+      permissionIds?: number[];
+      dataScope?: 'ALL' | 'CUSTOM' | 'DEPT' | 'DEPT_AND_CHILD' | 'SELF';
+      deptIds?: string[];
     },
     @Req() req,
   ) {
@@ -276,7 +311,11 @@ export class AdminApiController {
       username: string;
       password?: string;
       realName?: string;
+      phone?: string;
+      email?: string;
       avatar?: string;
+      deptId?: string | null;
+      postId?: string | null;
       isActive?: number;
       roleIds?: string[];
     },
@@ -312,11 +351,17 @@ export class AdminApiController {
     @Body()
     dto: {
       id?: number;
+      type?: 'DIRECTORY' | 'MENU' | 'BUTTON';
       code: string;
       name: string;
       routePath?: string | null;
+      componentPath?: string | null;
       description?: string | null;
       parentId?: number;
+      icon?: string | null;
+      sortOrder?: number;
+      isHidden?: number;
+      isActive?: number;
     },
     @Req() req,
   ) {
@@ -346,7 +391,20 @@ export class AdminApiController {
   @Post('platform/menus/:id/delete')
   @UseGuards(PlatformAdminGuard)
   @ApiOperation({ summary: '平台域 - 删除平台菜单' })
-  deletePlatformMenu(@Param('id') id: string) {
-    return this.adminPlatformService.deleteMenu(Number(id));
+  deletePlatformMenu(@Param('id') id: string, @Req() req) {
+    return this.adminPlatformService.deleteMenu(Number(id)).then(async (menu) => {
+      await this.adminPlatformService.recordAudit({
+        user: req.user,
+        scope: 'platform',
+        module: 'platform-menu',
+        action: 'delete',
+        targetType: 'permission',
+        targetId: String(menu.id),
+        description: `删除平台菜单：${menu.name}`,
+        beforeData: menu,
+        ip: req.ip,
+      });
+      return menu;
+    });
   }
 }
