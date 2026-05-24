@@ -71,10 +71,8 @@ export class OptionsService {
     if (!dto.attributeId || !dto.value) {
       throw new BusinessException('attributeId 和 value 均不能为空');
     }
-    const attribute = await this.attributeRepo.findOne({
-      where: { id: dto.attributeId, ...this.scopeWhere(tenantId) },
-    });
-    if (!attribute) throw new BusinessException('标准模板规格由平台维护，租户不可新增');
+    const attribute = await this.findReadableAttribute(dto.attributeId, tenantId);
+    if (!attribute) throw new BusinessException('规格属性不存在或无权操作');
 
     // 3. 唯一性校验：同一 attributeId + value + tenantId 不能重复
     const exists = await this.optionRepo.findOne({
@@ -103,10 +101,8 @@ export class OptionsService {
     if (!attributeId || !Array.isArray(values) || values.length === 0) {
       throw new BusinessException('attributeId 和 values 必填');
     }
-    const attribute = await this.attributeRepo.findOne({
-      where: { id: attributeId, ...this.scopeWhere(tenantId) },
-    });
-    if (!attribute) throw new BusinessException('标准模板规格由平台维护，租户不可新增');
+    const attribute = await this.findReadableAttribute(attributeId, tenantId);
+    if (!attribute) throw new BusinessException('规格属性不存在或无权操作');
 
     // 2. 去重（防止前端传重复值）
     const uniqueValues = Array.from(new Set(values.filter(Boolean)));
@@ -122,11 +118,13 @@ export class OptionsService {
     const toInsert = uniqueValues.filter((v) => !existsSet.has(v));
 
     // 4. 批量创建
-    const options = toInsert.map((v) =>
+    const options = toInsert.map((v, index) =>
       this.optionRepo.create({
         attribute: { id: attributeId },
         attributeId,
         value: v,
+        sort: index,
+        isActive: 1,
         tenantId,
       }),
     );

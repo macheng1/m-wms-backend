@@ -25,6 +25,11 @@ export class OptionsController {
     return this.optionsService.save(dto, req.user.tenantId);
   }
 
+  @Post('batchSave')
+  async batchSave(@Body() body: { attributeId: string; values: string[] }, @Req() req) {
+    return this.optionsService.batchSave(body.attributeId, body.values, req.user.tenantId);
+  }
+
   @Post('update')
   async update(@Body() dto: SaveOptionDto, @Req() req) {
     // 动作驱动：Update 逻辑与 Save 类似，但 DTO 里带了 ID
