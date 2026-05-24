@@ -176,10 +176,11 @@ export const PERMISSION_CONFIG = {
     scope: 'tenant',
     actions: [
       { code: 'tenant:order', name: '订单管理', isMenu: true },
-      { code: 'tenant:order:list', name: '订单列表', isMenu: true },
+      { code: 'tenant:order:list', name: '订单列表', isMenu: true, routePath: '/orders' },
       { code: 'tenant:order:create', name: '新增订单' },
       { code: 'tenant:order:update', name: '编辑订单' },
       { code: 'tenant:order:delete', name: '删除订单' },
+      { code: 'tenant:order:flow', name: '订单流转' },
     ],
   },
   TENANT_PORTAL: {
