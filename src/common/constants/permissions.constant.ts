@@ -147,6 +147,7 @@ export const PERMISSION_CONFIG = {
     scope: 'tenant',
     actions: [
       { code: 'tenant:warehouse', name: '仓库管理', isMenu: true, routePath: '/warehouse' },
+      { code: 'tenant:location:visual', name: '仓库可视化', isMenu: true, routePath: '/warehouse/visual' },
       { code: 'tenant:location:list', name: '库位管理', isMenu: true, routePath: '/warehouse/list' },
       { code: 'tenant:location:create', name: '新增库位' },
       { code: 'tenant:location:update', name: '编辑库位' },

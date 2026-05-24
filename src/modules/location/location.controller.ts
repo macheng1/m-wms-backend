@@ -98,12 +98,33 @@ export class LocationController {
   }
 
   /**
-   * 查询库位详情
+   * 获取仓库可视化地图
    */
-  @Get(':id')
-  @ApiOperation({ summary: '查询库位详情' })
-  findOne(@Param('id') id: string, @TenantId() tenantId: string) {
-    return this.locationService.findOne(id, tenantId);
+  @Get('visual-map')
+  @ApiOperation({ summary: '获取仓库可视化地图' })
+  getVisualMap(
+    @TenantId() tenantId: string,
+    @Query('warehouse') warehouse?: string,
+    @Query('area') area?: string,
+    @Query('keyword') keyword?: string,
+  ) {
+    return this.locationService.getVisualMap(tenantId, {
+      warehouse,
+      area,
+      keyword,
+    });
+  }
+
+  /**
+   * 获取指定 SKU 有库存的库位
+   */
+  @Get('stock-options')
+  @ApiOperation({ summary: '获取指定 SKU 有库存的库位' })
+  getStockLocations(
+    @TenantId() tenantId: string,
+    @Query('sku') sku: string,
+  ) {
+    return this.locationService.getStockLocations(tenantId, sku);
   }
 
   /**
@@ -113,6 +134,15 @@ export class LocationController {
   @ApiOperation({ summary: '根据编码查询库位' })
   findByCode(@Param('code') code: string, @TenantId() tenantId: string) {
     return this.locationService.findByCode(code, tenantId);
+  }
+
+  /**
+   * 查询库位详情
+   */
+  @Get(':id')
+  @ApiOperation({ summary: '查询库位详情' })
+  findOne(@Param('id') id: string, @TenantId() tenantId: string) {
+    return this.locationService.findOne(id, tenantId);
   }
 
   /**

@@ -2,6 +2,8 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Location, LocationType, LocationStatus } from './entities/location.entity';
+import { InventoryLocation } from './entities/inventory-location.entity';
+import { Inventory } from '../inventory/entities/inventory.entity';
 import { CreateLocationDto } from './dto/create-location.dto';
 import { UpdateLocationDto } from './dto/update-location.dto';
 import { QueryLocationDto } from './dto/query-location.dto';
@@ -11,6 +13,10 @@ export class LocationService {
   constructor(
     @InjectRepository(Location)
     private locationRepository: Repository<Location>,
+    @InjectRepository(InventoryLocation)
+    private inventoryLocationRepository: Repository<InventoryLocation>,
+    @InjectRepository(Inventory)
+    private inventoryRepository: Repository<Inventory>,
   ) {}
 
   /**
@@ -144,6 +150,229 @@ export class LocationService {
   }
 
   /**
+   * 获取仓库可视化地图数据。
+   * 以 inventory_locations 作为库位库存明细，兼容还未迁移的 inventory.locationId 汇总库存。
+   */
+  async getVisualMap(
+    tenantId: string,
+    options: {
+      warehouse?: string;
+      area?: string;
+      keyword?: string;
+    } = {},
+  ): Promise<{
+    warehouses: Array<{ value: string; label: string }>;
+    areas: Array<{ value: string; label: string; warehouse: string }>;
+    locations: Array<
+      Location & {
+        stockItems: Array<{
+          sku: string;
+          productName: string;
+          quantity: number;
+          lockedQuantity: number;
+          availableQuantity: number;
+          unitId?: string;
+          unitName?: string;
+          unitSymbol?: string;
+        }>;
+        skuCount: number;
+        totalQuantity: number;
+        hasStock: boolean;
+        matched: boolean;
+      }
+    >;
+    summary: {
+      totalLocations: number;
+      occupiedLocations: number;
+      emptyLocations: number;
+      disabledLocations: number;
+      matchedLocations: number;
+    };
+  }> {
+    const { warehouse, area, keyword } = options;
+
+    const locationQuery = this.locationRepository
+      .createQueryBuilder('location')
+      .where('location.tenantId = :tenantId', { tenantId });
+
+    if (warehouse) {
+      locationQuery.andWhere('location.warehouse = :warehouse', { warehouse });
+    }
+
+    if (area) {
+      locationQuery.andWhere('location.area = :area', { area });
+    }
+
+    locationQuery
+      .orderBy('location.warehouse', 'ASC')
+      .addOrderBy('location.area', 'ASC')
+      .addOrderBy('location.shelf', 'ASC')
+      .addOrderBy('location.level', 'ASC')
+      .addOrderBy('location.position', 'ASC');
+
+    const locations = await locationQuery.getMany();
+    const locationIds = locations.map((location) => location.id);
+    const stockByLocation = new Map<string, any[]>();
+
+    const addStockItem = (locationId: string, item: any) => {
+      if (!stockByLocation.has(locationId)) {
+        stockByLocation.set(locationId, []);
+      }
+      stockByLocation.get(locationId)!.push(item);
+    };
+
+    if (locationIds.length > 0) {
+      const detailQuery = this.inventoryLocationRepository
+        .createQueryBuilder('inventoryLocation')
+        .leftJoin('units', 'unit', 'inventoryLocation.unitId = unit.id')
+        .select([
+          'inventoryLocation.locationId as locationId',
+          'inventoryLocation.sku as sku',
+          'inventoryLocation.productName as productName',
+          'inventoryLocation.quantity as quantity',
+          'inventoryLocation.lockedQuantity as lockedQuantity',
+          'inventoryLocation.unitId as unitId',
+          'unit.name as unitName',
+          'unit.symbol as unitSymbol',
+        ])
+        .where('inventoryLocation.tenantId = :tenantId', { tenantId })
+        .andWhere('inventoryLocation.locationId IN (:...locationIds)', {
+          locationIds,
+        })
+        .andWhere('inventoryLocation.quantity > 0');
+
+      if (keyword) {
+        detailQuery.andWhere(
+          '(inventoryLocation.sku LIKE :keyword OR inventoryLocation.productName LIKE :keyword)',
+          { keyword: `%${keyword}%` },
+        );
+      }
+
+      const detailRows = await detailQuery.getRawMany();
+      const detailKeys = new Set<string>();
+
+      detailRows.forEach((row) => {
+        const quantity = Number(row.quantity || 0);
+        const lockedQuantity = Number(row.lockedQuantity || 0);
+        detailKeys.add(`${row.locationId}:${row.sku}`);
+        addStockItem(row.locationId, {
+          sku: row.sku,
+          productName: row.productName,
+          quantity,
+          lockedQuantity,
+          availableQuantity: Math.max(quantity - lockedQuantity, 0),
+          unitId: row.unitId,
+          unitName: row.unitName,
+          unitSymbol: row.unitSymbol,
+        });
+      });
+
+      const fallbackQuery = this.inventoryRepository
+        .createQueryBuilder('inventory')
+        .leftJoin('units', 'unit', 'inventory.unitId = unit.id')
+        .select([
+          'inventory.locationId as locationId',
+          'inventory.sku as sku',
+          'inventory.productName as productName',
+          'inventory.quantity as quantity',
+          'inventory.unitId as unitId',
+          'unit.name as unitName',
+          'unit.symbol as unitSymbol',
+        ])
+        .where('inventory.tenantId = :tenantId', { tenantId })
+        .andWhere('inventory.locationId IN (:...locationIds)', { locationIds })
+        .andWhere('inventory.quantity > 0');
+
+      if (keyword) {
+        fallbackQuery.andWhere(
+          '(inventory.sku LIKE :keyword OR inventory.productName LIKE :keyword)',
+          { keyword: `%${keyword}%` },
+        );
+      }
+
+      const fallbackRows = await fallbackQuery.getRawMany();
+      fallbackRows.forEach((row) => {
+        const key = `${row.locationId}:${row.sku}`;
+        if (detailKeys.has(key)) return;
+
+        const quantity = Number(row.quantity || 0);
+        addStockItem(row.locationId, {
+          sku: row.sku,
+          productName: row.productName,
+          quantity,
+          lockedQuantity: 0,
+          availableQuantity: quantity,
+          unitId: row.unitId,
+          unitName: row.unitName,
+          unitSymbol: row.unitSymbol,
+        });
+      });
+    }
+
+    const enrichedLocations = locations
+      .map((location) => {
+        const stockItems = stockByLocation.get(location.id) || [];
+        const totalQuantity = stockItems.reduce(
+          (sum, item) => sum + Number(item.quantity || 0),
+          0,
+        );
+        const matched = Boolean(keyword) && stockItems.length > 0;
+
+        return {
+          ...location,
+          stockItems,
+          skuCount: stockItems.length,
+          totalQuantity,
+          hasStock: totalQuantity > 0,
+          matched,
+        };
+      })
+      .filter((location) => !keyword || location.matched);
+
+    const warehouses = Array.from(
+      new Set(locations.map((location) => location.warehouse).filter(Boolean)),
+    ).map((value) => ({ value, label: value }));
+
+    const areas = Array.from(
+      new Map(
+        locations
+          .filter((location) => location.area)
+          .map((location) => [
+            `${location.warehouse}:${location.area}`,
+            {
+              value: location.area,
+              label: `${location.warehouse}-${location.area}`,
+              warehouse: location.warehouse,
+            },
+          ]),
+      ).values(),
+    );
+
+    const occupiedLocations = enrichedLocations.filter(
+      (location) => location.hasStock,
+    ).length;
+
+    return {
+      warehouses,
+      areas,
+      locations: enrichedLocations,
+      summary: {
+        totalLocations: enrichedLocations.length,
+        occupiedLocations,
+        emptyLocations: enrichedLocations.filter(
+          (location) =>
+            !location.hasStock && location.status !== LocationStatus.DISABLED,
+        ).length,
+        disabledLocations: enrichedLocations.filter(
+          (location) => location.status === LocationStatus.DISABLED,
+        ).length,
+        matchedLocations: enrichedLocations.filter((location) => location.matched)
+          .length,
+      },
+    };
+  }
+
+  /**
    * 查询单个库位
    */
   async findOne(id: string, tenantId: string): Promise<Location> {
@@ -202,7 +431,25 @@ export class LocationService {
   async remove(id: string, tenantId: string): Promise<void> {
     const location = await this.findOne(id, tenantId);
 
-    // TODO: 检查库位是否有库存，有库存则不能删除
+    const detailStock = await this.inventoryLocationRepository
+      .createQueryBuilder('inventoryLocation')
+      .where('inventoryLocation.tenantId = :tenantId', { tenantId })
+      .andWhere('inventoryLocation.locationId = :locationId', {
+        locationId: id,
+      })
+      .andWhere('inventoryLocation.quantity > 0')
+      .getCount();
+
+    const summaryStock = await this.inventoryRepository
+      .createQueryBuilder('inventory')
+      .where('inventory.tenantId = :tenantId', { tenantId })
+      .andWhere('inventory.locationId = :locationId', { locationId: id })
+      .andWhere('inventory.quantity > 0')
+      .getCount();
+
+    if (detailStock > 0 || summaryStock > 0) {
+      throw new BadRequestException('库位存在库存，不能删除');
+    }
 
     await this.locationRepository.remove(location);
   }
@@ -379,6 +626,84 @@ export class LocationService {
       status: location.status,
       capacity: location.capacity ? Number(location.capacity) : undefined,
       usedCapacity: 0, // TODO: 计算已用容量
+    }));
+  }
+
+  async getStockLocations(
+    tenantId: string,
+    sku: string,
+  ): Promise<
+    Array<{
+      value: string;
+      label: string;
+      code: string;
+      name: string;
+      quantity: number;
+    }>
+  > {
+    if (!sku) return [];
+
+    const detailRows = await this.inventoryLocationRepository
+      .createQueryBuilder('inventoryLocation')
+      .innerJoin('locations', 'location', 'inventoryLocation.locationId = location.id')
+      .select([
+        'location.id as value',
+        'location.code as code',
+        'location.name as name',
+        'inventoryLocation.quantity as quantity',
+      ])
+      .where('inventoryLocation.tenantId = :tenantId', { tenantId })
+      .andWhere('inventoryLocation.sku = :sku', { sku })
+      .andWhere('inventoryLocation.quantity > 0')
+      .andWhere('location.status <> :disabled', {
+        disabled: LocationStatus.DISABLED,
+      })
+      .orderBy('location.warehouse', 'ASC')
+      .addOrderBy('location.area', 'ASC')
+      .addOrderBy('location.shelf', 'ASC')
+      .addOrderBy('location.level', 'ASC')
+      .addOrderBy('location.position', 'ASC')
+      .getRawMany();
+
+    if (detailRows.length > 0) {
+      return detailRows.map((row) => ({
+        value: row.value,
+        label: `${row.code} - ${row.name} / 库存 ${Number(row.quantity || 0)}`,
+        code: row.code,
+        name: row.name,
+        quantity: Number(row.quantity || 0),
+      }));
+    }
+
+    const fallbackRows = await this.inventoryRepository
+      .createQueryBuilder('inventory')
+      .innerJoin('locations', 'location', 'inventory.locationId = location.id')
+      .select([
+        'location.id as value',
+        'location.code as code',
+        'location.name as name',
+        'inventory.quantity as quantity',
+      ])
+      .where('inventory.tenantId = :tenantId', { tenantId })
+      .andWhere('inventory.sku = :sku', { sku })
+      .andWhere('inventory.quantity > 0')
+      .andWhere('inventory.locationId IS NOT NULL')
+      .andWhere('location.status <> :disabled', {
+        disabled: LocationStatus.DISABLED,
+      })
+      .orderBy('location.warehouse', 'ASC')
+      .addOrderBy('location.area', 'ASC')
+      .addOrderBy('location.shelf', 'ASC')
+      .addOrderBy('location.level', 'ASC')
+      .addOrderBy('location.position', 'ASC')
+      .getRawMany();
+
+    return fallbackRows.map((row) => ({
+      value: row.value,
+      label: `${row.code} - ${row.name} / 库存 ${Number(row.quantity || 0)}`,
+      code: row.code,
+      name: row.name,
+      quantity: Number(row.quantity || 0),
     }));
   }
 }

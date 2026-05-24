@@ -7,10 +7,18 @@ import { InventoryTransaction } from './entities/inventory-transaction.entity';
 import { UnitModule } from '../unit/unit.module';
 import { Product } from '../product/product.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { InventoryLocation } from '../location/entities/inventory-location.entity';
+import { Location } from '../location/entities/location.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Inventory, InventoryTransaction, Product]),
+    TypeOrmModule.forFeature([
+      Inventory,
+      InventoryTransaction,
+      Product,
+      InventoryLocation,
+      Location,
+    ]),
     UnitModule,
     NotificationsModule,
   ],

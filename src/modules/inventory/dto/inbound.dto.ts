@@ -30,6 +30,14 @@ export class InboundItemDto {
   @IsString()
   @IsNotEmpty()
   unitCode: string;
+
+  @ApiPropertyOptional({
+    description: '库位ID（行内库位优先于批量单头库位）',
+    example: 'location-uuid-001',
+  })
+  @IsString()
+  @IsOptional()
+  locationId?: string;
 }
 
 export class InboundDto {

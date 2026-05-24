@@ -16,6 +16,8 @@ import { UnitService } from '../unit/unit.service';
 import { UnitConverter, Unit } from '../../common/utils/unit-converter.util';
 import { isInboundType, isOutboundType, TransactionType, TransactionTypeNames } from '../../common/constants/unit.constant';
 import { Product } from '../product/product.entity';
+import { InventoryLocation } from '../location/entities/inventory-location.entity';
+import { Location, LocationStatus } from '../location/entities/location.entity';
 import { AlertLevel, AlertLevelInfo } from '../../common/constants/alert-level.constant';
 import { NotificationsService } from '../notifications/services/notifications.service';
 import { NotificationType, NotificationCategory, NotificationPriority } from '../notifications/interfaces/notification-type.enum';
@@ -57,6 +59,10 @@ export class InventoryService {
     private transactionRepository: Repository<InventoryTransaction>,
     @InjectRepository(Product)
     private productRepository: Repository<Product>,
+    @InjectRepository(InventoryLocation)
+    private inventoryLocationRepository: Repository<InventoryLocation>,
+    @InjectRepository(Location)
+    private locationRepository: Repository<Location>,
     private unitService: UnitService,
     private dataSource: DataSource,
     private notificationsService: NotificationsService,
@@ -73,6 +79,112 @@ export class InventoryService {
       throw new NotFoundException(`SKU ${sku} 对应的产品不存在`);
     }
     return product;
+  }
+
+  private async updateLocationOccupancy(
+    queryRunner: any,
+    locationId: string,
+    tenantId: string,
+  ): Promise<void> {
+    const stock = await queryRunner.manager
+      .createQueryBuilder(InventoryLocation, 'inventoryLocation')
+      .select('COALESCE(SUM(inventoryLocation.quantity), 0)', 'quantity')
+      .where('inventoryLocation.tenantId = :tenantId', { tenantId })
+      .andWhere('inventoryLocation.locationId = :locationId', { locationId })
+      .getRawOne();
+
+    const quantity = Number(stock?.quantity || 0);
+    const location = await queryRunner.manager.findOne(Location, {
+      where: { id: locationId, tenantId },
+    });
+
+    if (!location || location.status === LocationStatus.DISABLED) return;
+
+    await queryRunner.manager.update(
+      Location,
+      { id: locationId, tenantId },
+      {
+        status:
+          quantity > 0 ? LocationStatus.OCCUPIED : LocationStatus.AVAILABLE,
+      },
+    );
+  }
+
+  private async changeLocationStock(
+    queryRunner: any,
+    options: {
+      tenantId: string;
+      sku: string;
+      productName: string;
+      locationId?: string;
+      unitId?: string;
+      quantityDelta: number;
+    },
+  ): Promise<void> {
+    const { tenantId, sku, productName, locationId, unitId, quantityDelta } =
+      options;
+
+    if (!locationId || quantityDelta === 0) return;
+
+    const location = await queryRunner.manager.findOne(Location, {
+      where: { id: locationId, tenantId },
+    });
+    if (!location) {
+      throw new BadRequestException('库位不存在');
+    }
+    if (location.status === LocationStatus.DISABLED) {
+      throw new BadRequestException('库位已禁用，不能进行库存操作');
+    }
+
+    let stock = await queryRunner.manager.findOne(InventoryLocation, {
+      where: { tenantId, sku, locationId },
+      lock: { mode: 'pessimistic_write' },
+    });
+
+    if (!stock) {
+      if (quantityDelta < 0) {
+        throw new BadRequestException(`库位 ${location.code} 没有 SKU ${sku} 的库存`);
+      }
+
+      stock = queryRunner.manager.create(InventoryLocation, {
+        tenantId,
+        sku,
+        productName,
+        locationId,
+        unitId,
+        quantity: quantityDelta,
+        lockedQuantity: 0,
+      });
+      await queryRunner.manager.save(stock);
+      await this.updateLocationOccupancy(queryRunner, locationId, tenantId);
+      return;
+    }
+
+    const beforeQty = Number(stock.quantity || 0);
+    const nextQty = beforeQty + quantityDelta;
+    const lockedQty = Number(stock.lockedQuantity || 0);
+
+    if (nextQty < 0) {
+      throw new BadRequestException(
+        `库位 ${location.code} 库存不足: 当前${beforeQty}, 需要扣减${Math.abs(quantityDelta)}`,
+      );
+    }
+    if (nextQty < lockedQty) {
+      throw new BadRequestException(
+        `库位 ${location.code} 存在锁定库存，不能扣减到锁定数量以下`,
+      );
+    }
+
+    await queryRunner.manager.update(
+      InventoryLocation,
+      { id: stock.id },
+      {
+        productName,
+        unitId: stock.unitId || unitId,
+        quantity: nextQty,
+      },
+    );
+    await this.updateLocationOccupancy(queryRunner, locationId, tenantId);
   }
 
   async create(
@@ -434,6 +546,15 @@ export class InventoryService {
         tenantId,
       );
 
+      await this.changeLocationStock(queryRunner, {
+        tenantId,
+        sku: dto.sku,
+        productName: product.name,
+        locationId: dto.locationId || inventory!.locationId,
+        unitId: inventory!.unitId || unit.id,
+        quantityDelta: convertedQty,
+      });
+
       const afterQty = Number(inventory!.quantity);
 
       // 5. 创建交易记录
@@ -529,7 +650,7 @@ export class InventoryService {
         {
           ...item,
           orderNo: dto.orderNo,
-          locationId: dto.locationId,
+          locationId: item.locationId || dto.locationId,
           type: dto.type,
           remark: dto.remark,
         },
@@ -607,6 +728,17 @@ export class InventoryService {
         );
       }
 
+      const locationId = dto.locationId || inventory.locationId;
+
+      await this.changeLocationStock(queryRunner, {
+        tenantId,
+        sku: dto.sku,
+        productName: product.name,
+        locationId,
+        unitId: inventory.unitId,
+        quantityDelta: -outboundQty,
+      });
+
       // 7. 更新库存
       const afterQty = beforeQty - outboundQty;
       await queryRunner.manager.update(
@@ -638,7 +770,7 @@ export class InventoryService {
         beforeQty,
         afterQty,
         orderNo: dto.orderNo,
-        locationId: dto.locationId || inventory.locationId,
+        locationId,
         remark: dto.remark,
         tenantId,
       });
@@ -720,7 +852,7 @@ export class InventoryService {
         {
           ...item,
           orderNo: dto.orderNo,
-          locationId: dto.locationId,
+          locationId: item.locationId || dto.locationId,
           type: dto.type,
           remark: dto.remark,
         },
@@ -1369,6 +1501,18 @@ export class InventoryService {
         inventoryUnit,
         tenantId,
       );
+
+      await this.changeLocationStock(queryRunner, {
+        tenantId,
+        sku: dto.sku,
+        productName: product.name,
+        locationId: dto.locationId || inventory!.locationId,
+        unitId: inventory!.unitId || unit.id,
+        quantityDelta:
+          adjustType === TransactionType.ADJUSTMENT_IN
+            ? adjustedQty
+            : -adjustedQty,
+      });
 
       const afterQty = Number(inventory!.quantity);
 
