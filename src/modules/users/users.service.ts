@@ -35,7 +35,7 @@ export class UsersService {
   async getProfile(userId: string) {
     const user = await this.userRepo.findOne({
       where: { id: userId },
-      relations: ['roles', 'roles.menus', 'tenant'],
+      relations: ['roles', 'roles.menus', 'tenant', 'department', 'post'],
     });
 
     if (!user) throw new NotFoundException('该用户不存在');
@@ -58,6 +58,10 @@ export class UsersService {
       userType: user.isPlatformAdmin === 1 ? 'platform' : 'tenant',
       tenantId: user.tenantId,
       tenantName: user.tenant?.name || '系统运营',
+      deptId: user.deptId,
+      deptName: user.department?.deptName || null,
+      postId: user.postId,
+      postName: user.post?.postName || null,
       menus: menuAuth.menus,
       butAuths: menuAuth.butAuths,
       roleIds,

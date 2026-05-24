@@ -45,8 +45,12 @@ export class JwtAuthGuard implements CanActivate {
       });
       console.log('🚀 ~ JwtAuthGuard ~ canActivate ~ payload:', payload);
 
-      // 平台管理员跳过租户审核校验
-      if (payload.userType !== 'platform' && payload.tenantId) {
+      // 平台管理员跳过租户审核校验；租户用户必须携带 tenantId。
+      if (payload.userType !== 'platform') {
+        if (!payload.tenantId) {
+          throw new UnauthorizedException('租户身份无效');
+        }
+
         const tenant = await this.dataSource.getRepository(Tenant).findOne({
           where: { id: payload.tenantId },
         });

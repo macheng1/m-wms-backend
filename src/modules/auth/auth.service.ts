@@ -70,11 +70,11 @@ export class AuthService {
 
   // src/modules/auth/auth.service.ts
   async login(loginDto: LoginDto) {
-    const { username, password, code } = loginDto;
+    const { username, password } = loginDto;
+    const code = loginDto.code?.trim();
 
     // 1. 查找用户逻辑（根据 tenantCode 区分平台管理员或工厂员工）
     const user = await this.findUserForLogin(username, code);
-    console.log('🚀 ~ AuthService ~ login ~ user:', user);
     if (!user) throw new BadRequestException('账号或企业编码错误');
 
     // 2. 校验密码
@@ -108,12 +108,10 @@ export class AuthService {
    * @param code 企业编码（可选）
    */
   private async findUserForLogin(username: string, code?: string): Promise<User | null> {
-    console.log('🚀 ~ AuthService ~ findUserForLogin ~ tenantCode:', code);
     // 1. 创建基础查询器
     const query = this.userRepository
       .createQueryBuilder('user')
-      .addSelect('user.password') // 关键：手动抓取实体中 select: false 的密码字段
-      .leftJoinAndSelect('user.tenant', 'tenant'); // 关联查询租户信息，方便后续逻辑使用
+      .addSelect('user.password'); // 关键：手动抓取实体中 select: false 的密码字段
 
     if (!code) {
       /**
@@ -123,7 +121,8 @@ export class AuthService {
        */
       query
         .where('user.username = :username', { username })
-        .andWhere('user.isPlatformAdmin = :isAdmin', { isAdmin: 1 });
+        .andWhere('user.isPlatformAdmin = :isAdmin', { isAdmin: 1 })
+        .andWhere('user.tenantId IS NULL');
     } else {
       /**
        * 场景 B：提供了企业编码
@@ -131,7 +130,6 @@ export class AuthService {
        */
       // 先根据 code 找到租户 ID
       const tenant = await this.tenantRepository.findOne({ where: { code: code } });
-      console.log('🚀 ~ AuthService ~ findUserForLogin ~ tenant:', tenant);
       if (!tenant) return null;
       if (tenant.isApproved !== 1) {
         throw new BusinessException('企业未审核通过，暂不可登录');
