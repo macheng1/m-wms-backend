@@ -1,8 +1,11 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PlatformAdminGuard } from '@/common/guards/platform-admin.guard';
 import { TenantsService } from '../tenant/tenants.service';
 import { AdminPlatformService } from './admin-platform.service';
+import { CategoriesService } from '../product/service/categories.service';
+import { AttributesService } from '../product/service/attributes.service';
+import { UnitService } from '../unit/unit.service';
 
 @ApiTags('管理端 API 边界')
 @ApiBearerAuth()
@@ -11,6 +14,9 @@ export class AdminApiController {
   constructor(
     private readonly tenantsService: TenantsService,
     private readonly adminPlatformService: AdminPlatformService,
+    private readonly categoriesService: CategoriesService,
+    private readonly attributesService: AttributesService,
+    private readonly unitService: UnitService,
   ) {}
 
   @Get('meta')
@@ -440,6 +446,113 @@ export class AdminApiController {
   @ApiOperation({ summary: '平台域 - 平台操作审计日志' })
   getPlatformAuditLogs(@Body() body: { page?: number; pageSize?: number; module?: string; username?: string }) {
     return this.adminPlatformService.findAuditLogs({ ...body, scope: 'platform' });
+  }
+
+  @Post('platform/templates/categories/list')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 标准类目模板分页列表' })
+  listPlatformCategoryTemplates(@Body() body: any) {
+    return this.categoriesService.findPage(body || {}, null);
+  }
+
+  @Get('platform/templates/categories/:id')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 标准类目模板详情' })
+  getPlatformCategoryTemplate(@Param('id') id: string) {
+    return this.categoriesService.getDetail(id, null);
+  }
+
+  @Post('platform/templates/categories/save')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 保存标准类目模板' })
+  savePlatformCategoryTemplate(@Body() body: any) {
+    return body?.id ? this.categoriesService.update(body, null) : this.categoriesService.save(body, null);
+  }
+
+  @Post('platform/templates/categories/:id/status')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 标准类目模板状态变更' })
+  updatePlatformCategoryTemplateStatus(@Param('id') id: string, @Body() body: { isActive: number }) {
+    return this.categoriesService.updateStatus(id, body.isActive, null);
+  }
+
+  @Post('platform/templates/categories/:id/delete')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 删除标准类目模板' })
+  deletePlatformCategoryTemplate(@Param('id') id: string) {
+    return this.categoriesService.delete(id, null);
+  }
+
+  @Post('platform/templates/attributes/list')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 标准属性模板分页列表' })
+  listPlatformAttributeTemplates(@Body() body: any) {
+    return this.attributesService.findPage(body || {}, null);
+  }
+
+  @Get('platform/templates/attributes/:id')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 标准属性模板详情' })
+  getPlatformAttributeTemplate(@Param('id') id: string) {
+    return this.attributesService.getDetail(id, null);
+  }
+
+  @Post('platform/templates/attributes/save')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 保存标准属性模板' })
+  savePlatformAttributeTemplate(@Body() body: any) {
+    return body?.id ? this.attributesService.update(body, null) : this.attributesService.save(body, null);
+  }
+
+  @Post('platform/templates/attributes/:id/status')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 标准属性模板状态变更' })
+  updatePlatformAttributeTemplateStatus(@Param('id') id: string, @Body() body: { isActive: number }) {
+    return this.attributesService.updateStatus(id, body.isActive, null);
+  }
+
+  @Post('platform/templates/attributes/:id/delete')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 删除标准属性模板' })
+  deletePlatformAttributeTemplate(@Param('id') id: string) {
+    return this.attributesService.delete(id, null);
+  }
+
+  @Post('platform/templates/units/list')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 标准单位模板分页列表' })
+  listPlatformUnitTemplates(@Body() body: any) {
+    return this.unitService.findPage(body || {}, null);
+  }
+
+  @Get('platform/templates/units/active')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 启用的标准单位模板' })
+  getActivePlatformUnitTemplates() {
+    return this.unitService.findActive(null);
+  }
+
+  @Post('platform/templates/units/detail')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 标准单位模板详情' })
+  getPlatformUnitTemplate(@Body() body: { id?: string; code?: string }) {
+    if (body?.id) return this.unitService.findOne(body.id, null);
+    if (body?.code) return this.unitService.findByCode(body.code, null);
+    throw new BadRequestException('缺少单位ID或编码');
+  }
+
+  @Post('platform/templates/units/save')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 保存标准单位模板' })
+  savePlatformUnitTemplate(@Body() body: any) {
+    return body?.id ? this.unitService.update(body.id, body, null) : this.unitService.create(body, null);
+  }
+
+  @Post('platform/templates/units/:id/delete')
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '平台域 - 删除标准单位模板' })
+  deletePlatformUnitTemplate(@Param('id') id: string) {
+    return this.unitService.remove(id, null);
   }
 
   @Post('platform/menus/:id/delete')

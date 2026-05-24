@@ -41,6 +41,11 @@ export class SaveProductDto {
   @IsString()
   unit?: string;
 
+  @ApiProperty({ description: '产品描述', required: false })
+  @IsOptional()
+  @IsString()
+  description?: string;
+
   /**
    * 核心：动态规格存储 (对应 MySQL JSON 列)
    * 结构：{ "ATTR_CZ": "304", "ATTR_ZJ": "1.5" }

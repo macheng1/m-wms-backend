@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, IsNull, Not } from 'typeorm';
 
 import { BusinessException } from '@/common/filters/business.exception';
 import { Category } from './entities/category.entity';
@@ -28,8 +28,8 @@ export class ProductsService {
 
   /** 新增产品 */
   async save(dto: SaveProductDto, tenantId: string) {
-    const category = await this.categoryRepo.findOne({ where: { id: dto.categoryId, tenantId } });
-    if (!category) throw new BusinessException('所选类目不存在');
+    const category = await this.validateCategory(dto.categoryId, tenantId);
+    dto.specs = this.normalizeAndValidateSpecs(category, dto.specs || {});
 
     // 如果未传编码，则自动生成通用SKU
     if (!dto.code) {
@@ -50,6 +50,13 @@ export class ProductsService {
 
     const product = await this.productRepo.findOne({ where: { id: dto.id, tenantId } });
     if (!product) throw new BusinessException('产品不存在');
+    const category = await this.validateCategory(dto.categoryId, tenantId);
+    dto.specs = this.normalizeAndValidateSpecs(category, dto.specs || {});
+
+    const exists = await this.productRepo.findOne({
+      where: { code: dto.code || product.code, tenantId, id: Not(dto.id) },
+    });
+    if (exists) throw new BusinessException(`产品编码 ${dto.code || product.code} 已存在`);
 
     // 对称赋值
     Object.assign(product, dto);
@@ -63,6 +70,7 @@ export class ProductsService {
     const qb = this.productRepo
       .createQueryBuilder('p')
       .leftJoinAndSelect('p.category', 'c')
+      .leftJoinAndSelect('c.attributes', 'attrs')
       .where('p.tenantId = :tenantId', { tenantId });
 
     if (keyword) {
@@ -138,6 +146,50 @@ export class ProductsService {
     // 执行软删除，保留业务轨迹
     await this.productRepo.softRemove(product);
     return { message: '产品已移入回收站' };
+  }
+
+  private async validateCategory(categoryId: string, tenantId: string) {
+    const category = await this.categoryRepo.findOne({
+      where: [{ id: categoryId, tenantId }, { id: categoryId, tenantId: IsNull() }],
+      relations: ['attributes', 'attributes.options'],
+    });
+    if (!category) throw new BusinessException('所选类目不存在或无权使用');
+    if (category.isActive !== 1) throw new BusinessException('所选类目已禁用');
+    return category;
+  }
+
+  private normalizeAndValidateSpecs(category: Category, specs: Record<string, any>) {
+    const attributes = category.attributes || [];
+    if (attributes.length === 0) return specs || {};
+
+    const normalized: Record<string, any> = {};
+    for (const attr of attributes) {
+      const key = attr.code || attr.name;
+      const rawValue = specs?.[key] ?? specs?.[attr.name];
+      if (rawValue === undefined || rawValue === null || rawValue === '') {
+        throw new BusinessException(`请填写规格属性：${attr.name}`);
+      }
+
+      if (attr.type === 'select') {
+        const options = (attr.options || [])
+          .filter((option) => option.isActive === 1)
+          .map((option) => option.value);
+        if (options.length > 0 && !options.includes(String(rawValue))) {
+          throw new BusinessException(`规格属性「${attr.name}」的值不在可选范围内`);
+        }
+        normalized[key] = String(rawValue);
+      } else if (attr.type === 'number') {
+        const value = Number(rawValue);
+        if (Number.isNaN(value)) {
+          throw new BusinessException(`规格属性「${attr.name}」必须是数字`);
+        }
+        normalized[key] = value;
+      } else {
+        normalized[key] = String(rawValue).trim();
+      }
+    }
+
+    return normalized;
   }
 
   /**

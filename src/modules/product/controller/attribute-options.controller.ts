@@ -39,7 +39,7 @@ export class OptionsController {
   }
   @Post('delete')
   async delete(@Body('id') id: string, @Req() req) {
-    return this.optionsService.delete(id);
+    return this.optionsService.delete(id, req.user.tenantId);
   }
 
   @Post('batchDelete')

@@ -30,6 +30,9 @@ export class Product extends TenantBaseEntity {
   @Column({ nullable: true, comment: '单位，如：支、kg' })
   unit: string;
 
+  @Column({ type: 'text', nullable: true, comment: '产品描述' })
+  description: string | null;
+
   /**
    * 存储结构：{ "ATTR_CZ_7A2B": "304", "ATTR_ZJ_91E0": "1.5" }
    * Key 为属性编码，Value 为具体的规格值

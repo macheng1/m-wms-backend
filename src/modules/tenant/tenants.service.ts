@@ -7,7 +7,7 @@ import {
   BadRequestException,
   HttpException,
 } from '@nestjs/common';
-import { DataSource, EntityManager, In, Like } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, Like } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { ConfigService } from '@nestjs/config';
 
@@ -21,6 +21,7 @@ import pinyin from 'pinyin';
 import { PortalConfig } from '../portal/entities/portal-config.entity';
 import { SmsService } from '../aliyun/sms/sms.service';
 import { BusinessException } from '@/common/filters/business.exception';
+import { Dictionary } from '../system/entities/dictionary.entity';
 
 @Injectable()
 export class TenantsService {
@@ -107,8 +108,9 @@ export class TenantsService {
       take: pageSize,
       order: { createdAt: 'DESC' },
     });
+    const industryNameMap = await this.getIndustryNameMap();
     return {
-      list,
+      list: list.map((tenant) => this.serializeTenant(tenant, industryNameMap)),
       total,
       page,
       pageSize,
@@ -122,6 +124,7 @@ export class TenantsService {
     const repo = this.dataSource.getRepository(Tenant);
     const tenant = await repo.findOne({ where: { id } });
     if (!tenant) throw new ConflictException('租户不存在');
+    const industryName = await this.resolveIndustryName(tenant.industryCode);
 
     // 返回所有业务字段，保证前端展示完整
     return {
@@ -129,7 +132,7 @@ export class TenantsService {
       code: tenant.code,
       name: tenant.name,
       industryCode: tenant.industryCode,
-      industryName: '',
+      industryName,
       contactPerson: tenant.contactPerson,
       contactPhone: tenant.contactPhone,
       address: tenant.address,
@@ -293,6 +296,10 @@ export class TenantsService {
           }
         }
       }
+      if ('industryCode' in updateTenantDto && !('industryType' in updateTenantDto)) {
+        const industryName = await this.resolveIndustryName(updateTenantDto.industryCode, manager);
+        tenant.industryType = industryName || null;
+      }
       const savedTenant = await repo.save(tenant);
 
       // 删除原 PortalConfig
@@ -396,18 +403,45 @@ export class TenantsService {
       .toLowerCase()
       .replace(/[^a-z0-9]/g, '-');
     const website = `${baseDomain}/portal/${urlSlug}/zh`;
+    const industryName = await this.resolveIndustryName(dto.industryCode, manager);
 
     // 3. 创建并保存租户
     const tenant = manager.create(Tenant, {
       ...dto,
       code: code.trim(),
       website,
-      industryType: dto.industryType || '未分类',
+      industryType: dto.industryType || dto.industryName || industryName || '未分类',
       isApproved: 0,
       isActive: 0,
       lifecycleStatus: 'pending',
     });
     return await manager.save(tenant);
+  }
+
+  private serializeTenant(tenant: Tenant, industryNameMap: Map<string, string>) {
+    const industryName = tenant.industryCode ? industryNameMap.get(tenant.industryCode) || '' : '';
+    return {
+      ...tenant,
+      industryName,
+      industryType: tenant.industryType || industryName || '未分类',
+    };
+  }
+
+  private async getIndustryNameMap(manager?: EntityManager) {
+    const repo = manager
+      ? manager.getRepository(Dictionary)
+      : this.dataSource.getRepository(Dictionary);
+    const list = await repo.find({
+      where: { type: 'INDUSTRY', isActive: 1, scope: 'platform', tenantId: IsNull() },
+      order: { sort: 'ASC' },
+    });
+    return new Map(list.map((item) => [item.value, item.label]));
+  }
+
+  private async resolveIndustryName(industryCode?: string | null, manager?: EntityManager) {
+    if (!industryCode) return '';
+    const industryNameMap = await this.getIndustryNameMap(manager);
+    return industryNameMap.get(industryCode) || '';
   }
 
   private async generateUniqueEnterpriseCode(manager: EntityManager, enterpriseName: string) {
@@ -501,6 +535,7 @@ export class TenantsService {
 
     return { adminRole, roleCount: Object.keys(ROLE_TEMPLATES).length };
   }
+
   /**
    * 逻辑拆分 4：创建管理员
    */

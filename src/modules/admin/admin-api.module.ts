@@ -11,9 +11,17 @@ import { AdminPlatformService } from './admin-platform.service';
 import { Department } from '../system/entities/department.entity';
 import { Post } from '../system/entities/post.entity';
 import { MailModule } from '../mail/mail.module';
+import { ProductModule } from '../product/product.module';
+import { UnitModule } from '../unit/unit.module';
 
 @Module({
-  imports: [TenantModule, MailModule, TypeOrmModule.forFeature([Menu, Role, User, Tenant, Department, Post, OperationLog])],
+  imports: [
+    TenantModule,
+    MailModule,
+    ProductModule,
+    UnitModule,
+    TypeOrmModule.forFeature([Menu, Role, User, Tenant, Department, Post, OperationLog]),
+  ],
   controllers: [AdminApiController],
   providers: [AdminPlatformService],
 })

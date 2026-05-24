@@ -1,20 +1,30 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
 import { Unit } from './entities/unit.entity';
 import { CreateUnitDto, UpdateUnitDto, QueryUnitDto } from './dto';
+import { BusinessException } from '@/common/filters/business.exception';
 
 @Injectable()
 export class UnitService {
   constructor(
     @InjectRepository(Unit)
     private unitRepository: Repository<Unit>,
+    private readonly dataSource: DataSource,
   ) {}
+
+  private scopeWhere(tenantId: string | null) {
+    return tenantId === null ? { tenantId: IsNull() } : { tenantId };
+  }
+
+  private readableScopeWhere(tenantId: string | null) {
+    return tenantId === null ? [{ tenantId: IsNull() }] : [{ tenantId }, { tenantId: IsNull() }];
+  }
 
   /**
    * 生成单位编码
    */
-  private async generateUnitCode(category: string, tenantId: string): Promise<string> {
+  private async generateUnitCode(category: string, tenantId: string | null): Promise<string> {
     const categoryPrefix = category.toUpperCase();
     let code: string;
     let attempts = 0;
@@ -28,7 +38,7 @@ export class UnitService {
       attempts++;
 
       const existing = await this.unitRepository.findOne({
-        where: { code, tenantId },
+        where: this.readableScopeWhere(tenantId).map((scope) => ({ code, ...scope })),
       });
 
       if (!existing) {
@@ -43,12 +53,16 @@ export class UnitService {
   /**
    * 创建单位
    */
-  async create(createUnitDto: CreateUnitDto, tenantId: string): Promise<Unit> {
+  async create(createUnitDto: CreateUnitDto, tenantId: string | null): Promise<Unit> {
     // 如果没有提供 code，自动生成
     let code = createUnitDto.code;
     if (!code) {
       code = await this.generateUnitCode(createUnitDto.category, tenantId);
     }
+    const exists = await this.unitRepository.findOne({
+      where: this.readableScopeWhere(tenantId).map((scope) => ({ code, ...scope })),
+    });
+    if (exists) throw new BusinessException(`单位编码 ${code} 已存在`);
 
     const unit = this.unitRepository.create({
       ...createUnitDto,
@@ -63,7 +77,7 @@ export class UnitService {
    */
   async findAll(
     query: QueryUnitDto,
-    tenantId: string,
+    tenantId: string | null,
   ): Promise<{
     list: Unit[];
     total: number;
@@ -73,7 +87,7 @@ export class UnitService {
     const { page = 1, pageSize = 10, keyword, category } = query;
     const queryBuilder = this.unitRepository.createQueryBuilder('unit');
 
-    queryBuilder.andWhere('unit.tenantId = :tenantId', { tenantId });
+    this.applyTenantScope(queryBuilder, tenantId);
 
     if (keyword) {
       queryBuilder.andWhere('(unit.name LIKE :keyword OR unit.code LIKE :keyword)', {
@@ -103,7 +117,7 @@ export class UnitService {
    */
   async findPage(
     query: QueryUnitDto,
-    tenantId: string,
+    tenantId: string | null,
   ): Promise<{
     list: Unit[];
     total: number;
@@ -114,7 +128,7 @@ export class UnitService {
 
     let queryBuilder = this.unitRepository.createQueryBuilder('unit');
 
-    queryBuilder.andWhere('unit.tenantId = :tenantId', { tenantId });
+    this.applyTenantScope(queryBuilder, tenantId);
 
     if (keyword) {
       queryBuilder = queryBuilder.andWhere('(unit.name LIKE :keyword OR unit.code LIKE :keyword)', {
@@ -140,9 +154,9 @@ export class UnitService {
   /**
    * 按分类获取单位
    */
-  async findByCategory(tenantId: string, category: string): Promise<Unit[]> {
+  async findByCategory(tenantId: string | null, category: string): Promise<Unit[]> {
     const units = await this.unitRepository.find({
-      where: { tenantId, category: category as any },
+      where: this.readableScopeWhere(tenantId).map((scope) => ({ ...scope, category: category as any })),
       order: { sortOrder: 'ASC', baseRatio: 'ASC' },
     });
     return units || [];
@@ -151,9 +165,9 @@ export class UnitService {
   /**
    * 获取启用的单位列表
    */
-  async findActive(tenantId: string): Promise<Unit[]> {
+  async findActive(tenantId: string | null): Promise<Unit[]> {
     const units = await this.unitRepository.find({
-      where: { tenantId, isActive: 1 },
+      where: this.readableScopeWhere(tenantId).map((scope) => ({ ...scope, isActive: 1 })),
       order: { category: 'ASC', sortOrder: 'ASC' },
     });
     return units || [];
@@ -162,9 +176,9 @@ export class UnitService {
   /**
    * 获取单位详情
    */
-  async findOne(id: string, tenantId: string): Promise<Unit> {
+  async findOne(id: string, tenantId: string | null): Promise<Unit> {
     const unit = await this.unitRepository.findOne({
-      where: { id, tenantId },
+      where: this.readableScopeWhere(tenantId).map((scope) => ({ id, ...scope })),
     });
     if (!unit) {
       throw new NotFoundException(`单位 ID ${id} 不存在`);
@@ -175,9 +189,9 @@ export class UnitService {
   /**
    * 根据编码获取单位详情
    */
-  async findByCode(code: string, tenantId: string): Promise<Unit> {
+  async findByCode(code: string, tenantId: string | null): Promise<Unit> {
     const unit = await this.unitRepository.findOne({
-      where: { code, tenantId },
+      where: this.readableScopeWhere(tenantId).map((scope) => ({ code, ...scope })),
     });
     if (!unit) {
       throw new NotFoundException(`单位编码 ${code} 不存在`);
@@ -188,8 +202,18 @@ export class UnitService {
   /**
    * 更新单位
    */
-  async update(id: string, updateUnitDto: UpdateUnitDto, tenantId: string): Promise<Unit> {
-    const unit = await this.findOne(id, tenantId);
+  async update(id: string, updateUnitDto: UpdateUnitDto, tenantId: string | null): Promise<Unit> {
+    const unit = await this.findOwnedOne(id, tenantId);
+    if (updateUnitDto.code) {
+      const exists = await this.unitRepository.findOne({
+        where: this.readableScopeWhere(tenantId).map((scope) => ({
+          code: updateUnitDto.code,
+          ...scope,
+          id: Not(id),
+        })),
+      });
+      if (exists) throw new BusinessException(`单位编码 ${updateUnitDto.code} 已存在`);
+    }
     Object.assign(unit, updateUnitDto);
     return this.unitRepository.save(unit);
   }
@@ -197,9 +221,18 @@ export class UnitService {
   /**
    * 删除单位
    */
-  async remove(id: string, tenantId: string): Promise<void> {
-    const unit = await this.findOne(id, tenantId);
-    await this.unitRepository.remove(unit);
+  async remove(id: string, tenantId: string | null): Promise<void> {
+    const unit = await this.findOwnedOne(id, tenantId);
+    if (tenantId) {
+      const [[inventoryRow], [transactionRow]] = await Promise.all([
+        this.dataSource.query('SELECT COUNT(*) AS total FROM inventory WHERE unitId = ? AND tenantId = ?', [id, tenantId]),
+        this.dataSource.query('SELECT COUNT(*) AS total FROM inventory_transactions WHERE unitId = ? AND tenantId = ?', [id, tenantId]),
+      ]);
+      if (Number(inventoryRow?.total || 0) > 0 || Number(transactionRow?.total || 0) > 0) {
+        throw new BusinessException('该单位已被库存业务使用，无法删除');
+      }
+    }
+    await this.unitRepository.softRemove(unit);
   }
 
   /**
@@ -207,9 +240,27 @@ export class UnitService {
    */
   async getUnitsByCodes(codes: string[], tenantId: string): Promise<Unit[]> {
     const units = await this.unitRepository.find({
-      where: { tenantId, code: codes as any },
+      where: this.readableScopeWhere(tenantId).map((scope) => ({ ...scope, code: In(codes) })),
     });
     return units || [];
+  }
+
+  private applyTenantScope(queryBuilder: ReturnType<Repository<Unit>['createQueryBuilder']>, tenantId: string | null) {
+    if (tenantId === null) {
+      queryBuilder.andWhere('unit.tenantId IS NULL');
+    } else {
+      queryBuilder.andWhere('(unit.tenantId = :tenantId OR unit.tenantId IS NULL)', { tenantId });
+    }
+  }
+
+  private async findOwnedOne(id: string, tenantId: string | null): Promise<Unit> {
+    const unit = await this.unitRepository.findOne({
+      where: { id, ...this.scopeWhere(tenantId) },
+    });
+    if (!unit) {
+      throw new NotFoundException(`单位 ID ${id} 不存在或无权操作`);
+    }
+    return unit;
   }
 
   /**
@@ -217,7 +268,7 @@ export class UnitService {
    */
   async getAllUnits(tenantId: string): Promise<Unit[]> {
     const units = await this.unitRepository.find({
-      where: { tenantId },
+      where: this.readableScopeWhere(tenantId),
     });
     return units || [];
   }
