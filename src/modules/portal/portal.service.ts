@@ -1,7 +1,7 @@
 // src/modules/portal/portal.service.ts
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 
 import { Category } from '../product/entities/category.entity';
 
@@ -50,47 +50,65 @@ export class PortalService {
     const [config, categories] = await Promise.all([
       this.configRepo.findOne({ where: { tenantId: tenant.id, isActive: 1 } }),
       this.categoryRepo.find({
-        where: { tenantId: tenant.id, isActive: 1 },
-        relations: ['products'],
-        order: { id: 'ASC' },
+        where: [
+          { tenantId: tenant.id, isActive: 1 },
+          { tenantId: IsNull(), isActive: 1 },
+        ],
+        relations: ['products', 'attributes'],
+        order: { tenantId: 'ASC', createdAt: 'ASC' },
       }),
     ]);
 
     // 3. 准备快捷变量
     const footerInfo = config?.footerInfo || {};
-    console.log('🚀 ~ PortalService ~ getPortalInitData ~ footerInfo:', footerInfo);
     const seoConfig = config?.seoConfig || {};
 
     // 4. 核心：转换动态规格的产品列表
-    const formattedProducts = categories.map((cat) => ({
-      categoryName: cat.name,
-      categoryEn: cat.code, // 使用类目编码作为英文名/标识
-      items: (cat.products || [])
-        .filter((p) => p.isActive === 1)
-        .map((p) => {
-          const rawSpecs = p.specs || {};
-          const specEntries = Object.entries(rawSpecs);
+    const formattedProducts = categories
+      .map((cat) => {
+        const attributes = cat.attributes || [];
+        const formatSpecEntries = (rawSpecs: Record<string, any>) =>
+          Object.entries(rawSpecs || {}).map(([key, value]) => {
+            const attr = attributes.find((item) => item.code === key || item.name === key);
+            return {
+              label: attr?.name || key,
+              code: key,
+              value: String(value),
+            };
+          });
 
-          // 转换为前端易读的 [{ label, value }] 数组
-          const formattedSpecs = specEntries.map(([label, value]) => ({
-            label,
-            value: String(value),
-          }));
+        return {
+          categoryName: cat.name,
+          categoryEn: cat.code, // 使用类目编码作为英文名/标识
+          items: (cat.products || [])
+            .filter((p) => p.tenantId === tenant.id && p.isActive === 1)
+            .map((p) => {
+              const rawSpecs = p.specs || {};
+              const formattedSpecs = formatSpecEntries(rawSpecs);
+              const materialSpec =
+                formattedSpecs.find((item) => item.label.includes('材质')) ||
+                formattedSpecs[0];
+              const mainSpec =
+                formattedSpecs.find((item) => item.label.includes('规格')) ||
+                formattedSpecs.find((item) => item.label.includes('长度')) ||
+                formattedSpecs[1];
 
-          return {
-            id: p.id,
-            name: p.name,
-            code: p.code,
-            // 兼容性字段：取前两个规格作为主展示，若无则显示短横线
-            material: specEntries[0]?.[1] || '-',
-            diameter: specEntries[1]?.[1] || '-',
-            // 全量动态规格
-            allSpecs: formattedSpecs,
-            image: p.images?.[0] || '', // 取首图
-            isPublic: true,
-          };
-        }),
-    }));
+              return {
+                id: p.id,
+                name: p.name,
+                code: p.code,
+                // 兼容性字段：卡片主展示
+                material: materialSpec?.value || '-',
+                diameter: mainSpec ? `${mainSpec.label}: ${mainSpec.value}` : '-',
+                // 全量动态规格
+                allSpecs: formattedSpecs,
+                image: p.images?.[0] || '', // 取首图
+                isPublic: true,
+              };
+            }),
+        };
+      })
+      .filter((cat) => cat.items.length > 0);
 
     // 5. 按照要求的格式组装全量数据
     return {
@@ -160,17 +178,26 @@ export class PortalService {
     const tenant = await this.getTenantByDomain(domain);
     const product = await this.productRepo.findOne({
       where: { id: productId, tenantId: tenant.id, isActive: 1 },
-      relations: ['category'],
+      relations: ['category', 'category.attributes'],
     });
     if (!product) throw new NotFoundException('产品信息不存在');
-    return product;
+    const attributes = product.category?.attributes || [];
+    const specs = Object.entries(product.specs || {}).reduce((result, [key, value]) => {
+      const attr = attributes.find((item) => item.code === key || item.name === key);
+      result[attr?.name || key] = value;
+      return result;
+    }, {} as Record<string, any>);
+
+    return {
+      ...product,
+      specs,
+    };
   }
 
   /**
    * 提交询盘
    */
   async submitInquiry(domain: string, data: any) {
-    console.log('🚀 ~ PortalService ~ submitInquiry ~ data:', data);
     const tenant = await this.getTenantByDomain(domain);
 
     // 保存询价记录
