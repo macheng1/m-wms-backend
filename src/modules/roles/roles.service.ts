@@ -31,7 +31,7 @@ export class RolesService {
       return [];
     }
 
-    const selectedMenus = await this.menuRepository.find({
+    const menus = await this.menuRepository.find({
       where: {
         scope: 'tenant',
         ...(menuIds.length > 0 ? { id: In(menuIds) } : { code: In(menuCodes) }),
@@ -39,44 +39,15 @@ export class RolesService {
     });
 
     const expectedValues = menuIds.length > 0 ? menuIds : menuCodes;
-    if (selectedMenus.length !== expectedValues.length) {
-      const existingCodes = new Set(selectedMenus.map((menu) => menu.code));
-      const existingIds = new Set(selectedMenus.map((menu) => menu.id));
+    if (menus.length !== expectedValues.length) {
+      const existingCodes = new Set(menus.map((menu) => menu.code));
+      const existingIds = new Set(menus.map((menu) => menu.id));
       const invalidValues =
         menuIds.length > 0
           ? menuIds.filter((id) => !existingIds.has(id))
           : menuCodes.filter((code) => !existingCodes.has(code));
       throw new BusinessException(`存在不可分配的租户菜单：${invalidValues.join(', ')}`);
     }
-
-    const allTenantMenus = await this.menuRepository.find({
-      where: {
-        scope: 'tenant',
-        type: In(['DIRECTORY', 'MENU', 'BUTTON']),
-      },
-    });
-    const selectedIds = new Set(selectedMenus.map((menu) => Number(menu.id)));
-    const expandedIds = new Set(selectedIds);
-    const hasSelectedDescendant = (parentId: number): boolean =>
-      allTenantMenus.some((menu) => {
-        if (Number(menu.parentId || 0) !== parentId) return false;
-        const id = Number(menu.id);
-        return selectedIds.has(id) || hasSelectedDescendant(id);
-      });
-    const addDescendants = (parentId: number) => {
-      allTenantMenus
-        .filter((menu) => Number(menu.parentId || 0) === parentId)
-        .forEach((menu) => {
-          const id = Number(menu.id);
-          if (expandedIds.has(id)) return;
-          expandedIds.add(id);
-          addDescendants(id);
-        });
-    };
-    selectedMenus
-      .filter((menu) => menu.type === 'DIRECTORY' && !hasSelectedDescendant(Number(menu.id)))
-      .forEach((menu) => addDescendants(Number(menu.id)));
-    const menus = allTenantMenus.filter((menu) => expandedIds.has(Number(menu.id)));
 
     const guardedMenuItems = menus.filter((menu) => menu.type === 'MENU' || menu.type === 'BUTTON');
     if (guardedMenuItems.length > 0) {
@@ -116,7 +87,13 @@ export class RolesService {
     const departments = await this.getDepartments(dto.deptIds, tenantId);
 
     // 3. 创建角色并关联查到的菜单实体
-    const { menuCodes, menuIds, deptIds, scope, ...roleInfo } = dto;
+    const {
+      menuCodes: _menuCodes,
+      menuIds: _menuIds,
+      deptIds: _deptIds,
+      scope: _scope,
+      ...roleInfo
+    } = dto;
     const role = this.roleRepository.create({
       ...roleInfo,
       scope: 'tenant',
@@ -231,7 +208,13 @@ export class RolesService {
 
     // 3. 更新其他基础字段（如 name, remark, isActive）
     // 注意：不要直接 Object.assign(role, dto)，因为 dto 里的 menuCodes 是字符串数组
-    const { menuCodes, menuIds, deptIds, scope, ...baseInfo } = dto;
+    const {
+      menuCodes: _menuCodes,
+      menuIds: _menuIds,
+      deptIds: _deptIds,
+      scope: _scope,
+      ...baseInfo
+    } = dto;
     Object.assign(role, baseInfo, {
       scope: 'tenant',
       dataScope: dto.dataScope || role.dataScope || 'ALL',
@@ -309,18 +292,26 @@ export class RolesService {
       `
         SELECT m.*
         FROM menus m
-        LEFT JOIN tenant_menu_permissions tmp
-          ON tmp.menuId = m.id AND tmp.tenantId = ?
         WHERE m.scope = 'tenant'
           AND m.isActive = 1
           AND m.type IN ('DIRECTORY', 'MENU', 'BUTTON')
-          AND (m.type = 'DIRECTORY' OR tmp.menuId IS NOT NULL)
         ORDER BY m.parentId ASC, m.sortOrder ASC, m.id ASC
+      `,
+    );
+    const grantedRows: Array<{ code: string }> = await this.dataSource.query(
+      `
+        SELECT m.code
+        FROM tenant_menu_permissions tmp
+        INNER JOIN menus m ON m.id = tmp.menuId
+        WHERE tmp.tenantId = ?
+          AND m.scope = 'tenant'
+          AND m.isActive = 1
+          AND m.type IN ('DIRECTORY', 'MENU', 'BUTTON')
       `,
       [tenantId],
     );
 
-    return this.buildMenuTree(rows);
+    return this.buildGrantedMenuTree(rows, new Set(grantedRows.map((row) => row.code)));
   }
 
   private async getDepartments(deptIds: string[] = [], tenantId: string) {
@@ -361,5 +352,20 @@ export class RolesService {
         const children = this.buildMenuTree(menus, menu.id);
         return children.length > 0 ? { ...menu, children } : menu;
       });
+  }
+
+  private buildGrantedMenuTree(
+    menus: Menu[],
+    grantedCodes: Set<string>,
+    parentId = 0,
+  ): Array<Menu & { children?: Menu[] }> {
+    return menus
+      .filter((menu) => Number(menu.parentId || 0) === parentId)
+      .map((menu) => {
+        const children = this.buildGrantedMenuTree(menus, grantedCodes, menu.id);
+        if (!grantedCodes.has(menu.code) && children.length === 0) return null;
+        return children.length > 0 ? { ...menu, children } : menu;
+      })
+      .filter(Boolean) as Array<Menu & { children?: Menu[] }>;
   }
 }

@@ -228,14 +228,25 @@ export class AdminPlatformService {
     };
   }
 
+  async findCurrentTenantMenuGrant(tenantId: string) {
+    const grant = await this.findTenantMenuGrant(tenantId);
+    const selectedCodeSet = new Set(grant.selectedCodes);
+
+    return {
+      ...grant,
+      menus: this.filterGrantedMenuTree(grant.menus, selectedCodeSet),
+    };
+  }
+
   async saveTenantMenuGrant(tenantId: string, menuCodes: string[]) {
     const tenant = await this.tenantRepo.findOne({ where: { id: tenantId } });
     if (!tenant) {
       throw new BusinessException('租户不存在');
     }
 
+    // 平台租户菜单授权按前端提交的勾选项保存，不在保存阶段补父级或展开子级。
     const uniqueCodes = [...new Set(menuCodes)];
-    const selectedMenus =
+    const menus =
       uniqueCodes.length === 0
         ? []
         : await this.menuRepo.find({
@@ -246,40 +257,11 @@ export class AdminPlatformService {
             },
           });
 
-    if (selectedMenus.length !== uniqueCodes.length) {
-      const existingCodes = new Set(selectedMenus.map((menu) => menu.code));
+    if (menus.length !== uniqueCodes.length) {
+      const existingCodes = new Set(menus.map((menu) => menu.code));
       const invalidCodes = uniqueCodes.filter((code) => !existingCodes.has(code));
       throw new BusinessException(`存在不可授权的租户菜单：${invalidCodes.join(', ')}`);
     }
-
-    const allTenantMenus = await this.menuRepo.find({
-      where: {
-        scope: 'tenant',
-        type: In(['DIRECTORY', 'MENU', 'BUTTON']),
-      },
-    });
-    const selectedIds = new Set(selectedMenus.map((menu) => Number(menu.id)));
-    const expandedIds = new Set(selectedIds);
-    const hasSelectedDescendant = (parentId: number): boolean =>
-      allTenantMenus.some((menu) => {
-        if (Number(menu.parentId || 0) !== parentId) return false;
-        const id = Number(menu.id);
-        return selectedIds.has(id) || hasSelectedDescendant(id);
-      });
-    const addDescendants = (parentId: number) => {
-      allTenantMenus
-        .filter((menu) => Number(menu.parentId || 0) === parentId)
-        .forEach((menu) => {
-          const id = Number(menu.id);
-          if (expandedIds.has(id)) return;
-          expandedIds.add(id);
-          addDescendants(id);
-        });
-    };
-    selectedMenus
-      .filter((menu) => menu.type === 'DIRECTORY' && !hasSelectedDescendant(Number(menu.id)))
-      .forEach((menu) => addDescendants(Number(menu.id)));
-    const menus = allTenantMenus.filter((menu) => expandedIds.has(Number(menu.id)));
 
     await this.dataSource.transaction(async (manager) => {
       await manager.query('DELETE FROM tenant_menu_permissions WHERE tenantId = ?', [tenantId]);
@@ -751,6 +733,22 @@ export class AdminPlatformService {
         const children = this.buildMenuTree(menus, menu.id);
         return children.length > 0 ? { ...menu, children } : menu;
       });
+  }
+
+  private filterGrantedMenuTree(
+    menus: Array<Menu & { children?: Menu[] }> = [],
+    selectedCodes: Set<string>,
+  ): Array<Menu & { children?: Menu[] }> {
+    return menus
+      .map((menu) => {
+        const children = this.filterGrantedMenuTree(
+          (menu.children || []) as Array<Menu & { children?: Menu[] }>,
+          selectedCodes,
+        );
+        if (!selectedCodes.has(menu.code) && children.length === 0) return null;
+        return children.length > 0 ? { ...menu, children } : { ...menu, children: undefined };
+      })
+      .filter(Boolean) as Array<Menu & { children?: Menu[] }>;
   }
 
   private async getPlatformMenus(menuCodes: string[], menuIds: number[] = []) {

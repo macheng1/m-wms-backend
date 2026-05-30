@@ -69,7 +69,11 @@ export class UsersService {
     };
   }
 
-  private async resolveUserMenuAuth(user: User, isPlatformSuperAdmin: boolean, isTenantAdmin: boolean) {
+  private async resolveUserMenuAuth(
+    user: User,
+    isPlatformSuperAdmin: boolean,
+    isTenantAdmin: boolean,
+  ) {
     const scope = user.tenantId ? 'tenant' : 'platform';
     const allowedCodes = new Set<string>();
 
@@ -92,13 +96,19 @@ export class UsersService {
           grantedMenuCodes.forEach((code) => allowedCodes.add(code));
           user.roles.forEach((role) => {
             role.menus
-              .filter((menu) => !['MENU', 'BUTTON'].includes(menu.type) || grantedMenuCodes.has(menu.code))
+              .filter(
+                (menu) =>
+                  !['MENU', 'BUTTON'].includes(menu.type) || grantedMenuCodes.has(menu.code),
+              )
               .forEach((menu) => allowedCodes.add(menu.code));
           });
         } else {
           user.roles.forEach((role) => {
             role.menus
-              .filter((menu) => !['MENU', 'BUTTON'].includes(menu.type) || grantedMenuCodes.has(menu.code))
+              .filter(
+                (menu) =>
+                  !['MENU', 'BUTTON'].includes(menu.type) || grantedMenuCodes.has(menu.code),
+              )
               .forEach((menu) => allowedCodes.add(menu.code));
           });
         }
@@ -121,6 +131,8 @@ export class UsersService {
       `,
       [scope],
     );
+    // 授权数据允许只存子菜单/按钮；返回给前端菜单树时补齐祖先节点，避免有权限的子菜单挂不上去。
+    this.addAncestorMenuCodes(rows, allowedCodes);
 
     const canUse = (menu: any) => isPlatformSuperAdmin || allowedCodes.has(menu.code);
     return {
@@ -140,7 +152,12 @@ export class UsersService {
     return menus
       .filter((menu) => menu.type !== 'BUTTON' && Number(menu.parentId || 0) === parentId)
       .map((menu) => {
-        const children = this.buildVisibleMenuTree(menus, Number(menu.id), allowedCodes, includeAll);
+        const children = this.buildVisibleMenuTree(
+          menus,
+          Number(menu.id),
+          allowedCodes,
+          includeAll,
+        );
         const isAllowed = includeAll || allowedCodes.has(menu.code);
         if (!includeAll && menu.type === 'DIRECTORY' && children.length === 0) return null;
         if (!isAllowed && children.length === 0) return null;
@@ -160,6 +177,20 @@ export class UsersService {
         };
       })
       .filter(Boolean);
+  }
+
+  private addAncestorMenuCodes(menus: any[], allowedCodes: Set<string>) {
+    const menuById = new Map<number, any>();
+    menus.forEach((menu) => menuById.set(Number(menu.id), menu));
+
+    const addParents = (menu: any) => {
+      const parent = menuById.get(Number(menu.parentId || 0));
+      if (!parent || allowedCodes.has(parent.code)) return;
+      allowedCodes.add(parent.code);
+      addParents(parent);
+    };
+
+    menus.filter((menu) => allowedCodes.has(menu.code)).forEach((menu) => addParents(menu));
   }
 
   /**
@@ -240,7 +271,9 @@ export class UsersService {
     if (dto.roleIds) user.roles = await this.resolveRoles(dto.roleIds, tenantId);
 
     // 合并其他字段 (排除密码，密码有专门的重置接口)
-    const { password, roleIds, ...updateInfo } = dto;
+    const { password: _password, roleIds: _roleIds, ...updateInfo } = dto;
+    void _password;
+    void _roleIds;
     Object.assign(user, updateInfo);
 
     return await this.userRepo.save(user);
@@ -342,7 +375,11 @@ export class UsersService {
     return roles;
   }
 
-  private async validateOrg(deptId: string | undefined, postId: string | undefined, tenantId: string) {
+  private async validateOrg(
+    deptId: string | undefined,
+    postId: string | undefined,
+    tenantId: string,
+  ) {
     if (deptId) {
       const department = await this.departmentRepo.findOne({ where: { id: deptId, tenantId } });
       if (!department) throw new BusinessException('部门不存在或无权使用');

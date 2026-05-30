@@ -1,4 +1,13 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PlatformAdminGuard } from '@/common/guards/platform-admin.guard';
 import { TenantsService } from '../tenant/tenants.service';
@@ -65,7 +74,7 @@ export class AdminApiController {
   @Get('tenant/menus')
   @ApiOperation({ summary: '管理端租户域 - 当前租户已授权菜单' })
   getCurrentTenantMenus(@Req() req) {
-    return this.adminPlatformService.findTenantMenuGrant(req.user.tenantId);
+    return this.adminPlatformService.findCurrentTenantMenuGrant(req.user.tenantId);
   }
 
   @Get('tenant/dashboard')
@@ -101,7 +110,10 @@ export class AdminApiController {
 
   @Post('tenant/audit-logs')
   @ApiOperation({ summary: '管理端租户域 - 当前租户操作日志' })
-  getTenantAuditLogs(@Req() req, @Body() body: { page?: number; pageSize?: number; module?: string; username?: string }) {
+  getTenantAuditLogs(
+    @Req() req,
+    @Body() body: { page?: number; pageSize?: number; module?: string; username?: string },
+  ) {
     return this.adminPlatformService.findAuditLogs({
       ...body,
       scope: 'tenant',
@@ -163,20 +175,22 @@ export class AdminApiController {
   @UseGuards(PlatformAdminGuard)
   @ApiOperation({ summary: '平台域 - 保存租户菜单授权' })
   saveTenantMenuGrant(@Param('id') id: string, @Body() body: { menuCodes?: string[] }, @Req() req) {
-    return this.adminPlatformService.saveTenantMenuGrant(id, body?.menuCodes || []).then(async (result) => {
-      await this.adminPlatformService.recordAudit({
-        user: req.user,
-        scope: 'platform',
-        module: 'tenant-menu',
-        action: 'save',
-        targetType: 'tenant',
-        targetId: id,
-        description: `保存租户菜单授权：${result.tenantName}`,
-        afterData: { menuCodes: body?.menuCodes || [] },
-        ip: req.ip,
+    return this.adminPlatformService
+      .saveTenantMenuGrant(id, body?.menuCodes || [])
+      .then(async (result) => {
+        await this.adminPlatformService.recordAudit({
+          user: req.user,
+          scope: 'platform',
+          module: 'tenant-menu',
+          action: 'save',
+          targetType: 'tenant',
+          targetId: id,
+          description: `保存租户菜单授权：${result.tenantName}`,
+          afterData: { menuCodes: body?.menuCodes || [] },
+          ip: req.ip,
+        });
+        return result;
       });
-      return result;
-    });
   }
 
   @Post('platform/tenants/:id/lifecycle')
@@ -330,7 +344,9 @@ export class AdminApiController {
   @Post('platform/users/list')
   @UseGuards(PlatformAdminGuard)
   @ApiOperation({ summary: '平台域 - 平台用户分页列表' })
-  listPlatformUsers(@Body() body: { page?: number; pageSize?: number; username?: string; isActive?: number }) {
+  listPlatformUsers(
+    @Body() body: { page?: number; pageSize?: number; username?: string; isActive?: number },
+  ) {
     return this.adminPlatformService.findUsers(body || {});
   }
 
@@ -444,7 +460,9 @@ export class AdminApiController {
   @Post('platform/audit-logs')
   @UseGuards(PlatformAdminGuard)
   @ApiOperation({ summary: '平台域 - 平台操作审计日志' })
-  getPlatformAuditLogs(@Body() body: { page?: number; pageSize?: number; module?: string; username?: string }) {
+  getPlatformAuditLogs(
+    @Body() body: { page?: number; pageSize?: number; module?: string; username?: string },
+  ) {
     return this.adminPlatformService.findAuditLogs({ ...body, scope: 'platform' });
   }
 
@@ -466,13 +484,18 @@ export class AdminApiController {
   @UseGuards(PlatformAdminGuard)
   @ApiOperation({ summary: '平台域 - 保存标准类目模板' })
   savePlatformCategoryTemplate(@Body() body: any) {
-    return body?.id ? this.categoriesService.update(body, null) : this.categoriesService.save(body, null);
+    return body?.id
+      ? this.categoriesService.update(body, null)
+      : this.categoriesService.save(body, null);
   }
 
   @Post('platform/templates/categories/:id/status')
   @UseGuards(PlatformAdminGuard)
   @ApiOperation({ summary: '平台域 - 标准类目模板状态变更' })
-  updatePlatformCategoryTemplateStatus(@Param('id') id: string, @Body() body: { isActive: number }) {
+  updatePlatformCategoryTemplateStatus(
+    @Param('id') id: string,
+    @Body() body: { isActive: number },
+  ) {
     return this.categoriesService.updateStatus(id, body.isActive, null);
   }
 
@@ -501,13 +524,18 @@ export class AdminApiController {
   @UseGuards(PlatformAdminGuard)
   @ApiOperation({ summary: '平台域 - 保存标准属性模板' })
   savePlatformAttributeTemplate(@Body() body: any) {
-    return body?.id ? this.attributesService.update(body, null) : this.attributesService.save(body, null);
+    return body?.id
+      ? this.attributesService.update(body, null)
+      : this.attributesService.save(body, null);
   }
 
   @Post('platform/templates/attributes/:id/status')
   @UseGuards(PlatformAdminGuard)
   @ApiOperation({ summary: '平台域 - 标准属性模板状态变更' })
-  updatePlatformAttributeTemplateStatus(@Param('id') id: string, @Body() body: { isActive: number }) {
+  updatePlatformAttributeTemplateStatus(
+    @Param('id') id: string,
+    @Body() body: { isActive: number },
+  ) {
     return this.attributesService.updateStatus(id, body.isActive, null);
   }
 
@@ -545,7 +573,9 @@ export class AdminApiController {
   @UseGuards(PlatformAdminGuard)
   @ApiOperation({ summary: '平台域 - 保存标准单位模板' })
   savePlatformUnitTemplate(@Body() body: any) {
-    return body?.id ? this.unitService.update(body.id, body, null) : this.unitService.create(body, null);
+    return body?.id
+      ? this.unitService.update(body.id, body, null)
+      : this.unitService.create(body, null);
   }
 
   @Post('platform/templates/units/:id/delete')
