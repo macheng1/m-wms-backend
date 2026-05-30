@@ -1,14 +1,17 @@
 // src/modules/portal/portal.service.ts
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { IsNull, Like, Repository } from 'typeorm';
 
 import { Category } from '../product/entities/category.entity';
 
 import { PortalConfig } from './entities/portal-config.entity';
 import { Inquiry } from './entities/inquiry.entity';
+import { PortalJob } from './entities/portal-job.entity';
 import { Product } from '../product/product.entity';
 import { Tenant } from '../tenant/entities/tenant.entity';
+import { QueryPortalJobDto, SavePortalJobDto } from './dto/portal-job.dto';
+import { BusinessException } from '@/common/filters/business.exception';
 import { NotificationsService } from '../notifications/services/notifications.service';
 import {
   NotificationType,
@@ -22,6 +25,7 @@ export class PortalService {
     @InjectRepository(Tenant) private tenantRepo: Repository<Tenant>,
     @InjectRepository(PortalConfig) private configRepo: Repository<PortalConfig>,
     @InjectRepository(Inquiry) private inquiryRepo: Repository<Inquiry>,
+    @InjectRepository(PortalJob) private jobRepo: Repository<PortalJob>,
     @InjectRepository(Category) private categoryRepo: Repository<Category>,
     @InjectRepository(Product) private productRepo: Repository<Product>,
     private readonly notificationsService: NotificationsService,
@@ -51,7 +55,7 @@ export class PortalService {
     }
 
     // 2. 并行查询配置信息和带产品的类目信息
-    const [config, categories] = await Promise.all([
+    const [config, categories, jobs] = await Promise.all([
       this.configRepo.findOne({ where: { tenantId: tenant.id, isActive: 1 } }),
       this.categoryRepo.find({
         where: [
@@ -60,6 +64,10 @@ export class PortalService {
         ],
         relations: ['products', 'attributes'],
         order: { tenantId: 'ASC', createdAt: 'ASC' },
+      }),
+      this.jobRepo.find({
+        where: { tenantId: tenant.id, isActive: 1 },
+        order: { sortOrder: 'ASC', createdAt: 'DESC' },
       }),
     ]);
 
@@ -146,6 +154,7 @@ export class PortalService {
         menuItems: [
           { label: '首页', href: `/portal/${domain}/zh` },
           { label: '产品中心', href: `/portal/${domain}/zh/products` },
+          { label: '招聘', href: `/portal/${domain}/zh/jobs` },
           { label: '联系我们', href: `/portal/${domain}/zh/contact` },
         ],
         className: 'portal-header-custom',
@@ -155,7 +164,7 @@ export class PortalService {
       products: formattedProducts,
 
       // --- 4. 业务扩展模块 (暂给默认值) ---
-      jobs: [],
+      jobs,
       posts: [],
 
       // --- 5. 页脚配置 ---
@@ -166,6 +175,7 @@ export class PortalService {
             title: '快捷导航',
             list: [
               { label: '产品中心', link: `/portal/${domain}/zh/products` },
+              { label: '招聘', link: `/portal/${domain}/zh/jobs` },
               { label: '官方首页', link: `/portal/${domain}/zh` },
             ],
           },
@@ -286,6 +296,7 @@ export class PortalService {
     pageSize = 20,
     filters?: {
       name?: string;
+      status?: string;
     },
   ) {
     const qb = this.inquiryRepo
@@ -294,6 +305,9 @@ export class PortalService {
 
     if (filters?.name) {
       qb.andWhere('inquiry.name LIKE :name', { name: `%${filters.name}%` });
+    }
+    if (filters?.status && filters.status !== 'all') {
+      qb.andWhere('inquiry.status = :status', { status: filters.status });
     }
 
     qb.orderBy('inquiry.createdAt', 'DESC')
@@ -308,5 +322,72 @@ export class PortalService {
       pageSize,
       totalPages: Math.ceil(total / pageSize),
     };
+  }
+
+  async getInquiryDetail(tenantId: string, id: string) {
+    const inquiry = await this.inquiryRepo.findOne({ where: { id, tenantId } });
+    if (!inquiry) throw new BusinessException('询盘不存在');
+    return inquiry;
+  }
+
+  async updateInquiryStatus(tenantId: string, id: string, status: 'unread' | 'read' | 'replied') {
+    const inquiry = await this.getInquiryDetail(tenantId, id);
+    inquiry.status = status;
+    return this.inquiryRepo.save(inquiry);
+  }
+
+  async updateInquiryRemark(tenantId: string, id: string, adminRemark: string) {
+    const inquiry = await this.getInquiryDetail(tenantId, id);
+    inquiry.adminRemark = adminRemark;
+    return this.inquiryRepo.save(inquiry);
+  }
+
+  async getJobs(tenantId: string, query: QueryPortalJobDto = {}) {
+    const page = Number(query.page || 1);
+    const pageSize = Number(query.pageSize || 10);
+    const where: any = { tenantId };
+    if (query.position) where.position = Like(`%${query.position}%`);
+    if (query.isActive !== undefined && Number(query.isActive) !== -1) {
+      where.isActive = Number(query.isActive);
+    }
+
+    const [list, total] = await this.jobRepo.findAndCount({
+      where,
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      order: { sortOrder: 'ASC', createdAt: 'DESC' },
+    });
+
+    return { list, total, page, pageSize };
+  }
+
+  async getJobDetail(tenantId: string, id: string) {
+    const job = await this.jobRepo.findOne({ where: { id, tenantId } });
+    if (!job) throw new BusinessException('招聘职位不存在');
+    return job;
+  }
+
+  async saveJob(tenantId: string, dto: SavePortalJobDto) {
+    const payload = {
+      ...dto,
+      tenantId,
+      count: Number(dto.count || 1),
+      sortOrder: Number(dto.sortOrder || 0),
+      isActive: Number(dto.isActive ?? 1),
+    };
+
+    if (dto.id) {
+      const job = await this.getJobDetail(tenantId, dto.id);
+      Object.assign(job, payload);
+      return this.jobRepo.save(job);
+    }
+
+    return this.jobRepo.save(this.jobRepo.create(payload));
+  }
+
+  async deleteJob(tenantId: string, id: string) {
+    await this.getJobDetail(tenantId, id);
+    await this.jobRepo.delete({ id, tenantId });
+    return { message: '删除成功' };
   }
 }

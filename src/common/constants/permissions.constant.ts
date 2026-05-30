@@ -44,17 +44,32 @@ export const PERMISSION_CONFIG = {
     scope: 'platform',
     actions: [
       { code: 'platform:settings', name: '系统设置', isMenu: true, routePath: '/settings' },
-      { code: 'platform:user', name: '平台用户', isMenu: true, routePath: '/settings/platform-users' },
+      {
+        code: 'platform:user',
+        name: '平台用户',
+        isMenu: true,
+        routePath: '/settings/platform-users',
+      },
       { code: 'platform:user:create', name: '新增平台用户' },
       { code: 'platform:user:update', name: '编辑平台用户' },
       { code: 'platform:user:delete', name: '删除平台用户' },
       { code: 'platform:user:status', name: '启用/禁用平台用户' },
       { code: 'platform:user:reset-password', name: '重置平台用户密码' },
-      { code: 'platform:role', name: '平台角色', isMenu: true, routePath: '/settings/platform-roles' },
+      {
+        code: 'platform:role',
+        name: '平台角色',
+        isMenu: true,
+        routePath: '/settings/platform-roles',
+      },
       { code: 'platform:role:create', name: '新增平台角色' },
       { code: 'platform:role:update', name: '编辑平台角色' },
       { code: 'platform:role:delete', name: '删除平台角色' },
-      { code: 'platform:menu', name: '平台菜单', isMenu: true, routePath: '/settings/platform-menus' },
+      {
+        code: 'platform:menu',
+        name: '平台菜单',
+        isMenu: true,
+        routePath: '/settings/platform-menus',
+      },
       { code: 'platform:menu:create', name: '新增平台菜单' },
       { code: 'platform:menu:update', name: '编辑平台菜单' },
       { code: 'platform:menu:delete', name: '删除平台菜单' },
@@ -84,16 +99,19 @@ export const PERMISSION_CONFIG = {
   TENANT_BASE: {
     module: '基础资料',
     scope: 'tenant',
-    actions: [
-      { code: 'tenant:base', name: '基础资料', isMenu: true, routePath: '/base' },
-    ],
+    actions: [{ code: 'tenant:base', name: '基础资料', isMenu: true, routePath: '/base' }],
   },
   TENANT_SETTINGS: {
     module: '系统设置',
     scope: 'tenant',
     actions: [
       { code: 'tenant:settings', name: '系统设置', isMenu: true },
-      { code: 'tenant:menu:list', name: '菜单管理', isMenu: true, routePath: '/settings/permissions' },
+      {
+        code: 'tenant:menu:list',
+        name: '菜单管理',
+        isMenu: true,
+        routePath: '/settings/permissions',
+      },
       { code: 'tenant:user:list', name: '员工管理', isMenu: true, routePath: '/users' },
       { code: 'tenant:user:create', name: '新增员工' },
       { code: 'tenant:user:update', name: '编辑员工' },
@@ -105,7 +123,12 @@ export const PERMISSION_CONFIG = {
       { code: 'tenant:dept', name: '部门管理', isMenu: true, routePath: '/settings/dept' },
       { code: 'tenant:post', name: '岗位管理', isMenu: true, routePath: '/settings/post' },
       { code: 'tenant:dict', name: '租户字典', isMenu: true, routePath: '/settings/dict' },
-      { code: 'tenant:audit-log', name: '操作日志', isMenu: true, routePath: '/settings/operation-logs' },
+      {
+        code: 'tenant:audit-log',
+        name: '操作日志',
+        isMenu: true,
+        routePath: '/settings/operation-logs',
+      },
     ],
   },
   TENANT_PRODUCT: {
@@ -147,8 +170,18 @@ export const PERMISSION_CONFIG = {
     scope: 'tenant',
     actions: [
       { code: 'tenant:warehouse', name: '仓库管理', isMenu: true, routePath: '/warehouse' },
-      { code: 'tenant:location:visual', name: '仓库可视化', isMenu: true, routePath: '/warehouse/visual' },
-      { code: 'tenant:location:list', name: '库位管理', isMenu: true, routePath: '/warehouse/list' },
+      {
+        code: 'tenant:location:visual',
+        name: '仓库可视化',
+        isMenu: true,
+        routePath: '/warehouse/visual',
+      },
+      {
+        code: 'tenant:location:list',
+        name: '库位管理',
+        isMenu: true,
+        routePath: '/warehouse/list',
+      },
       { code: 'tenant:location:create', name: '新增库位' },
       { code: 'tenant:location:update', name: '编辑库位' },
       { code: 'tenant:location:delete', name: '删除库位' },
@@ -159,9 +192,24 @@ export const PERMISSION_CONFIG = {
     scope: 'tenant',
     actions: [
       { code: 'tenant:inventory', name: '库存管理', isMenu: true, routePath: '/inventory' },
-      { code: 'tenant:inventory:list', name: '库存查询', isMenu: true, routePath: '/inventory/list' },
-      { code: 'tenant:inventory:inbound', name: '入库管理', isMenu: true, routePath: '/inventory/inbound' },
-      { code: 'tenant:inventory:outbound', name: '出库管理', isMenu: true, routePath: '/inventory/outbound' },
+      {
+        code: 'tenant:inventory:list',
+        name: '库存查询',
+        isMenu: true,
+        routePath: '/inventory/list',
+      },
+      {
+        code: 'tenant:inventory:inbound',
+        name: '入库管理',
+        isMenu: true,
+        routePath: '/inventory/inbound',
+      },
+      {
+        code: 'tenant:inventory:outbound',
+        name: '出库管理',
+        isMenu: true,
+        routePath: '/inventory/outbound',
+      },
       { code: 'tenant:inventory:adjust', name: '库存调整' },
       {
         code: 'tenant:inventory:transaction:list',
@@ -169,7 +217,12 @@ export const PERMISSION_CONFIG = {
         isMenu: true,
         routePath: '/inventory/transactions',
       },
-      { code: 'tenant:inventory:alert:list', name: '库存预警', isMenu: true, routePath: '/inventory/alerts' },
+      {
+        code: 'tenant:inventory:alert:list',
+        name: '库存预警',
+        isMenu: true,
+        routePath: '/inventory/alerts',
+      },
     ],
   },
   TENANT_ORDER: {
@@ -195,7 +248,18 @@ export const PERMISSION_CONFIG = {
         isMenu: true,
         routePath: '/website/config',
       },
-      { code: 'tenant:portal:inquiry:list', name: '询盘管理', isMenu: true, routePath: '/website/inquiry' },
+      {
+        code: 'tenant:portal:inquiry:list',
+        name: '询盘管理',
+        isMenu: true,
+        routePath: '/website/inquiry',
+      },
+      {
+        code: 'tenant:portal:job:list',
+        name: '招聘管理',
+        isMenu: true,
+        routePath: '/website/jobs',
+      },
     ],
   },
 } as const;
