@@ -108,7 +108,8 @@ console.log('当前工作目录:', process.cwd());
   ],
 })
 export class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer) {
+  configure(_consumer: MiddlewareConsumer) {
+    void _consumer;
     // consumer.apply(TenantMiddleware).forRoutes('*');
   }
 }

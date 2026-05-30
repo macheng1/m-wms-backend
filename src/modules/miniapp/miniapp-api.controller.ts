@@ -3,8 +3,11 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Public } from '@/common/decorators/public.decorator';
 import { MiniappService } from './miniapp.service';
 import { MiniappSilentLoginDto } from './dto/miniapp-auth.dto';
+import { MiniappLocationDto } from './dto/miniapp-location.dto';
 import {
+  BindCurrentMiniappMemberPhoneDto,
   QueryMiniappMemberDto,
+  UpdateCurrentMiniappMemberProfileDto,
   UpdateMiniappMemberAuthorizationDto,
   UpdateMiniappMemberRemarkDto,
   UpdateMiniappMemberStatusDto,
@@ -43,6 +46,29 @@ export class MiniappApiController {
   @ApiOperation({ summary: '获取当前小程序会员信息' })
   getCurrentMember(@Req() req) {
     return this.miniappService.getCurrentMember(req.user.memberId || req.user.sub);
+  }
+
+  @Post('auth/profile')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '修改当前小程序会员头像昵称' })
+  updateCurrentProfile(@Req() req, @Body() dto: UpdateCurrentMiniappMemberProfileDto) {
+    return this.miniappService.updateCurrentMemberProfile(req.user.memberId || req.user.sub, dto);
+  }
+
+  @Post('auth/phone')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '绑定当前小程序会员手机号' })
+  bindCurrentPhone(@Req() req, @Body() dto: BindCurrentMiniappMemberPhoneDto) {
+    return this.miniappService.bindCurrentMemberPhone(req.user.memberId || req.user.sub, dto);
+  }
+
+  @Post('location')
+  @Public()
+  @ApiOperation({ summary: '小程序根据经纬度获取地址信息' })
+  getLocation(@Body() dto: MiniappLocationDto, @Req() req) {
+    const clientIp =
+      req.headers['x-forwarded-for']?.split(',')[0] || req.ip || req.socket?.remoteAddress;
+    return this.miniappService.getLocation(dto, clientIp);
   }
 
   @Get('members')

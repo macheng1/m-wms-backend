@@ -57,3 +57,21 @@ export class UpdateMiniappMemberAuthorizationDto {
   @IsIn(['0', '1'])
   isAuthorization: string;
 }
+
+export class UpdateCurrentMiniappMemberProfileDto {
+  @ApiProperty({ required: false, description: '会员昵称' })
+  @IsOptional()
+  @IsString()
+  nickName?: string;
+
+  @ApiProperty({ required: false, description: '头像 URL' })
+  @IsOptional()
+  @IsString()
+  avatarUrl?: string;
+}
+
+export class BindCurrentMiniappMemberPhoneDto {
+  @ApiProperty({ example: '微信 getPhoneNumber 返回的 code', description: '手机号授权 code' })
+  @IsString()
+  code: string;
+}

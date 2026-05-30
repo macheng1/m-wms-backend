@@ -5,8 +5,11 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository } from 'typeorm';
 import { MiniappSilentLoginDto } from './dto/miniapp-auth.dto';
+import { MiniappLocationDto } from './dto/miniapp-location.dto';
 import {
+  BindCurrentMiniappMemberPhoneDto,
   QueryMiniappMemberDto,
+  UpdateCurrentMiniappMemberProfileDto,
   UpdateMiniappMemberAuthorizationDto,
   UpdateMiniappMemberRemarkDto,
   UpdateMiniappMemberStatusDto,
@@ -28,8 +31,20 @@ interface MiniappHttpRequestOptions {
   body?: Record<string, any>;
 }
 
+export interface LocationView {
+  address: string;
+  provinceName: string;
+  provinceCode: string;
+  cityName: string;
+  cityCode: string;
+  districtName: string;
+  districtCode: string;
+}
+
 @Injectable()
 export class MiniappService {
+  private wechatAccessTokenCache?: { token: string; expiresAt: number };
+
   constructor(
     @InjectRepository(MiniappMember)
     private readonly memberRepo: Repository<MiniappMember>,
@@ -133,6 +148,60 @@ export class MiniappService {
     return this.toMemberView(member);
   }
 
+  async updateCurrentMemberProfile(memberId: string, dto: UpdateCurrentMiniappMemberProfileDto) {
+    const member = await this.memberRepo.findOne({ where: { id: memberId } });
+    if (!member) throw new BusinessException('会员不存在');
+    if (member.isActive !== 1) throw new BusinessException('会员已被禁用');
+
+    if (dto.nickName !== undefined) member.nickName = dto.nickName || null;
+    if (dto.avatarUrl !== undefined) member.avatarUrl = dto.avatarUrl || null;
+
+    return this.toMemberView(await this.memberRepo.save(member));
+  }
+
+  async bindCurrentMemberPhone(memberId: string, dto: BindCurrentMiniappMemberPhoneDto) {
+    const member = await this.memberRepo.findOne({ where: { id: memberId } });
+    if (!member) throw new BusinessException('会员不存在');
+    if (member.isActive !== 1) throw new BusinessException('会员已被禁用');
+    if (member.platform !== 'wechat') {
+      throw new BusinessException('当前平台暂不支持手机号授权');
+    }
+
+    const accessToken = await this.getWechatAccessToken();
+    const result = await this.requestMiniappApi<any>(
+      'https://api.weixin.qq.com/wxa/business/getuserphonenumber',
+      {
+        method: 'POST',
+        params: { access_token: accessToken },
+        body: { code: dto.code },
+      },
+    );
+
+    if (result.errcode && Number(result.errcode) !== 0) {
+      throw new BusinessException(result.errmsg || '手机号授权失败');
+    }
+
+    const phoneNumber = result.phone_info?.phoneNumber || result.phone_info?.purePhoneNumber;
+    if (!phoneNumber) {
+      throw new BusinessException('手机号授权返回异常');
+    }
+
+    member.phoneNumber = phoneNumber;
+    return this.toMemberView(await this.memberRepo.save(member));
+  }
+
+  async getLocation(dto: MiniappLocationDto, clientIp?: string): Promise<LocationView> {
+    if (this.hasCoordinate(dto)) {
+      const location =
+        (await this.reverseGeocodeByTencent(dto.latitude, dto.longitude)) ||
+        (await this.reverseGeocodeByAmap(dto.latitude, dto.longitude)) ||
+        (await this.reverseGeocodeByNominatim(dto.latitude, dto.longitude));
+      if (location) return location;
+    }
+
+    return this.emptyLocation(clientIp);
+  }
+
   async getMemberDetail(id: string) {
     const member = await this.memberRepo.findOne({ where: { id } });
     if (!member) throw new BusinessException('会员不存在');
@@ -206,6 +275,153 @@ export class MiniappService {
       openid: result.openid as string,
       unionid: result.unionid as string | undefined,
       session_key: result.session_key as string,
+    };
+  }
+
+  private async getWechatAccessToken() {
+    if (this.wechatAccessTokenCache && this.wechatAccessTokenCache.expiresAt > Date.now()) {
+      return this.wechatAccessTokenCache.token;
+    }
+
+    const { appid, secret } = this.getMiniappCredential('wechat');
+    const result = await this.requestMiniappApi<any>('https://api.weixin.qq.com/cgi-bin/token', {
+      params: {
+        grant_type: 'client_credential',
+        appid,
+        secret,
+      },
+    });
+
+    if (result.errcode) {
+      throw new BusinessException(result.errmsg || '微信 access_token 获取失败');
+    }
+    if (!result.access_token) {
+      throw new BusinessException('微信 access_token 返回异常');
+    }
+
+    const expiresIn = Number(result.expires_in || 7200);
+    this.wechatAccessTokenCache = {
+      token: result.access_token,
+      expiresAt: Date.now() + Math.max(expiresIn - 300, 60) * 1000,
+    };
+
+    return result.access_token as string;
+  }
+
+  private hasCoordinate(dto: MiniappLocationDto) {
+    return Number.isFinite(dto.latitude) && Number.isFinite(dto.longitude);
+  }
+
+  private async reverseGeocodeByTencent(latitude: number, longitude: number) {
+    const key = this.configService.get<string>('TENCENT_MAP_KEY');
+    if (!key) return null;
+
+    const url = new URL('https://apis.map.qq.com/ws/geocoder/v1/');
+    url.searchParams.set('location', `${latitude},${longitude}`);
+    url.searchParams.set('key', key);
+    url.searchParams.set('get_poi', '0');
+
+    const data = await this.requestJson<any>(url);
+    if (!data || data.status !== 0) return null;
+
+    const component = data.result?.address_component || {};
+    const adInfo = data.result?.ad_info || {};
+
+    return {
+      address: data.result?.address || '',
+      provinceName: component.province || '',
+      provinceCode: '',
+      cityName: component.city || component.province || '',
+      cityCode: '',
+      districtName: component.district || '',
+      districtCode: adInfo.adcode || '',
+    };
+  }
+
+  private async reverseGeocodeByAmap(latitude: number, longitude: number) {
+    const key = this.configService.get<string>('AMAP_WEB_SERVICE_KEY');
+    if (!key) return null;
+
+    const url = new URL('https://restapi.amap.com/v3/geocode/regeo');
+    url.searchParams.set('location', `${longitude},${latitude}`);
+    url.searchParams.set('key', key);
+    url.searchParams.set('extensions', 'base');
+    url.searchParams.set('output', 'json');
+
+    const data = await this.requestJson<any>(url);
+    if (!data || data.status !== '1') return null;
+
+    const component = data.regeocode?.addressComponent || {};
+    const cityName = Array.isArray(component.city)
+      ? ''
+      : component.city || component.province || '';
+
+    return {
+      address: data.regeocode?.formatted_address || '',
+      provinceName: component.province || '',
+      provinceCode: '',
+      cityName,
+      cityCode: component.citycode || '',
+      districtName: Array.isArray(component.district) ? '' : component.district || '',
+      districtCode: component.adcode || '',
+    };
+  }
+
+  private async reverseGeocodeByNominatim(latitude: number, longitude: number) {
+    const url = new URL('https://nominatim.openstreetmap.org/reverse');
+    url.searchParams.set('format', 'jsonv2');
+    url.searchParams.set('lat', String(latitude));
+    url.searchParams.set('lon', String(longitude));
+    url.searchParams.set('zoom', '10');
+    url.searchParams.set('accept-language', 'zh-CN');
+
+    const data = await this.requestJson<any>(url);
+    const address = data?.address;
+    if (!address) return null;
+
+    const provinceName = address.state || address.province || '';
+    const cityName =
+      address.city || address.town || address.municipality || address.county || provinceName || '';
+    const districtName = address.city_district || address.district || address.county || '';
+
+    return {
+      address: data.display_name || '',
+      provinceName,
+      provinceCode: '',
+      cityName,
+      cityCode: '',
+      districtName,
+      districtCode: '',
+    };
+  }
+
+  private async requestJson<T>(url: URL): Promise<T | null> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+
+    try {
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: { 'User-Agent': 'm-wms-backend/1.0' },
+      });
+      if (!response.ok) return null;
+      return (await response.json()) as T;
+    } catch (error) {
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private emptyLocation(clientIp?: string): LocationView {
+    return {
+      address: clientIp || '',
+      provinceName: '',
+      provinceCode: '',
+      cityName: '',
+      cityCode: '',
+      districtName: '',
+      districtCode: '',
     };
   }
 
