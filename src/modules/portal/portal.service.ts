@@ -74,6 +74,7 @@ export class PortalService {
     // 3. 准备快捷变量
     const footerInfo = config?.footerInfo || {};
     const seoConfig = config?.seoConfig || {};
+    const homeConfig = config?.homeConfig || {};
     const displayContactPerson = footerInfo.contactPerson || tenant.contactPerson || '业务部';
     const displayPhone = footerInfo.phone || tenant.contactPhone || '请完善联系电话';
     const displayAddress =
@@ -145,6 +146,7 @@ export class PortalService {
         industryType: tenant.industryType,
       },
       seo: seoConfig,
+      homeConfig,
 
       // --- 2. 导航栏配置 ---
       navbar: {
@@ -192,7 +194,7 @@ export class PortalService {
           text: '微信扫码联系工厂',
         },
         copyRight: footerInfo.copyright || `© ${new Date().getFullYear()} ${tenant.name} 版权所有`,
-        siteNumber: footerInfo.icp || '备案号申请中',
+        siteNumber: footerInfo.icp || '苏ICP备2024067044号',
         publicNumber: footerInfo.publicNumber || '',
       },
     };
@@ -281,6 +283,23 @@ export class PortalService {
     }
 
     return await this.configRepo.save(config);
+  }
+
+  async getConfig(tenantId: string): Promise<Partial<PortalConfig>> {
+    const config = await this.configRepo.findOne({ where: { tenantId } });
+    if (config) return config;
+
+    return {
+      tenantId,
+      title: '',
+      logo: '',
+      slogan: '',
+      description: '',
+      footerInfo: {},
+      seoConfig: {},
+      homeConfig: {},
+      isActive: 1,
+    };
   }
 
   /**

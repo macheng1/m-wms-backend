@@ -312,6 +312,7 @@ CREATE TABLE IF NOT EXISTS `portal_configs` (
   `description` text DEFAULT NULL COMMENT '工厂简介/关于我们',
   `footerInfo` json DEFAULT NULL COMMENT '页脚配置信息',
   `seoConfig` json DEFAULT NULL COMMENT 'SEO 优化配置',
+  `homeConfig` json DEFAULT NULL COMMENT '首页模块配置',
   `isActive` int NOT NULL DEFAULT 1 COMMENT '站点状态：1开启，0关闭',
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

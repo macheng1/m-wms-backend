@@ -23,7 +23,7 @@ export class AdminPortalController {
   async getConfig(@Req() req) {
     // 从 JWT 中解析出的用户信息中获取 tenantId
     const tenantId = req.user.tenantId;
-    return this.portalService.updateConfig(tenantId, {});
+    return this.portalService.getConfig(tenantId);
   }
 
   /**
