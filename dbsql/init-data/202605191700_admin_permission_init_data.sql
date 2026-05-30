@@ -122,7 +122,7 @@ SET `routePath` = CASE `code`
   WHEN 'tenant:inventory:transaction:list' THEN '/inventory/transactions'
   WHEN 'tenant:inventory:alert:list' THEN '/inventory/alerts'
   WHEN 'tenant:portal' THEN '/website'
-  WHEN 'tenant:portal:config' THEN '/base'
+  WHEN 'tenant:portal:config' THEN '/website/config'
   WHEN 'tenant:portal:inquiry:list' THEN '/website/inquiry'
   ELSE `routePath`
 END
@@ -165,6 +165,10 @@ WHERE `code` IN (
   'tenant:portal:config',
   'tenant:portal:inquiry:list'
 );
+
+UPDATE `menus`
+SET `isHidden` = 0
+WHERE `code` = 'tenant:portal:config';
 
 UPDATE `menus` child
 JOIN `menus` parent ON parent.`code` = 'platform:tenant'
@@ -232,7 +236,7 @@ SELECT t.`id`, p.`id`
 FROM `tenants` t
 CROSS JOIN `menus` p
 WHERE p.`scope` = 'tenant'
-  AND p.`type` = 'MENU';
+  AND p.`type` IN ('DIRECTORY', 'MENU', 'BUTTON');
 
 INSERT INTO `users` (
   `id`,

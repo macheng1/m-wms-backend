@@ -10,7 +10,11 @@ import { Inquiry } from './entities/inquiry.entity';
 import { Product } from '../product/product.entity';
 import { Tenant } from '../tenant/entities/tenant.entity';
 import { NotificationsService } from '../notifications/services/notifications.service';
-import { NotificationType, NotificationCategory, NotificationPriority } from '../notifications/interfaces/notification-type.enum';
+import {
+  NotificationType,
+  NotificationCategory,
+  NotificationPriority,
+} from '../notifications/interfaces/notification-type.enum';
 
 @Injectable()
 export class PortalService {
@@ -62,6 +66,10 @@ export class PortalService {
     // 3. 准备快捷变量
     const footerInfo = config?.footerInfo || {};
     const seoConfig = config?.seoConfig || {};
+    const displayContactPerson = footerInfo.contactPerson || tenant.contactPerson || '业务部';
+    const displayPhone = footerInfo.phone || tenant.contactPhone || '请完善联系电话';
+    const displayAddress =
+      footerInfo.address || tenant.factoryAddress || tenant.address || '请完善工厂地址';
 
     // 4. 核心：转换动态规格的产品列表
     const formattedProducts = categories
@@ -86,8 +94,7 @@ export class PortalService {
               const rawSpecs = p.specs || {};
               const formattedSpecs = formatSpecEntries(rawSpecs);
               const materialSpec =
-                formattedSpecs.find((item) => item.label.includes('材质')) ||
-                formattedSpecs[0];
+                formattedSpecs.find((item) => item.label.includes('材质')) || formattedSpecs[0];
               const mainSpec =
                 formattedSpecs.find((item) => item.label.includes('规格')) ||
                 formattedSpecs.find((item) => item.label.includes('长度')) ||
@@ -113,13 +120,23 @@ export class PortalService {
     // 5. 按照要求的格式组装全量数据
     return {
       // --- 1. 基础全局信息 ---
-      name: tenant.name,
+      name: config?.title || tenant.name,
+      tenantName: tenant.name,
       code: tenant.code,
-      contactPerson: tenant.contactPerson || footerInfo.contactPerson || '业务部',
-      phone: footerInfo.phone || '请完善联系电话',
-      address: footerInfo.address || tenant.factoryAddress || tenant.address || '请完善工厂地址',
+      contactPerson: displayContactPerson,
+      phone: displayPhone,
+      address: displayAddress,
       intro: config?.description || '深耕制造业，提供高品质工业解决方案。',
       slogan: config?.slogan || '赋能制造律动，链接工业未来',
+      website: tenant.website || '',
+      businessInfo: {
+        foundDate: tenant.foundDate,
+        staffCount: tenant.staffCount,
+        mainProducts: tenant.mainProducts,
+        annualCapacity: tenant.annualCapacity,
+        industryType: tenant.industryType,
+      },
+      seo: seoConfig,
 
       // --- 2. 导航栏配置 ---
       navbar: {
@@ -155,8 +172,8 @@ export class PortalService {
           {
             title: '联系我们',
             list: [
-              { label: `电话：${footerInfo.phone}`, link: `tel:${footerInfo.phone}` },
-              { label: `地址：${footerInfo.address}` },
+              { label: `电话：${displayPhone}`, link: `tel:${displayPhone}` },
+              { label: `地址：${displayAddress}` },
             ],
           },
         ],
@@ -182,11 +199,14 @@ export class PortalService {
     });
     if (!product) throw new NotFoundException('产品信息不存在');
     const attributes = product.category?.attributes || [];
-    const specs = Object.entries(product.specs || {}).reduce((result, [key, value]) => {
-      const attr = attributes.find((item) => item.code === key || item.name === key);
-      result[attr?.name || key] = value;
-      return result;
-    }, {} as Record<string, any>);
+    const specs = Object.entries(product.specs || {}).reduce(
+      (result, [key, value]) => {
+        const attr = attributes.find((item) => item.code === key || item.name === key);
+        result[attr?.name || key] = value;
+        return result;
+      },
+      {} as Record<string, any>,
+    );
 
     return {
       ...product,

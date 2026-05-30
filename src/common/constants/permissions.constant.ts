@@ -189,7 +189,12 @@ export const PERMISSION_CONFIG = {
     scope: 'tenant',
     actions: [
       { code: 'tenant:portal', name: '官网管理', isMenu: true, routePath: '/website' },
-      // { code: 'tenant:portal:config', name: '官网配置', isMenu: true, routePath: '/base' },
+      {
+        code: 'tenant:portal:config',
+        name: '官网配置',
+        isMenu: true,
+        routePath: '/website/config',
+      },
       { code: 'tenant:portal:inquiry:list', name: '询盘管理', isMenu: true, routePath: '/website/inquiry' },
     ],
   },
