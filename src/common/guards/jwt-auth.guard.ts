@@ -45,6 +45,15 @@ export class JwtAuthGuard implements CanActivate {
       });
       console.log('🚀 ~ JwtAuthGuard ~ canActivate ~ payload:', payload);
 
+      if (payload.tokenType === 'miniapp') {
+        const requestUrl = request.originalUrl || request.url || '';
+        if (!requestUrl.includes('/miniapp')) {
+          throw new ForbiddenException('小程序身份无权访问管理端接口');
+        }
+        request['user'] = payload;
+        return true;
+      }
+
       // 平台管理员跳过租户审核校验；租户用户必须携带 tenantId。
       if (payload.userType !== 'platform') {
         if (!payload.tenantId) {
