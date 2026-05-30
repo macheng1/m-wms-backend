@@ -20,7 +20,6 @@ import { ProductsService } from './product.service';
 import { ProductImportService } from './service/product-import.service';
 import { Public } from '@/common/decorators/public.decorator';
 import { memoryStorageConfig } from '@/common/config/multer.config';
-import multer = require('multer');
 
 @ApiTags('产品管理-产品管理')
 @ApiBearerAuth()
@@ -130,17 +129,6 @@ export class ProductsController {
     type: ImportProductDto,
   })
   async importProducts(@UploadedFile() file: Express.Multer.File, @Req() req) {
-    const result = await this.importService.import(file, req.user.tenantId);
-
-    // 如果有失败记录，抛出业务异常
-    if (result.failCount > 0) {
-      throw new BusinessException(
-        `导入完成，成功${result.successCount}条，失败${result.failCount}条`,
-        10001, // 业务错误码
-        result.errors, // 错误详情
-      );
-    }
-
-    return result;
+    return await this.importService.import(file, req.user.tenantId);
   }
 }

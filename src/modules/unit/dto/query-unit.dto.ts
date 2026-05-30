@@ -1,4 +1,4 @@
-import { IsOptional, IsEnum, IsNumber, Min } from 'class-validator';
+import { IsEnum, IsIn, IsNumber, IsOptional, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import { UnitCategory } from '../../../common/constants/unit.constant';
 
@@ -9,6 +9,10 @@ export class QueryUnitDto {
 
   @IsOptional()
   keyword?: string;
+
+  @IsOptional()
+  @IsIn(['standard', 'custom'])
+  templateScope?: 'standard' | 'custom';
 
   @IsOptional()
   @Type(() => Number)

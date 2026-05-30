@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like, In, IsNull, Not } from 'typeorm';
+import { In, IsNull, Not, Repository } from 'typeorm';
 import { AttributeOption } from '../entities/attribute-option.entity';
 import { Attribute } from '../entities/attribute.entity';
 import { QueryOptionDto } from '../entities/dto/query-option.dto';
@@ -35,7 +35,7 @@ export class OptionsService {
    * 排序：按 createdAt 正序 (ASC)
    */
   async findPage(query: QueryOptionDto, tenantId: string | null) {
-    const { page, pageSize, attributeId, value } = query;
+    const { page, pageSize, attributeId, value, templateScope } = query;
 
     const queryBuilder = this.optionRepo
       .createQueryBuilder('option')
@@ -45,10 +45,17 @@ export class OptionsService {
       queryBuilder.andWhere('option.tenantId IS NULL');
       queryBuilder.andWhere('attribute.tenantId IS NULL');
     } else {
-      queryBuilder.andWhere('(option.tenantId = :tenantId OR option.tenantId IS NULL)', { tenantId });
-      queryBuilder.andWhere('(attribute.tenantId = :tenantId OR attribute.tenantId IS NULL)', { tenantId });
+      queryBuilder.andWhere('(option.tenantId = :tenantId OR option.tenantId IS NULL)', {
+        tenantId,
+      });
+      queryBuilder.andWhere('(attribute.tenantId = :tenantId OR attribute.tenantId IS NULL)', {
+        tenantId,
+      });
     }
 
+    if (templateScope === 'standard') queryBuilder.andWhere('option.tenantId IS NULL');
+    if (templateScope === 'custom')
+      queryBuilder.andWhere('option.tenantId = :tenantId', { tenantId });
     if (attributeId) queryBuilder.andWhere('option.attributeId = :attributeId', { attributeId });
     if (value) queryBuilder.andWhere('option.value LIKE :value', { value: `%${value}%` });
 
@@ -191,7 +198,9 @@ export class OptionsService {
   /** 更新规格值 */
   async update(dto: SaveOptionDto, tenantId: string | null) {
     if (!dto.id) throw new BusinessException('缺少规格ID，无法更新');
-    const option = await this.optionRepo.findOne({ where: { id: dto.id, ...this.scopeWhere(tenantId) } });
+    const option = await this.optionRepo.findOne({
+      where: { id: dto.id, ...this.scopeWhere(tenantId) },
+    });
     if (!option) throw new BusinessException('规格不存在或无权操作');
     if (dto.attributeId) {
       const attribute = await this.findReadableAttribute(dto.attributeId, tenantId);

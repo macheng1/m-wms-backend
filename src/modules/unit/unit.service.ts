@@ -84,10 +84,13 @@ export class UnitService {
     page: number;
     pageSize: number;
   }> {
-    const { page = 1, pageSize = 10, keyword, category } = query;
+    const { page = 1, pageSize = 10, keyword, category, templateScope } = query;
     const queryBuilder = this.unitRepository.createQueryBuilder('unit');
 
     this.applyTenantScope(queryBuilder, tenantId);
+    if (templateScope === 'standard') queryBuilder.andWhere('unit.tenantId IS NULL');
+    if (templateScope === 'custom')
+      queryBuilder.andWhere('unit.tenantId = :tenantId', { tenantId });
 
     if (keyword) {
       queryBuilder.andWhere('(unit.name LIKE :keyword OR unit.code LIKE :keyword)', {
@@ -124,11 +127,15 @@ export class UnitService {
     page: number;
     pageSize: number;
   }> {
-    const { category, keyword, page = 1, pageSize = 10 } = query;
+    const { category, keyword, page = 1, pageSize = 10, templateScope } = query;
 
     let queryBuilder = this.unitRepository.createQueryBuilder('unit');
 
     this.applyTenantScope(queryBuilder, tenantId);
+    if (templateScope === 'standard') queryBuilder = queryBuilder.andWhere('unit.tenantId IS NULL');
+    if (templateScope === 'custom') {
+      queryBuilder = queryBuilder.andWhere('unit.tenantId = :tenantId', { tenantId });
+    }
 
     if (keyword) {
       queryBuilder = queryBuilder.andWhere('(unit.name LIKE :keyword OR unit.code LIKE :keyword)', {
@@ -156,7 +163,10 @@ export class UnitService {
    */
   async findByCategory(tenantId: string | null, category: string): Promise<Unit[]> {
     const units = await this.unitRepository.find({
-      where: this.readableScopeWhere(tenantId).map((scope) => ({ ...scope, category: category as any })),
+      where: this.readableScopeWhere(tenantId).map((scope) => ({
+        ...scope,
+        category: category as any,
+      })),
       order: { sortOrder: 'ASC', baseRatio: 'ASC' },
     });
     return units || [];
@@ -225,8 +235,14 @@ export class UnitService {
     const unit = await this.findOwnedOne(id, tenantId);
     if (tenantId) {
       const [[inventoryRow], [transactionRow]] = await Promise.all([
-        this.dataSource.query('SELECT COUNT(*) AS total FROM inventory WHERE unitId = ? AND tenantId = ?', [id, tenantId]),
-        this.dataSource.query('SELECT COUNT(*) AS total FROM inventory_transactions WHERE unitId = ? AND tenantId = ?', [id, tenantId]),
+        this.dataSource.query(
+          'SELECT COUNT(*) AS total FROM inventory WHERE unitId = ? AND tenantId = ?',
+          [id, tenantId],
+        ),
+        this.dataSource.query(
+          'SELECT COUNT(*) AS total FROM inventory_transactions WHERE unitId = ? AND tenantId = ?',
+          [id, tenantId],
+        ),
       ]);
       if (Number(inventoryRow?.total || 0) > 0 || Number(transactionRow?.total || 0) > 0) {
         throw new BusinessException('该单位已被库存业务使用，无法删除');
@@ -245,7 +261,10 @@ export class UnitService {
     return units || [];
   }
 
-  private applyTenantScope(queryBuilder: ReturnType<Repository<Unit>['createQueryBuilder']>, tenantId: string | null) {
+  private applyTenantScope(
+    queryBuilder: ReturnType<Repository<Unit>['createQueryBuilder']>,
+    tenantId: string | null,
+  ) {
     if (tenantId === null) {
       queryBuilder.andWhere('unit.tenantId IS NULL');
     } else {

@@ -1,7 +1,7 @@
 // src/modules/product/service/attributes.service.ts
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like, DataSource, In, IsNull, Not } from 'typeorm';
+import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
 
 import { Attribute } from '../entities/attribute.entity';
 import { AttributeOption } from '../entities/attribute-option.entity';
@@ -39,7 +39,9 @@ export class AttributesService {
     if (tenantId === null) {
       queryBuilder.andWhere(`${alias}.tenantId IS NULL`);
     } else {
-      queryBuilder.andWhere(`(${alias}.tenantId = :tenantId OR ${alias}.tenantId IS NULL)`, { tenantId });
+      queryBuilder.andWhere(`(${alias}.tenantId = :tenantId OR ${alias}.tenantId IS NULL)`, {
+        tenantId,
+      });
     }
   }
 
@@ -127,7 +129,10 @@ export class AttributesService {
 
       // 2. 执行硬删除旧规格
       // 建议直接用 manager.delete 替代原生 SQL，更安全
-      await manager.delete(AttributeOption, { attributeId: entity.id, ...this.scopeWhere(tenantId) });
+      await manager.delete(AttributeOption, {
+        attributeId: entity.id,
+        ...this.scopeWhere(tenantId),
+      });
 
       // 3. 更新基础信息
       Object.assign(entity, {
@@ -160,12 +165,15 @@ export class AttributesService {
    * 分页查询：按创建时间正序 (ASC)
    */
   async findPage(query: QueryAttributeDto, tenantId: string | null) {
-    const { page = 1, pageSize = 20, name, code, isActive } = query;
+    const { page = 1, pageSize = 20, name, code, isActive, templateScope } = query;
     const queryBuilder = this.attributeRepo
       .createQueryBuilder('attr')
       .leftJoinAndSelect('attr.options', 'options');
 
     this.applyReadableScope(queryBuilder, tenantId);
+    if (templateScope === 'standard') queryBuilder.andWhere('attr.tenantId IS NULL');
+    if (templateScope === 'custom')
+      queryBuilder.andWhere('attr.tenantId = :tenantId', { tenantId });
     if (name) queryBuilder.andWhere('attr.name LIKE :name', { name: `%${name}%` });
     if (code) queryBuilder.andWhere('attr.code LIKE :code', { code: `%${code}%` });
     if (isActive !== undefined) queryBuilder.andWhere('attr.isActive = :isActive', { isActive });
@@ -221,7 +229,9 @@ export class AttributesService {
     const categories = await this.categoryRepo
       .createQueryBuilder('category')
       .leftJoinAndSelect('category.attributes', 'attribute')
-      .where(tenantId === null ? 'category.tenantId IS NULL' : 'category.tenantId = :tenantId', { tenantId })
+      .where(tenantId === null ? 'category.tenantId IS NULL' : 'category.tenantId = :tenantId', {
+        tenantId,
+      })
       .andWhere('attribute.id = :id', { id })
       .getMany();
 
@@ -261,7 +271,9 @@ export class AttributesService {
     const categories = await this.categoryRepo
       .createQueryBuilder('category')
       .leftJoinAndSelect('category.attributes', 'attribute')
-      .where(tenantId === null ? 'category.tenantId IS NULL' : 'category.tenantId = :tenantId', { tenantId })
+      .where(tenantId === null ? 'category.tenantId IS NULL' : 'category.tenantId = :tenantId', {
+        tenantId,
+      })
       .andWhere('attribute.id IN (:...ids)', { ids })
       .getMany();
 
@@ -274,7 +286,9 @@ export class AttributesService {
           }
         }
       }
-      throw new BusinessException(`以下属性已被类目使用，无法删除：\n${Array.from(usedAttrNames).join('、')}`);
+      throw new BusinessException(
+        `以下属性已被类目使用，无法删除：\n${Array.from(usedAttrNames).join('、')}`,
+      );
     }
 
     // 使用事务确保批量删除的原子性

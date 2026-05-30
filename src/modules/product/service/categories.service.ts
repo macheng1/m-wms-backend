@@ -1,7 +1,7 @@
 // src/modules/product/service/categories.service.ts
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, In, IsNull, Like, Not } from 'typeorm';
+import { Repository, DataSource, In, IsNull, Not } from 'typeorm';
 import { Category } from '../entities/category.entity';
 import { Attribute } from '../entities/attribute.entity';
 import { Product } from '../product.entity';
@@ -33,7 +33,9 @@ export class CategoriesService {
     if (tenantId === null) {
       queryBuilder.andWhere(`${alias}.tenantId IS NULL`);
     } else {
-      queryBuilder.andWhere(`(${alias}.tenantId = :tenantId OR ${alias}.tenantId IS NULL)`, { tenantId });
+      queryBuilder.andWhere(`(${alias}.tenantId = :tenantId OR ${alias}.tenantId IS NULL)`, {
+        tenantId,
+      });
     }
   }
 
@@ -104,15 +106,19 @@ export class CategoriesService {
   }
   /** 分页查询 */
   async findPage(query: QueryCategoryDto, tenantId: string | null) {
-    const { page = 1, pageSize = 20, name, isActive } = query;
+    const { page = 1, pageSize = 20, name, isActive, templateScope } = query;
     const queryBuilder = this.categoryRepo
       .createQueryBuilder('category')
       .leftJoinAndSelect('category.attributes', 'attributes')
       .leftJoinAndSelect('attributes.options', 'options');
 
     this.applyReadableScope(queryBuilder, tenantId);
+    if (templateScope === 'standard') queryBuilder.andWhere('category.tenantId IS NULL');
+    if (templateScope === 'custom')
+      queryBuilder.andWhere('category.tenantId = :tenantId', { tenantId });
     if (name) queryBuilder.andWhere('category.name LIKE :name', { name: `%${name}%` });
-    if (isActive !== undefined) queryBuilder.andWhere('category.isActive = :isActive', { isActive });
+    if (isActive !== undefined)
+      queryBuilder.andWhere('category.isActive = :isActive', { isActive });
 
     const [list, total] = await queryBuilder
       .orderBy('category.tenantId', 'ASC')
@@ -152,7 +158,9 @@ export class CategoriesService {
   }
 
   async delete(id: string, tenantId: string | null) {
-    const category = await this.categoryRepo.findOne({ where: { id, ...this.scopeWhere(tenantId) } });
+    const category = await this.categoryRepo.findOne({
+      where: { id, ...this.scopeWhere(tenantId) },
+    });
     if (!category) throw new BusinessException('数据不存在');
     const productCount = await this.productRepo.count({
       where: { categoryId: id, ...this.scopeWhere(tenantId) },

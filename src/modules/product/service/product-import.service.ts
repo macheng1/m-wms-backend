@@ -8,6 +8,7 @@ import { Category } from '../entities/category.entity';
 import { Attribute } from '../entities/attribute.entity';
 import { ImportProductResultDto } from '../entities/dto/import-product.dto';
 import { BaseImportService } from '@/common/services/base-import.service';
+import { OssService } from '@/modules/aliyun/oss/oss.service';
 
 /**
  * 产品导入导出服务
@@ -20,6 +21,7 @@ export class ProductImportService extends BaseImportService {
     private readonly productRepo: Repository<Product>,
     @InjectRepository(Category)
     private readonly categoryRepo: Repository<Category>,
+    private readonly ossService: OssService,
   ) {
     super();
   }
@@ -130,8 +132,16 @@ export class ProductImportService extends BaseImportService {
 
     // 为属性列添加不同颜色的背景
     const attrColors = [
-      'FFF2F2F2', 'FFE6F2FF', 'FFF2FFF2', 'FFFFF2F2', 'FFF0F0F0',
-      'FFE6E6FA', 'FFF0E68C', 'FFDDA0DD', 'FF98FB98', 'FFAFEEEE'
+      'FFF2F2F2',
+      'FFE6F2FF',
+      'FFF2FFF2',
+      'FFFFF2F2',
+      'FFF0F0F0',
+      'FFE6E6FA',
+      'FFF0E68C',
+      'FFDDA0DD',
+      'FF98FB98',
+      'FFAFEEEE',
     ];
     for (let i = 0; i < 10; i++) {
       const attrColIndex = 8 + i * 2;
@@ -164,7 +174,13 @@ export class ProductImportService extends BaseImportService {
 
     const infoEndRow = worksheet.rowCount;
     const endColLetter = 'AA';
-    this.setInstructionAreaStyle(worksheet, infoStartRow, infoEndRow, endColLetter, infoStartRow + 1);
+    this.setInstructionAreaStyle(
+      worksheet,
+      infoStartRow,
+      infoEndRow,
+      endColLetter,
+      infoStartRow + 1,
+    );
 
     // 添加类目属性对照表
     const refStartRow = worksheet.rowCount + 1;
@@ -243,9 +259,33 @@ export class ProductImportService extends BaseImportService {
     // 添加示例数据
     worksheet.addRow(['示例：']);
     worksheet.addRow([
-      '产品名称*', '类目*', '产品编码', '产品图片', '单位', '安全库存', '状态',
-      '属性1', '属性1值', '属性2', '属性2值', '属性3', '属性3值', '属性4', '属性4值', '属性5', '属性5值',
-      '属性6', '属性6值', '属性7', '属性7值', '属性8', '属性8值', '属性9', '属性9值', '属性10', '属性10值',
+      '产品名称*',
+      '类目*',
+      '产品编码',
+      '产品图片',
+      '单位',
+      '安全库存',
+      '状态',
+      '属性1',
+      '属性1值',
+      '属性2',
+      '属性2值',
+      '属性3',
+      '属性3值',
+      '属性4',
+      '属性4值',
+      '属性5',
+      '属性5值',
+      '属性6',
+      '属性6值',
+      '属性7',
+      '属性7值',
+      '属性8',
+      '属性8值',
+      '属性9',
+      '属性9值',
+      '属性10',
+      '属性10值',
     ]);
 
     const sampleCategory = categories.find((c) => c.attributes && c.attributes.length > 0);
@@ -254,7 +294,11 @@ export class ProductImportService extends BaseImportService {
       const sampleValues: any[] = [
         `${sampleCategory.name}示例1`,
         `${sampleCategory.name}|${sampleCategory.code}`,
-        '', '', '个', '100', '1',
+        '',
+        '',
+        '个',
+        '100',
+        '1',
       ];
       for (let i = 0; i < 10; i++) {
         if (attrs[i]) {
@@ -349,7 +393,12 @@ export class ProductImportService extends BaseImportService {
       { header: '状态', key: 'isActive', width: 10 },
     ];
 
-    const attributeColumns: Array<{ header: string; key: string; width: number; attribute: Attribute }> = [];
+    const attributeColumns: Array<{
+      header: string;
+      key: string;
+      width: number;
+      attribute: Attribute;
+    }> = [];
     for (const attr of category.attributes || []) {
       const header = attr.unit ? `${attr.name}(${attr.unit})` : attr.name;
       attributeColumns.push({
@@ -388,25 +437,36 @@ export class ProductImportService extends BaseImportService {
 
     const exampleHeaderRow = worksheet.rowCount + 1;
     const exampleHeaders = [
-      '示例产品名称', '产品编码(选填)', '产品图片(URL)', '单位', '安全库存', '状态',
+      '示例产品名称',
+      '产品编码(选填)',
+      '产品图片(URL)',
+      '单位',
+      '安全库存',
+      '状态',
     ];
     for (const attrCol of attributeColumns) {
-      exampleHeaders.push(`${attrCol.attribute.name}${attrCol.attribute.type === 'select' ? '(从下拉选择)' : ''}`);
+      exampleHeaders.push(
+        `${attrCol.attribute.name}${attrCol.attribute.type === 'select' ? '(从下拉选择)' : ''}`,
+      );
     }
     worksheet.addRow(exampleHeaders);
 
     for (let rowIdx = 0; rowIdx < 3; rowIdx++) {
       const rowData: any[] = [
-        `${category.name}示例${rowIdx + 1}`, '',
+        `${category.name}示例${rowIdx + 1}`,
+        '',
         rowIdx === 0 ? 'http://oss.example.com/product.jpg' : '',
-        '个', 100 * (rowIdx + 1), '1',
+        '个',
+        100 * (rowIdx + 1),
+        '1',
       ];
 
       for (const attrCol of attributeColumns) {
         const attr = attrCol.attribute;
         let exampleValue = '';
         if (attr.type === 'select') {
-          exampleValue = attr.options && attr.options.length > 0 ? attr.options[0].value : '(请先配置选项)';
+          exampleValue =
+            attr.options && attr.options.length > 0 ? attr.options[0].value : '(请先配置选项)';
         } else if (attr.type === 'number') {
           exampleValue = String(10 * (rowIdx + 1));
         } else {
@@ -519,6 +579,7 @@ export class ProductImportService extends BaseImportService {
       categoryCode: string;
       code: string;
       images: string;
+      embeddedImageUrls: string[];
       unit: string;
       safetyStock: string;
       isActive: string;
@@ -528,6 +589,7 @@ export class ProductImportService extends BaseImportService {
     // 动态确定数据开始行（跳过表头、使用说明、类目属性对照表、示例数据）
     const dataStartRow = this.findDataStartRow(worksheet);
     console.log('数据开始行:', dataStartRow);
+    const embeddedImageMap = await this.uploadEmbeddedImages(worksheet);
 
     worksheet.eachRow((row, rowNumber) => {
       if (rowNumber < dataStartRow) return;
@@ -565,6 +627,7 @@ export class ProductImportService extends BaseImportService {
         categoryCode,
         code,
         images,
+        embeddedImageUrls: embeddedImageMap.get(rowNumber) || [],
         unit,
         safetyStock,
         isActive,
@@ -628,6 +691,7 @@ export class ProductImportService extends BaseImportService {
       categoryCode: string;
       code: string;
       images: string;
+      embeddedImageUrls?: string[];
       unit: string;
       safetyStock: string;
       isActive: string;
@@ -635,7 +699,17 @@ export class ProductImportService extends BaseImportService {
     },
     tenantId: string,
   ): Promise<void> {
-    const { name, categoryCode, code, images, unit, safetyStock, isActive, attributes } = dataRow;
+    const {
+      name,
+      categoryCode,
+      code,
+      images,
+      embeddedImageUrls = [],
+      unit,
+      safetyStock,
+      isActive,
+      attributes,
+    } = dataRow;
 
     if (!name) {
       throw new Error('产品名称不能为空');
@@ -709,6 +783,7 @@ export class ProductImportService extends BaseImportService {
         .map((url) => url.trim())
         .filter((url) => url !== '');
     }
+    imagesList = [...imagesList, ...embeddedImageUrls];
 
     const product = this.productRepo.create({
       name,
@@ -723,5 +798,35 @@ export class ProductImportService extends BaseImportService {
     });
 
     await this.productRepo.save(product);
+  }
+
+  private async uploadEmbeddedImages(worksheet: ExcelJS.Worksheet): Promise<Map<number, string[]>> {
+    const result = new Map<number, string[]>();
+    const images = worksheet.getImages?.() || [];
+    const workbook = (worksheet as any).workbook;
+
+    for (const image of images as any[]) {
+      const range = image.range || {};
+      const start = range.tl || range.ext?.tl || {};
+      const end = range.br || range.ext?.br || start;
+      const startRow = Math.floor((start.nativeRow ?? start.row ?? 0) + 1);
+      const startCol = Math.floor((start.nativeCol ?? start.col ?? 0) + 1);
+      const endCol = Math.floor((end.nativeCol ?? end.col ?? startCol - 1) + 1);
+
+      // 只处理锚定在“产品图片”（第4列）附近的图片，避免把说明区图片误导入。
+      if (startCol > 4 || endCol < 4 || startRow < 2) continue;
+
+      const media = workbook?.getImage?.(image.imageId);
+      if (!media?.buffer) continue;
+
+      const extension = media.extension || 'png';
+      const fileName = `product-import-${Date.now()}-${image.imageId}.${extension}`;
+      const ossUrl = await this.ossService.putOssFile(`/product/import/${fileName}`, media.buffer);
+
+      if (!result.has(startRow)) result.set(startRow, []);
+      result.get(startRow).push(ossUrl);
+    }
+
+    return result;
   }
 }

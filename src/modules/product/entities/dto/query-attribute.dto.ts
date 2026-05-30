@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsOptional, IsString, IsNumber } from 'class-validator';
+import { IsIn, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class QueryAttributeDto {
   @ApiProperty({ description: '页码', required: false, default: 1 })
@@ -26,4 +26,10 @@ export class QueryAttributeDto {
   @IsOptional()
   @IsNumber()
   isActive?: number;
+
+  @ApiProperty({ description: '模板来源筛选：standard-标准模板，custom-租户自建', required: false })
+  @IsOptional()
+  @IsString()
+  @IsIn(['standard', 'custom'])
+  templateScope?: 'standard' | 'custom';
 }
