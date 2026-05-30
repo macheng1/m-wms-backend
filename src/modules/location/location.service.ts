@@ -4,6 +4,11 @@ import { Repository } from 'typeorm';
 import { Location, LocationType, LocationStatus } from './entities/location.entity';
 import { InventoryLocation } from './entities/inventory-location.entity';
 import { Inventory } from '../inventory/entities/inventory.entity';
+import {
+  LightTaskAction,
+  LightTaskStatus,
+  LocationLightTask,
+} from './entities/location-light-task.entity';
 import { CreateLocationDto } from './dto/create-location.dto';
 import { UpdateLocationDto } from './dto/update-location.dto';
 import { QueryLocationDto } from './dto/query-location.dto';
@@ -17,7 +22,42 @@ export class LocationService {
     private inventoryLocationRepository: Repository<InventoryLocation>,
     @InjectRepository(Inventory)
     private inventoryRepository: Repository<Inventory>,
+    @InjectRepository(LocationLightTask)
+    private lightTaskRepository: Repository<LocationLightTask>,
   ) {}
+
+  private async sendLightCommand(options: {
+    deviceUrl?: string;
+    action: LightTaskAction;
+    locationCode: string;
+    ledIndex?: number;
+    duration: number;
+    color: string;
+  }): Promise<void> {
+    const { deviceUrl, action, locationCode, ledIndex, duration, color } = options;
+
+    if (!deviceUrl) {
+      throw new Error('库位未配置灯控设备地址');
+    }
+
+    const endpoint = deviceUrl.replace(/\/$/, '');
+    const response = await fetch(`${endpoint}/light/${action.toLowerCase()}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        locationCode,
+        ledIndex,
+        duration,
+        color,
+      }),
+      signal: AbortSignal.timeout(3000),
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(message || `灯控设备响应异常: ${response.status}`);
+    }
+  }
 
   /**
    * 生成库位编码
@@ -51,10 +91,7 @@ export class LocationService {
   /**
    * 创建库位
    */
-  async create(
-    createLocationDto: CreateLocationDto,
-    tenantId: string,
-  ): Promise<Location> {
+  async create(createLocationDto: CreateLocationDto, tenantId: string): Promise<Location> {
     // 如果没有传入 code，自动生成
     let code = createLocationDto.code;
     if (!code) {
@@ -128,10 +165,9 @@ export class LocationService {
     }
 
     if (filters.keyword) {
-      queryBuilder.andWhere(
-        '(location.code LIKE :keyword OR location.name LIKE :keyword)',
-        { keyword: `%${filters.keyword}%` },
-      );
+      queryBuilder.andWhere('(location.code LIKE :keyword OR location.name LIKE :keyword)', {
+        keyword: `%${filters.keyword}%`,
+      });
     }
 
     queryBuilder.orderBy('location.createdAt', 'DESC');
@@ -312,10 +348,7 @@ export class LocationService {
     const enrichedLocations = locations
       .map((location) => {
         const stockItems = stockByLocation.get(location.id) || [];
-        const totalQuantity = stockItems.reduce(
-          (sum, item) => sum + Number(item.quantity || 0),
-          0,
-        );
+        const totalQuantity = stockItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
         const matched = Boolean(keyword) && stockItems.length > 0;
 
         return {
@@ -348,9 +381,7 @@ export class LocationService {
       ).values(),
     );
 
-    const occupiedLocations = enrichedLocations.filter(
-      (location) => location.hasStock,
-    ).length;
+    const occupiedLocations = enrichedLocations.filter((location) => location.hasStock).length;
 
     return {
       warehouses,
@@ -360,16 +391,72 @@ export class LocationService {
         totalLocations: enrichedLocations.length,
         occupiedLocations,
         emptyLocations: enrichedLocations.filter(
-          (location) =>
-            !location.hasStock && location.status !== LocationStatus.DISABLED,
+          (location) => !location.hasStock && location.status !== LocationStatus.DISABLED,
         ).length,
         disabledLocations: enrichedLocations.filter(
           (location) => location.status === LocationStatus.DISABLED,
         ).length,
-        matchedLocations: enrichedLocations.filter((location) => location.matched)
-          .length,
+        matchedLocations: enrichedLocations.filter((location) => location.matched).length,
       },
     };
+  }
+
+  async triggerLight(
+    id: string,
+    tenantId: string,
+    action: LightTaskAction,
+    options: {
+      duration?: number;
+      color?: string;
+    } = {},
+  ): Promise<LocationLightTask> {
+    const location = await this.findOne(id, tenantId);
+    const metadata = location.metadata || {};
+    const duration = Number(options.duration || metadata.duration || 60);
+    const color = options.color || metadata.color || 'yellow';
+    const task = this.lightTaskRepository.create({
+      tenantId,
+      locationId: location.id,
+      locationCode: location.code,
+      deviceCode: metadata.deviceCode,
+      deviceUrl: metadata.deviceUrl,
+      ledIndex:
+        typeof metadata.ledIndex === 'number'
+          ? metadata.ledIndex
+          : metadata.ledIndex
+            ? Number(metadata.ledIndex)
+            : null,
+      action,
+      duration,
+      color,
+      payload: {
+        locationCode: location.code,
+        ledIndex: metadata.ledIndex,
+        duration,
+        color,
+      },
+    });
+
+    const savedTask = await this.lightTaskRepository.save(task);
+
+    try {
+      await this.sendLightCommand({
+        deviceUrl: metadata.deviceUrl,
+        action,
+        locationCode: location.code,
+        ledIndex: savedTask.ledIndex,
+        duration,
+        color,
+      });
+
+      savedTask.status = LightTaskStatus.SUCCESS;
+      savedTask.executedAt = new Date();
+    } catch (error: any) {
+      savedTask.status = LightTaskStatus.FAILED;
+      savedTask.errorMessage = error?.message || '灯控设备调用失败';
+    }
+
+    return this.lightTaskRepository.save(savedTask);
   }
 
   /**
@@ -409,10 +496,7 @@ export class LocationService {
     const location = await this.findOne(id, tenantId);
 
     // 如果要修改编码，检查新编码是否已存在
-    if (
-      updateLocationDto.code &&
-      updateLocationDto.code !== location.code
-    ) {
+    if (updateLocationDto.code && updateLocationDto.code !== location.code) {
       const existing = await this.locationRepository.findOne({
         where: { code: updateLocationDto.code },
       });
@@ -503,8 +587,8 @@ export class LocationService {
    * 更新库位实时数据（预留硬件集成）
    */
   async updateRealtimeData(
-    locationId: string,
-    data: {
+    _locationId: string,
+    _data: {
       sku?: string;
       quantity?: number;
       dataSource?: 'MANUAL' | 'RFID' | 'SENSOR' | 'AGV';
@@ -515,8 +599,11 @@ export class LocationService {
         weight?: number;
       };
     },
-    tenantId: string,
+    _tenantId: string,
   ): Promise<void> {
+    void _locationId;
+    void _data;
+    void _tenantId;
     // TODO: 实现库位实时数据更新
     // 预留：当硬件设备（RFID、传感器等）上报数据时调用此接口
   }
@@ -524,11 +611,10 @@ export class LocationService {
   /**
    * 绑定设备到库位（预留硬件集成）
    */
-  async bindDevice(
-    locationId: string,
-    deviceId: string,
-    tenantId: string,
-  ): Promise<void> {
+  async bindDevice(_locationId: string, _deviceId: string, _tenantId: string): Promise<void> {
+    void _locationId;
+    void _deviceId;
+    void _tenantId;
     // TODO: 实现设备绑定
     // 预留：将RFID读头、电子标签、传感器等设备绑定到库位
   }
@@ -536,11 +622,10 @@ export class LocationService {
   /**
    * 解绑设备（预留硬件集成）
    */
-  async unbindDevice(
-    locationId: string,
-    deviceId: string,
-    tenantId: string,
-  ): Promise<void> {
+  async unbindDevice(_locationId: string, _deviceId: string, _tenantId: string): Promise<void> {
+    void _locationId;
+    void _deviceId;
+    void _tenantId;
     // TODO: 实现设备解绑
   }
 
@@ -587,10 +672,9 @@ export class LocationService {
     }
 
     if (keyword) {
-      queryBuilder.andWhere(
-        '(location.code LIKE :keyword OR location.name LIKE :keyword)',
-        { keyword: `%${keyword}%` },
-      );
+      queryBuilder.andWhere('(location.code LIKE :keyword OR location.name LIKE :keyword)', {
+        keyword: `%${keyword}%`,
+      });
     }
 
     if (warehouse) {

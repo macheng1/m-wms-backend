@@ -7,6 +7,7 @@ import { Device } from './entities/device.entity';
 import { DeviceEvent } from './entities/device-event.entity';
 import { InventoryLocation } from './entities/inventory-location.entity';
 import { Inventory } from '../inventory/entities/inventory.entity';
+import { LocationLightTask } from './entities/location-light-task.entity';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { Inventory } from '../inventory/entities/inventory.entity';
       DeviceEvent,
       InventoryLocation,
       Inventory,
+      LocationLightTask,
     ]),
   ],
   controllers: [LocationController],

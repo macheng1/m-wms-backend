@@ -1,20 +1,11 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Delete,
-  Body,
-  Param,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { LocationService } from './location.service';
 import { CreateLocationDto } from './dto/create-location.dto';
 import { UpdateLocationDto } from './dto/update-location.dto';
 import { QueryLocationDto } from './dto/query-location.dto';
 import { TenantId } from '../../common/decorators/tenant-id.decorator';
+import { LightTaskAction } from './entities/location-light-task.entity';
 
 @ApiTags('库位管理')
 @Controller('locations')
@@ -27,10 +18,7 @@ export class LocationController {
    */
   @Post()
   @ApiOperation({ summary: '创建库位' })
-  create(
-    @Body() createLocationDto: CreateLocationDto,
-    @TenantId() tenantId: string,
-  ) {
+  create(@Body() createLocationDto: CreateLocationDto, @TenantId() tenantId: string) {
     return this.locationService.create(createLocationDto, tenantId);
   }
 
@@ -120,10 +108,7 @@ export class LocationController {
    */
   @Get('stock-options')
   @ApiOperation({ summary: '获取指定 SKU 有库存的库位' })
-  getStockLocations(
-    @TenantId() tenantId: string,
-    @Query('sku') sku: string,
-  ) {
+  getStockLocations(@TenantId() tenantId: string, @Query('sku') sku: string) {
     return this.locationService.getStockLocations(tenantId, sku);
   }
 
@@ -167,6 +152,25 @@ export class LocationController {
     return this.locationService.remove(id, tenantId);
   }
 
+  @Post(':id/light-on')
+  @ApiOperation({ summary: '库位亮灯找货' })
+  lightOn(
+    @Param('id') id: string,
+    @TenantId() tenantId: string,
+    @Body() body: { duration?: number; color?: string },
+  ) {
+    return this.locationService.triggerLight(id, tenantId, LightTaskAction.ON, {
+      duration: body?.duration,
+      color: body?.color,
+    });
+  }
+
+  @Post(':id/light-off')
+  @ApiOperation({ summary: '库位熄灯' })
+  lightOff(@Param('id') id: string, @TenantId() tenantId: string) {
+    return this.locationService.triggerLight(id, tenantId, LightTaskAction.OFF);
+  }
+
   // ==================== 硬件预留接口（暂不实现）====================
 
   /**
@@ -200,11 +204,7 @@ export class LocationController {
    */
   @Post(':id/realtime')
   @ApiOperation({ summary: '更新库位实时数据（预留）' })
-  updateRealtimeData(
-    @Param('id') id: string,
-    @Body() data: any,
-    @TenantId() tenantId: string,
-  ) {
+  updateRealtimeData(@Param('id') id: string, @Body() data: any, @TenantId() tenantId: string) {
     return this.locationService.updateRealtimeData(id, data, tenantId);
   }
 }
