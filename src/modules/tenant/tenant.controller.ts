@@ -29,17 +29,39 @@ export class TenantController {
 
   @Post('list')
   @ApiOperation({ summary: '分页查询租户列表' })
-  async findAll(@Body() body: { page?: number; pageSize?: number }) {
-    const { page = 1, pageSize = 20 } = body || {};
-    return await this.tenantsService.findAll({ page: Number(page), pageSize: Number(pageSize) });
+  async findAll(
+    @Body()
+    body: {
+      page?: number;
+      pageSize?: number;
+      tenantSource?: 'platform' | 'miniapp' | 'import' | 'api' | 'all';
+    },
+  ) {
+    const { page = 1, pageSize = 20, tenantSource } = body || {};
+    return await this.tenantsService.findAll({
+      page: Number(page),
+      pageSize: Number(pageSize),
+      tenantSource,
+    });
   }
 
   @Post('public/list')
   @ApiOperation({ summary: '第三方调用 - 分页查询租户列表' })
   @Public()
-  async publicFindAll(@Body() body: { page?: number; pageSize?: number }) {
-    const { page = 1, pageSize = 20 } = body || {};
-    return await this.tenantsService.findAll({ page: Number(page), pageSize: Number(pageSize) });
+  async publicFindAll(
+    @Body()
+    body: {
+      page?: number;
+      pageSize?: number;
+      tenantSource?: 'platform' | 'miniapp' | 'import' | 'api' | 'all';
+    },
+  ) {
+    const { page = 1, pageSize = 20, tenantSource } = body || {};
+    return await this.tenantsService.findAll({
+      page: Number(page),
+      pageSize: Number(pageSize),
+      tenantSource,
+    });
   }
 
   @Post('detail')

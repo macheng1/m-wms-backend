@@ -152,6 +152,7 @@ export class AdminApiController {
       pageSize?: number;
       code?: string;
       name?: string;
+      tenantSource?: 'platform' | 'miniapp' | 'import' | 'api' | 'all';
       lifecycleStatus?: 'pending' | 'active' | 'rejected' | 'disabled' | 'expired';
       isActive?: number | string;
     },

@@ -1,6 +1,8 @@
 // src/modules/tenants/dto/create-tenant.dto.ts
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsNotEmpty, IsString, MinLength, IsOptional } from 'class-validator';
+import { IsEmail, IsIn, IsNotEmpty, IsString, MinLength, IsOptional } from 'class-validator';
+
+export type TenantSource = 'platform' | 'miniapp' | 'import' | 'api';
 
 export class CreateTenantDto {
   @ApiProperty({ example: 'XH001', description: '企业唯一编码（用于登录）' })
@@ -10,6 +12,15 @@ export class CreateTenantDto {
   @IsNotEmpty({ message: '企业名称不能为空' })
   @IsString()
   name: string;
+
+  @ApiProperty({
+    example: 'platform',
+    description: '租户来源：platform平台后台/miniapp小程序/import导入/api开放接口',
+    required: false,
+  })
+  @IsOptional()
+  @IsIn(['platform', 'miniapp', 'import', 'api'])
+  tenantSource?: TenantSource;
 
   @ApiProperty({ example: '13800138000', description: '手机验证码' })
   @IsNotEmpty({ message: '验证码不能为空' })

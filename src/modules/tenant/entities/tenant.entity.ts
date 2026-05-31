@@ -15,6 +15,14 @@ export class Tenant extends BaseEntity {
   @Column({ unique: true, comment: '工厂/租户全称' })
   name: string;
 
+  @Column({
+    type: 'enum',
+    enum: ['platform', 'miniapp', 'import', 'api'],
+    default: 'platform',
+    comment: '租户来源：platform平台后台/miniapp小程序/import导入/api开放接口',
+  })
+  tenantSource: 'platform' | 'miniapp' | 'import' | 'api';
+
   /**
    * 逻辑关联：存储字典表中 type='INDUSTRY' 的 value
    * 对应你入驻页面上的“所属行业”选择

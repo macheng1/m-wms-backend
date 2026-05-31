@@ -1,9 +1,23 @@
 import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Public } from '@/common/decorators/public.decorator';
+import {
+  QueryMiniappBannerDto,
+  SaveMiniappBannerDto,
+  UpdateMiniappBannerStatusDto,
+} from './dto/miniapp-banner.dto';
+import {
+  QueryMiniappCategoryDto,
+  SaveMiniappCategoryDto,
+  UpdateMiniappCategoryStatusDto,
+} from './dto/miniapp-category.dto';
 import { MiniappService } from './miniapp.service';
 import { MiniappSilentLoginDto } from './dto/miniapp-auth.dto';
 import { MiniappLocationDto } from './dto/miniapp-location.dto';
+import { CreateMiniappPostDto, QueryMiniappPostDto } from './dto/miniapp-post.dto';
+import { MiniappBannerService } from './miniapp-banner.service';
+import { MiniappCategoryService } from './miniapp-category.service';
+import { MiniappPostService } from './miniapp-post.service';
 import {
   BindCurrentMiniappMemberPhoneDto,
   QueryMiniappMemberDto,
@@ -16,7 +30,12 @@ import {
 @ApiTags('小程序 API 边界')
 @Controller('miniapp')
 export class MiniappApiController {
-  constructor(private readonly miniappService: MiniappService) {}
+  constructor(
+    private readonly miniappService: MiniappService,
+    private readonly categoryService: MiniappCategoryService,
+    private readonly postService: MiniappPostService,
+    private readonly bannerService: MiniappBannerService,
+  ) {}
 
   @Get('meta')
   @Public()
@@ -69,6 +88,104 @@ export class MiniappApiController {
     const clientIp =
       req.headers['x-forwarded-for']?.split(',')[0] || req.ip || req.socket?.remoteAddress;
     return this.miniappService.getLocation(dto, clientIp);
+  }
+
+  @Get('categories')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '小程序分类管理 - 分页列表' })
+  findCategories(@Query() query: QueryMiniappCategoryDto) {
+    return this.categoryService.findPage(query);
+  }
+
+  @Post('categories/save')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '小程序分类管理 - 保存分类' })
+  saveCategory(@Body() dto: SaveMiniappCategoryDto) {
+    return this.categoryService.save(dto);
+  }
+
+  @Post('categories/:id/status')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '小程序分类管理 - 修改状态' })
+  updateCategoryStatus(@Param('id') id: string, @Body() dto: UpdateMiniappCategoryStatusDto) {
+    return this.categoryService.updateStatus(id, dto.isActive);
+  }
+
+  @Post('categories/:id/delete')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '小程序分类管理 - 删除分类' })
+  removeCategory(@Param('id') id: string) {
+    return this.categoryService.remove(id);
+  }
+
+  @Post('categories/list')
+  @Public()
+  @ApiOperation({ summary: '小程序首页分类列表' })
+  findActiveCategories() {
+    return this.categoryService.findActiveList();
+  }
+
+  @Get('banners')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '小程序轮播图管理 - 分页列表' })
+  findBanners(@Query() query: QueryMiniappBannerDto) {
+    return this.bannerService.findPage(query);
+  }
+
+  @Post('banners/save')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '小程序轮播图管理 - 保存轮播图' })
+  saveBanner(@Body() dto: SaveMiniappBannerDto) {
+    return this.bannerService.save(dto);
+  }
+
+  @Post('banners/:id/status')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '小程序轮播图管理 - 修改状态' })
+  updateBannerStatus(@Param('id') id: string, @Body() dto: UpdateMiniappBannerStatusDto) {
+    return this.bannerService.updateStatus(id, dto.isActive);
+  }
+
+  @Post('banners/:id/delete')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '小程序轮播图管理 - 删除轮播图' })
+  removeBanner(@Param('id') id: string) {
+    return this.bannerService.remove(id);
+  }
+
+  @Post('banners/list')
+  @Public()
+  @ApiOperation({ summary: '小程序首页轮播图列表' })
+  findActiveBanners() {
+    return this.bannerService.findActiveList();
+  }
+
+  @Post('posts')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '小程序发布信息' })
+  createPost(@Req() req, @Body() dto: CreateMiniappPostDto) {
+    return this.postService.create(dto, req.user?.memberId || req.user?.sub);
+  }
+
+  @Get('posts/list')
+  @Public()
+  @ApiOperation({ summary: '小程序信息列表' })
+  findPosts(@Query() query: QueryMiniappPostDto) {
+    return this.postService.findPublicPage(query);
+  }
+
+  @Post('posts/list')
+  @Public()
+  @ApiOperation({ summary: '小程序信息列表' })
+  findPostsByPost(@Body() query: QueryMiniappPostDto) {
+    return this.postService.findPublicPage(query);
+  }
+
+  @Get('posts/:id')
+  @Public()
+  @ApiOperation({ summary: '小程序信息详情' })
+  getPostDetail(@Param('id') id: string) {
+    return this.postService.getDetail(id);
   }
 
   @Get('members')

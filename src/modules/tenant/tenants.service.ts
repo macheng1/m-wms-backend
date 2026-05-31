@@ -80,6 +80,7 @@ export class TenantsService {
     pageSize = 20,
     code,
     name,
+    tenantSource,
     lifecycleStatus,
     isActive,
   }: {
@@ -87,6 +88,7 @@ export class TenantsService {
     pageSize: number;
     code?: string;
     name?: string;
+    tenantSource?: 'platform' | 'miniapp' | 'import' | 'api' | 'all';
     lifecycleStatus?: 'pending' | 'active' | 'rejected' | 'disabled' | 'expired';
     isActive?: number | string;
   }) {
@@ -95,6 +97,7 @@ export class TenantsService {
 
     if (code) where.code = Like(`%${code}%`);
     if (name) where.name = Like(`%${name}%`);
+    if (tenantSource && tenantSource !== 'all') where.tenantSource = tenantSource;
     if (lifecycleStatus) where.lifecycleStatus = lifecycleStatus;
 
     const activeValue = Number(isActive);
@@ -131,6 +134,7 @@ export class TenantsService {
       id: tenant.id,
       code: tenant.code,
       name: tenant.name,
+      tenantSource: tenant.tenantSource,
       industryCode: tenant.industryCode,
       industryName,
       contactPerson: tenant.contactPerson,
@@ -225,6 +229,7 @@ export class TenantsService {
       // 只允许更新白名单字段，防止脏数据
       const allowFields = [
         'name',
+        'tenantSource',
         'industryCode',
         'contactPerson',
         'contactPhone',
@@ -257,7 +262,11 @@ export class TenantsService {
       for (const key of allowFields) {
         if (key in updateTenantDto) {
           // 特殊处理 Date 类型字段
-          if (key === 'foundDate' || key === 'businessLicenseExpire' || key === 'qualificationExpire') {
+          if (
+            key === 'foundDate' ||
+            key === 'businessLicenseExpire' ||
+            key === 'qualificationExpire'
+          ) {
             const value: any = updateTenantDto[key];
 
             // 1. 处理 null、undefined 或空字符串
@@ -334,6 +343,7 @@ export class TenantsService {
       ...dto,
       code: dto.code?.trim(),
       name: dto.name?.trim(),
+      tenantSource: dto.tenantSource || 'platform',
       contactPhone: dto.contactPhone?.trim(),
       contactPerson: dto.contactPerson?.trim(),
       email: dto.email?.trim(),
@@ -411,6 +421,7 @@ export class TenantsService {
       code: code.trim(),
       website,
       industryType: dto.industryType || dto.industryName || industryName || '未分类',
+      tenantSource: dto.tenantSource || 'platform',
       isApproved: 0,
       isActive: 0,
       lifecycleStatus: 'pending',
