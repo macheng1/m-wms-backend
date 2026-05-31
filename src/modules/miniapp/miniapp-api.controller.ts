@@ -15,10 +15,15 @@ import { MiniappService } from './miniapp.service';
 import { MiniappSilentLoginDto } from './dto/miniapp-auth.dto';
 import { ApplyMiniappTenantDto } from './dto/miniapp-tenant.dto';
 import { MiniappLocationDto } from './dto/miniapp-location.dto';
-import { CreateMiniappPostDto, QueryMiniappPostDto } from './dto/miniapp-post.dto';
+import {
+  CreateMiniappPostDto,
+  QueryMiniappPostDto,
+  UpdateMiniappPostStatusDto,
+} from './dto/miniapp-post.dto';
 import { MiniappBannerService } from './miniapp-banner.service';
 import { MiniappCategoryService } from './miniapp-category.service';
 import { MiniappPostService } from './miniapp-post.service';
+import { MiniappYellowPageService } from './miniapp-yellow-page.service';
 import {
   BindCurrentMiniappMemberPhoneDto,
   QueryMiniappMemberDto,
@@ -36,6 +41,7 @@ export class MiniappApiController {
     private readonly categoryService: MiniappCategoryService,
     private readonly postService: MiniappPostService,
     private readonly bannerService: MiniappBannerService,
+    private readonly yellowPageService: MiniappYellowPageService,
   ) {}
 
   @Get('meta')
@@ -175,6 +181,20 @@ export class MiniappApiController {
     return this.bannerService.findActiveList();
   }
 
+  @Post('yellow-pages/list')
+  @Public()
+  @ApiOperation({ summary: '小程序企业黄页列表' })
+  findYellowPages(@Body() query: { page?: number; pageNo?: number; pageSize?: number; keyword?: string }) {
+    return this.yellowPageService.findPage(query || {});
+  }
+
+  @Get('yellow-pages/:id')
+  @Public()
+  @ApiOperation({ summary: '小程序企业黄页详情' })
+  getYellowPageDetail(@Param('id') id: string) {
+    return this.yellowPageService.getDetail(id);
+  }
+
   @Post('posts')
   @ApiBearerAuth()
   @ApiOperation({ summary: '小程序发布信息' })
@@ -196,11 +216,81 @@ export class MiniappApiController {
     return this.postService.findPublicPage(query);
   }
 
+  @Get('posts/admin/list')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '小程序信息管理 - 分页列表' })
+  findPostsForAdmin(@Query() query: QueryMiniappPostDto) {
+    return this.postService.findAdminPage(query);
+  }
+
+  @Post('posts/admin/list')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '小程序信息管理 - 分页列表' })
+  findPostsForAdminByPost(@Body() query: QueryMiniappPostDto) {
+    return this.postService.findAdminPage(query);
+  }
+
+  @Post('posts/:id/status')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '小程序信息管理 - 修改审核状态' })
+  updatePostStatus(@Param('id') id: string, @Body() dto: UpdateMiniappPostStatusDto) {
+    return this.postService.updateStatus(id, dto);
+  }
+
+  @Get('posts/my/list')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '我的发布列表' })
+  findMyPosts(@Req() req, @Query() query: QueryMiniappPostDto) {
+    return this.postService.findMyPage(query, req.user?.memberId || req.user?.sub);
+  }
+
+  @Post('posts/my/list')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '我的发布列表' })
+  findMyPostsByPost(@Req() req, @Body() query: QueryMiniappPostDto) {
+    return this.postService.findMyPage(query, req.user?.memberId || req.user?.sub);
+  }
+
+  @Post('posts/:id/delete')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '删除我的发布' })
+  removeMyPost(@Req() req, @Param('id') id: string) {
+    return this.postService.removeMine(id, req.user?.memberId || req.user?.sub);
+  }
+
+  @Post('posts/:id/collect')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '收藏信息' })
+  collectPost(@Req() req, @Param('id') id: string) {
+    return this.postService.addCollect(id, req.user?.memberId || req.user?.sub);
+  }
+
+  @Post('posts/:id/cancelCollect')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '取消收藏信息' })
+  cancelCollectPost(@Req() req, @Param('id') id: string) {
+    return this.postService.cancelCollect(id, req.user?.memberId || req.user?.sub);
+  }
+
+  @Get('posts/collect/list')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '我的收藏列表' })
+  findCollectPosts(@Req() req, @Query() query: QueryMiniappPostDto) {
+    return this.postService.findCollectPage(query, req.user?.memberId || req.user?.sub);
+  }
+
+  @Post('posts/collect/list')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '我的收藏列表' })
+  findCollectPostsByPost(@Req() req, @Body() query: QueryMiniappPostDto) {
+    return this.postService.findCollectPage(query, req.user?.memberId || req.user?.sub);
+  }
+
   @Get('posts/:id')
   @Public()
   @ApiOperation({ summary: '小程序信息详情' })
-  getPostDetail(@Param('id') id: string) {
-    return this.postService.getDetail(id);
+  getPostDetail(@Param('id') id: string, @Query('memberId') memberId?: string) {
+    return this.postService.getDetail(id, memberId);
   }
 
   @Get('members')

@@ -67,6 +67,7 @@ export class MiniappCategoryService {
       iconUrl: dto.iconUrl || null,
       linkUrl: dto.linkUrl || null,
       description: dto.description || null,
+      templateFields: this.normalizeTemplateFields(dto.templateFields),
       sortOrder: Number(dto.sortOrder || 0),
       isActive: dto.isActive ?? 1,
     });
@@ -90,5 +91,22 @@ export class MiniappCategoryService {
 
   private generateCode(name: string) {
     return `miniapp_${Buffer.from(name).toString('hex').slice(0, 16)}`;
+  }
+
+  private normalizeTemplateFields(value?: any[] | string) {
+    if (!value) return null;
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (!Array.isArray(parsed)) throw new Error('templateFields must be array');
+        return parsed;
+      } catch (error) {
+        throw new BusinessException('发布字段模板必须是 JSON 数组');
+      }
+    }
+    return null;
   }
 }

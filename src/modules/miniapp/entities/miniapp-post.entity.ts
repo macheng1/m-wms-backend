@@ -23,6 +23,12 @@ export class MiniappPost extends BaseEntity {
   @Column({ type: 'text', comment: '发布内容' })
   content: string;
 
+  @Column({ type: 'json', nullable: true, comment: '结构化发布字段 JSON' })
+  structuredData: Record<string, any> | null;
+
+  @Column({ length: 120, nullable: true, comment: '地区' })
+  region: string | null;
+
   @Column({ type: 'text', nullable: true, comment: '图片/图纸 URL，逗号分隔' })
   imgList: string | null;
 
@@ -39,4 +45,7 @@ export class MiniappPost extends BaseEntity {
 
   @Column({ type: 'text', nullable: true, comment: '审核/驳回原因' })
   auditRemark: string | null;
+
+  @Column({ type: 'datetime', nullable: true, comment: '审核时间' })
+  auditedAt: Date | null;
 }

@@ -20,6 +20,9 @@ export class MiniappCategory extends BaseEntity {
   @Column({ length: 200, nullable: true, comment: '分类说明' })
   description: string | null;
 
+  @Column({ type: 'json', nullable: true, comment: '发布字段模板 JSON' })
+  templateFields: any[] | null;
+
   @Column({ type: 'int', default: 0, comment: '排序，越小越靠前' })
   sortOrder: number;
 

@@ -43,6 +43,9 @@ export class SaveMiniappCategoryDto {
   description?: string;
 
   @IsOptional()
+  templateFields?: any[] | string;
+
+  @IsOptional()
   @IsInt()
   sortOrder?: number;
 

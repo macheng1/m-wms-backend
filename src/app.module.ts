@@ -61,7 +61,11 @@ console.log('当前工作目录:', process.cwd());
         autoLoadEntities: true,
         extra: {
           connectionLimit: 10, // 增加连接池大小
+          maxIdle: 5,
+          idleTimeout: 60000,
           connectTimeout: 20000, // 连接超时设置（毫秒）
+          enableKeepAlive: true,
+          keepAliveInitialDelay: 0,
           waitForConnections: true,
         },
       }),

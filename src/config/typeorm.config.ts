@@ -19,6 +19,15 @@ export const dataSourceOptions: DataSourceOptions = {
   entities: ['src/**/*.entity{.ts,.js}'],
   migrations: ['src/database/migrations/*{.ts,.js}'],
   migrationsTableName: 'migrations',
+  extra: {
+    connectionLimit: 10,
+    maxIdle: 5,
+    idleTimeout: 60000,
+    connectTimeout: 20000,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 0,
+    waitForConnections: true,
+  },
 };
 
 const dataSource = new DataSource(dataSourceOptions);
