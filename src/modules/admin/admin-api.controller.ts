@@ -231,8 +231,8 @@ export class AdminApiController {
   @Post('platform/tenants/:id/reject')
   @UseGuards(PlatformAdminGuard)
   @ApiOperation({ summary: '平台域 - 驳回并禁用租户' })
-  rejectTenant(@Param('id') id: string) {
-    return this.tenantsService.reject(id);
+  rejectTenant(@Param('id') id: string, @Body() body: { auditRemark?: string }) {
+    return this.tenantsService.reject(id, body?.auditRemark);
   }
 
   @Get('platform/menus/all')

@@ -56,6 +56,23 @@ export class MiniappMember extends BaseEntity {
   @Column({ length: 1, default: '0', comment: '是否同意隐私协议：1是，0否' })
   isAuthorization: string;
 
+  @Column({ type: 'char', length: 36, nullable: true, comment: '绑定租户ID' })
+  tenantId: string | null;
+
+  @Column({
+    type: 'enum',
+    enum: ['none', 'pending', 'approved', 'rejected'],
+    default: 'none',
+    comment: '企业绑定状态',
+  })
+  tenantBindStatus: 'none' | 'pending' | 'approved' | 'rejected';
+
+  @Column({ length: 20, nullable: true, comment: '企业角色：owner/admin/staff' })
+  tenantRole: string | null;
+
+  @Column({ type: 'text', nullable: true, comment: '企业绑定备注/驳回原因' })
+  tenantBindRemark: string | null;
+
   @Column({ type: 'text', nullable: true, comment: '后台备注' })
   remark: string | null;
 }

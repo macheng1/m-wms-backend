@@ -9,9 +9,13 @@ import { MiniappBannerService } from './miniapp-banner.service';
 import { MiniappCategoryService } from './miniapp-category.service';
 import { MiniappPostService } from './miniapp-post.service';
 import { MiniappService } from './miniapp.service';
+import { TenantModule } from '../tenant/tenant.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([MiniappMember, MiniappCategory, MiniappPost, MiniappBanner])],
+  imports: [
+    TenantModule,
+    TypeOrmModule.forFeature([MiniappMember, MiniappCategory, MiniappPost, MiniappBanner]),
+  ],
   controllers: [MiniappApiController],
   providers: [MiniappService, MiniappCategoryService, MiniappPostService, MiniappBannerService],
   exports: [MiniappService],

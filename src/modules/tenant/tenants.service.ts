@@ -72,6 +72,47 @@ export class TenantsService {
     }
   }
 
+  async onboardFromMiniapp(dto: CreateTenantDto) {
+    const normalizedDto = this.normalizeOnboardDto({
+      ...dto,
+      tenantSource: 'miniapp',
+      smsCode: dto.smsCode || 'MINIAPP_AUTHORIZED_PHONE',
+      adminUser: dto.adminUser || dto.contactPhone,
+      adminPass: dto.adminPass || this.generateInitialPassword(),
+      email: dto.email || `${dto.contactPhone || Date.now()}@miniapp.local`,
+    });
+
+    if (!normalizedDto.name) throw new BadRequestException('企业名称不能为空');
+    if (!normalizedDto.contactPhone) throw new BadRequestException('联系电话不能为空');
+    if (!normalizedDto.adminUser) throw new BadRequestException('管理员账号不能为空');
+    if (!normalizedDto.adminPass) throw new BadRequestException('管理员密码不能为空');
+
+    try {
+      return await this.dataSource.transaction(async (manager) => {
+        await this.validateTenantUniqueBeforeOnboard(manager, normalizedDto);
+        const tenant = await this.createTenant(manager, normalizedDto);
+        const menuGrantCount = await this.initTenantMenuPermissions(manager, tenant.id);
+        const { adminRole, roleCount } = await this.initTenantRoles(manager, tenant.id);
+        const adminUser = await this.createAdminUser(manager, tenant.id, normalizedDto, adminRole);
+        await this.initPortalConfig(manager, tenant);
+
+        return {
+          tenantId: tenant.id,
+          tenantCode: tenant.code,
+          tenantName: tenant.name,
+          adminId: adminUser.id,
+          username: adminUser.username,
+          menuGrantCount,
+          roleCount,
+        };
+      });
+    } catch (error) {
+      this.logger.error(`小程序租户入驻失败: ${error.message}`, error.stack);
+      if (error instanceof HttpException) throw error;
+      throw new InternalServerErrorException('系统在处理小程序企业认证时发生未知错误');
+    }
+  }
+
   /**
    * 分页查询租户列表
    */
@@ -144,6 +185,7 @@ export class TenantsService {
       registerAddress: tenant.registerAddress,
       website: tenant.website,
       remark: tenant.remark,
+      businessLicenseImage: this.extractMiniappBusinessLicenseImage(tenant.remark),
       taxNo: tenant.taxNo,
       taxpayerType: tenant.taxpayerType,
       creditCode: tenant.creditCode,
@@ -184,6 +226,7 @@ export class TenantsService {
     tenant.lifecycleStatus = 'active';
     tenant.approvedAt = tenant.approvedAt || new Date();
     const savedTenant = await repo.save(tenant);
+    await this.syncMiniappTenantBindStatus(savedTenant.id, 'approved');
 
     return {
       id: savedTenant.id,
@@ -196,7 +239,7 @@ export class TenantsService {
     };
   }
 
-  async reject(id: string) {
+  async reject(id: string, auditRemark?: string) {
     const repo = this.dataSource.getRepository(Tenant);
     const tenant = await repo.findOne({ where: { id } });
     if (!tenant) throw new ConflictException('租户不存在');
@@ -204,7 +247,9 @@ export class TenantsService {
     tenant.isApproved = 0;
     tenant.isActive = 0;
     tenant.lifecycleStatus = 'rejected';
+    tenant.auditRemark = auditRemark || tenant.auditRemark || '入驻申请未通过审核';
     const savedTenant = await repo.save(tenant);
+    await this.syncMiniappTenantBindStatus(savedTenant.id, 'rejected', savedTenant.auditRemark);
 
     return {
       id: savedTenant.id,
@@ -214,6 +259,66 @@ export class TenantsService {
       isActive: savedTenant.isActive,
       lifecycleStatus: savedTenant.lifecycleStatus,
       message: '租户已驳回并禁用',
+    };
+  }
+
+  async resubmitMiniappTenant(id: string, dto: CreateTenantDto) {
+    const repo = this.dataSource.getRepository(Tenant);
+    const tenant = await repo.findOne({ where: { id } });
+    if (!tenant) throw new ConflictException('租户不存在');
+    if (tenant.tenantSource !== 'miniapp') throw new BusinessException('仅小程序认证企业支持重新提交');
+    if (!['active', 'rejected'].includes(tenant.lifecycleStatus)) {
+      throw new BusinessException('当前企业认证状态不支持重新提交');
+    }
+
+    const normalizedDto = this.normalizeOnboardDto({
+      ...dto,
+      tenantSource: 'miniapp',
+      code: tenant.code,
+      smsCode: dto.smsCode || 'MINIAPP_AUTHORIZED_PHONE',
+      adminUser: dto.adminUser || dto.contactPhone,
+      adminPass: dto.adminPass || this.generateInitialPassword(),
+      email: dto.email || tenant.email || `${dto.contactPhone || Date.now()}@miniapp.local`,
+    });
+
+    if (!normalizedDto.name) throw new BadRequestException('企业名称不能为空');
+    if (!normalizedDto.contactPhone) throw new BadRequestException('联系电话不能为空');
+
+    const existingTenant = await repo.findOne({ where: { name: normalizedDto.name } });
+    if (existingTenant && existingTenant.id !== id) {
+      throw new BusinessException(`企业 "${normalizedDto.name}" 已存在`);
+    }
+
+    Object.assign(tenant, {
+      name: normalizedDto.name,
+      contactPhone: normalizedDto.contactPhone,
+      contactPerson: normalizedDto.contactPerson,
+      address: normalizedDto.address || null,
+      factoryAddress: normalizedDto.factoryAddress || normalizedDto.address || null,
+      registerAddress: normalizedDto.registerAddress || normalizedDto.address || null,
+      creditCode: normalizedDto.creditCode || null,
+      taxNo: normalizedDto.taxNo || normalizedDto.creditCode || null,
+      businessLicenseNo: normalizedDto.businessLicenseNo || normalizedDto.creditCode || null,
+      legalPerson: normalizedDto.legalPerson || normalizedDto.contactPerson || null,
+      mainProducts: normalizedDto.mainProducts || null,
+      remark: normalizedDto.remark || tenant.remark || null,
+      auditRemark: null,
+      disabledReason: null,
+      isApproved: 0,
+      isActive: 0,
+      lifecycleStatus: 'pending',
+      tenantSource: 'miniapp',
+    });
+
+    const savedTenant = await repo.save(tenant);
+    await this.syncMiniappTenantBindStatus(savedTenant.id, 'pending');
+
+    return {
+      tenantId: savedTenant.id,
+      tenantCode: savedTenant.code,
+      tenantName: savedTenant.name,
+      username: normalizedDto.adminUser,
+      message: '企业认证已重新提交',
     };
   }
 
@@ -338,6 +443,10 @@ export class TenantsService {
     return `ENT_${initials}_${random}`;
   }
 
+  private generateInitialPassword(): string {
+    return `Mws${Math.random().toString(36).slice(2, 8)}`;
+  }
+
   private normalizeOnboardDto(dto: CreateTenantDto): CreateTenantDto {
     return {
       ...dto,
@@ -399,6 +508,44 @@ export class TenantsService {
         throw new BusinessException(`企业编码 "${dto.code}" 已存在`);
       }
     }
+  }
+
+  private async validateTenantUniqueBeforeOnboard(manager: EntityManager, dto: CreateTenantDto) {
+    const tenantRepo = manager.getRepository(Tenant);
+    const existingTenant = await tenantRepo.findOne({
+      where: { name: dto.name },
+    });
+    if (existingTenant) {
+      throw new BusinessException(`企业 "${dto.name}" 已存在`);
+    }
+
+    if (dto.code) {
+      const existingCode = await tenantRepo.findOne({
+        where: { code: dto.code },
+      });
+      if (existingCode) {
+        throw new BusinessException(`企业编码 "${dto.code}" 已存在`);
+      }
+    }
+  }
+
+  private async syncMiniappTenantBindStatus(
+    tenantId: string,
+    status: 'pending' | 'approved' | 'rejected',
+    remark?: string,
+  ) {
+    await this.dataSource.query(
+      `UPDATE miniapp_members
+       SET tenantBindStatus = ?, tenantBindRemark = ?
+       WHERE tenantId = ?`,
+      [status, remark || null, tenantId],
+    );
+  }
+
+  private extractMiniappBusinessLicenseImage(remark?: string | null) {
+    const prefix = '小程序营业执照：';
+    if (!remark?.startsWith(prefix)) return '';
+    return remark.slice(prefix.length).trim();
   }
 
   private async createTenant(manager: EntityManager, dto: CreateTenantDto): Promise<Tenant> {

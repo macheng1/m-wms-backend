@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreateMiniappPostDto, QueryMiniappPostDto } from './dto/miniapp-post.dto';
 import { MiniappCategory } from './entities/miniapp-category.entity';
+import { MiniappMember } from './entities/miniapp-member.entity';
 import { MiniappPost } from './entities/miniapp-post.entity';
 
 @Injectable()
@@ -13,6 +14,8 @@ export class MiniappPostService {
     private readonly postRepo: Repository<MiniappPost>,
     @InjectRepository(MiniappCategory)
     private readonly categoryRepo: Repository<MiniappCategory>,
+    @InjectRepository(MiniappMember)
+    private readonly memberRepo: Repository<MiniappMember>,
   ) {}
 
   async create(dto: CreateMiniappPostDto, memberId?: string) {
@@ -22,10 +25,11 @@ export class MiniappPostService {
     const category = await this.categoryRepo.findOne({ where: { id: categoryId, isActive: 1 } });
     if (!category) throw new BusinessException('分类不存在或已停用');
 
+    const member = memberId ? await this.memberRepo.findOne({ where: { id: memberId } }) : null;
     const post = this.postRepo.create({
       categoryId,
       memberId: memberId || null,
-      tenantId: null,
+      tenantId: member?.tenantId || null,
       title: dto.title || category.name,
       phone: dto.phone || null,
       content: dto.content,
@@ -33,7 +37,7 @@ export class MiniappPostService {
       status: 'pending',
     });
 
-    return this.toPostView(await this.postRepo.save(post), category);
+    return this.toPostView(await this.postRepo.save(post), category, member);
   }
 
   async findPublicPage(query: QueryMiniappPostDto) {
@@ -48,6 +52,12 @@ export class MiniappPostService {
         MiniappCategory,
         'category',
         'category.id = post.categoryId',
+      )
+      .leftJoinAndMapOne(
+        'post.member',
+        MiniappMember,
+        'member',
+        'member.id = post.memberId',
       )
       .where('post.status IN (:...statuses)', { statuses: ['published', 'pending'] });
 
@@ -65,8 +75,8 @@ export class MiniappPostService {
       .getManyAndCount();
 
     return {
-      list: list.map((item: MiniappPost & { category?: MiniappCategory }) =>
-        this.toPostView(item, item.category),
+      list: list.map((item: MiniappPost & { category?: MiniappCategory; member?: MiniappMember }) =>
+        this.toPostView(item, item.category, item.member),
       ),
       total,
       page,
@@ -84,6 +94,12 @@ export class MiniappPostService {
         'category',
         'category.id = post.categoryId',
       )
+      .leftJoinAndMapOne(
+        'post.member',
+        MiniappMember,
+        'member',
+        'member.id = post.memberId',
+      )
       .where('post.id = :id', { id })
       .getOne();
     if (!post) throw new BusinessException('信息不存在');
@@ -93,6 +109,7 @@ export class MiniappPostService {
     return this.toPostView(
       post as MiniappPost & { category?: MiniappCategory },
       (post as any).category,
+      (post as any).member,
     );
   }
 
@@ -100,7 +117,7 @@ export class MiniappPostService {
     return value?.split(',')[0]?.trim();
   }
 
-  private toPostView(post: MiniappPost, category?: MiniappCategory) {
+  private toPostView(post: MiniappPost, category?: MiniappCategory, member?: MiniappMember | null) {
     return {
       ...post,
       id: post.id,
@@ -110,6 +127,9 @@ export class MiniappPostService {
       createTime: post.createdAt,
       isDel: post.status === 'offline' ? '1' : '0',
       isCollect: 0,
+      nickName: member?.nickName || '匿名用户',
+      headPic: member?.avatarUrl || '',
+      isEnterpriseNo: member?.tenantBindStatus === 'approved' ? '1' : '0',
     };
   }
 }

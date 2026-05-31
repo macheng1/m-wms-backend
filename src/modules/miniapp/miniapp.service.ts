@@ -6,6 +6,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository } from 'typeorm';
 import { MiniappSilentLoginDto } from './dto/miniapp-auth.dto';
 import { MiniappLocationDto } from './dto/miniapp-location.dto';
+import { ApplyMiniappTenantDto } from './dto/miniapp-tenant.dto';
 import {
   BindCurrentMiniappMemberPhoneDto,
   QueryMiniappMemberDto,
@@ -15,6 +16,8 @@ import {
   UpdateMiniappMemberStatusDto,
 } from './dto/query-miniapp-member.dto';
 import { MiniappMember } from './entities/miniapp-member.entity';
+import { TenantsService } from '../tenant/tenants.service';
+import { CreateTenantDto } from '../tenant/dto/create-tenant.dto';
 
 type MiniappPlatform = 'wechat' | 'toutiao';
 
@@ -50,6 +53,7 @@ export class MiniappService {
     private readonly memberRepo: Repository<MiniappMember>,
     private readonly configService: ConfigService,
     private readonly jwtService: JwtService,
+    private readonly tenantsService: TenantsService,
   ) {}
 
   async silentLogin(dto: MiniappSilentLoginDto, clientIp?: string) {
@@ -188,6 +192,74 @@ export class MiniappService {
 
     member.phoneNumber = phoneNumber;
     return this.toMemberView(await this.memberRepo.save(member));
+  }
+
+  async applyTenant(memberId: string, dto: ApplyMiniappTenantDto) {
+    const member = await this.memberRepo.findOne({ where: { id: memberId } });
+    if (!member) throw new BusinessException('会员不存在');
+    if (member.isActive !== 1) throw new BusinessException('会员已被禁用');
+
+    const phoneNumber = (member.phoneNumber || '').trim();
+    if (!phoneNumber) throw new BusinessException('请先授权手机号');
+    if (!dto.companyName?.trim()) throw new BusinessException('企业名称不能为空');
+    if (member.tenantId && member.tenantBindStatus === 'pending') {
+      throw new BusinessException('已提交企业认证，请勿重复提交');
+    }
+
+    const tenantPayload = {
+      name: dto.companyName.trim(),
+      tenantSource: 'miniapp',
+      contactPhone: phoneNumber,
+      contactPerson: (dto.contactPerson || member.nickName || '小程序用户').trim(),
+      adminUser: phoneNumber,
+      smsCode: 'MINIAPP_AUTHORIZED_PHONE',
+      email: `${phoneNumber}@miniapp.local`,
+      address: dto.address?.trim(),
+      factoryAddress: dto.address?.trim(),
+      registerAddress: dto.address?.trim(),
+      creditCode: dto.creditCode?.trim(),
+      taxNo: dto.creditCode?.trim(),
+      businessLicenseNo: dto.creditCode?.trim(),
+      legalPerson: dto.contactPerson?.trim(),
+      mainProducts: dto.mainProducts?.trim(),
+      remark: dto.businessLicenseImage ? `小程序营业执照：${dto.businessLicenseImage}` : undefined,
+    } as CreateTenantDto;
+
+    const tenantResult =
+      member.tenantId && ['approved', 'rejected'].includes(member.tenantBindStatus)
+        ? await this.tenantsService.resubmitMiniappTenant(member.tenantId, tenantPayload)
+        : await this.tenantsService.onboardFromMiniapp(tenantPayload);
+    member.tenantId = tenantResult.tenantId;
+    member.tenantBindStatus = 'pending';
+    member.tenantRole = 'owner';
+    member.tenantBindRemark = null;
+    member.phoneNumber = phoneNumber;
+    const savedMember = await this.memberRepo.save(member);
+
+    return {
+      ...tenantResult,
+      member: this.toMemberView(savedMember),
+      message: '企业认证已提交',
+    };
+  }
+
+  async getMyTenant(memberId: string) {
+    const member = await this.memberRepo.findOne({ where: { id: memberId } });
+    if (!member) throw new BusinessException('会员不存在');
+
+    let tenant = null;
+    if (member.tenantId) {
+      try {
+        tenant = await this.tenantsService.findOne(member.tenantId);
+      } catch (error) {
+        tenant = null;
+      }
+    }
+
+    return {
+      member: this.toMemberView(member),
+      tenant,
+    };
   }
 
   async getLocation(dto: MiniappLocationDto, clientIp?: string): Promise<LocationView> {
@@ -492,6 +564,7 @@ export class MiniappService {
   private toMemberView(member: MiniappMember) {
     const view = { ...(member as any) };
     delete view.sessionKey;
+    view.isEnterpriseNo = member.tenantBindStatus === 'approved' ? '1' : '0';
     return view;
   }
 }

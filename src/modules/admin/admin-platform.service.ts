@@ -664,8 +664,31 @@ export class AdminPlatformService {
     }
 
     const savedTenant = await this.tenantRepo.save(tenant);
+    if (savedTenant.lifecycleStatus === 'active') {
+      await this.syncMiniappTenantBindStatus(savedTenant.id, 'approved');
+    }
+    if (savedTenant.lifecycleStatus === 'rejected') {
+      await this.syncMiniappTenantBindStatus(
+        savedTenant.id,
+        'rejected',
+        savedTenant.auditRemark || '入驻申请未通过审核',
+      );
+    }
     await this.sendTenantLifecycleEmail(savedTenant);
     return savedTenant;
+  }
+
+  private async syncMiniappTenantBindStatus(
+    tenantId: string,
+    status: 'approved' | 'rejected',
+    remark?: string,
+  ) {
+    await this.dataSource.query(
+      `UPDATE miniapp_members
+       SET tenantBindStatus = ?, tenantBindRemark = ?
+       WHERE tenantId = ?`,
+      [status, remark || null, tenantId],
+    );
   }
 
   private async sendTenantLifecycleEmail(tenant: Tenant) {

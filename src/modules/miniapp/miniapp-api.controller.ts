@@ -13,6 +13,7 @@ import {
 } from './dto/miniapp-category.dto';
 import { MiniappService } from './miniapp.service';
 import { MiniappSilentLoginDto } from './dto/miniapp-auth.dto';
+import { ApplyMiniappTenantDto } from './dto/miniapp-tenant.dto';
 import { MiniappLocationDto } from './dto/miniapp-location.dto';
 import { CreateMiniappPostDto, QueryMiniappPostDto } from './dto/miniapp-post.dto';
 import { MiniappBannerService } from './miniapp-banner.service';
@@ -79,6 +80,20 @@ export class MiniappApiController {
   @ApiOperation({ summary: '绑定当前小程序会员手机号' })
   bindCurrentPhone(@Req() req, @Body() dto: BindCurrentMiniappMemberPhoneDto) {
     return this.miniappService.bindCurrentMemberPhone(req.user.memberId || req.user.sub, dto);
+  }
+
+  @Post('tenants/apply')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '小程序企业认证申请' })
+  applyTenant(@Req() req, @Body() dto: ApplyMiniappTenantDto) {
+    return this.miniappService.applyTenant(req.user.memberId || req.user.sub, dto);
+  }
+
+  @Get('tenants/my')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '查询当前小程序企业认证信息' })
+  getMyTenant(@Req() req) {
+    return this.miniappService.getMyTenant(req.user.memberId || req.user.sub);
   }
 
   @Post('location')
