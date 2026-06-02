@@ -20,6 +20,19 @@ export class CategoriesController {
     return this.categoriesService.findPage(query, req.user.tenantId);
   }
 
+  @Get('select')
+  @Header('Cache-Control', 'no-cache, no-store, must-revalidate')
+  @Header('Pragma', 'no-cache')
+  @Header('Expires', '0')
+  async selectList(
+    @Query('keyword') keyword: string,
+    @Query('isActive') isActive: string,
+    @Request() req,
+  ) {
+    const active = isActive === undefined ? undefined : Number(isActive);
+    return this.categoriesService.selectList(req.user.tenantId, keyword, active);
+  }
+
   @Get('detail')
   @Header('Cache-Control', 'no-cache, no-store, must-revalidate')
   @Header('Pragma', 'no-cache')

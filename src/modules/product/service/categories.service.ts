@@ -135,6 +135,43 @@ export class CategoriesService {
     return { list: resultList, total, page, pageSize };
   }
 
+  /** 类目下拉列表 */
+  async selectList(tenantId: string | null, keyword?: string, isActive?: number) {
+    const queryBuilder = this.categoryRepo.createQueryBuilder('category');
+
+    this.applyReadableScope(queryBuilder, tenantId);
+    if (keyword) {
+      queryBuilder.andWhere('(category.name LIKE :keyword OR category.code LIKE :keyword)', {
+        keyword: `%${keyword}%`,
+      });
+    }
+    if (isActive !== undefined) {
+      queryBuilder.andWhere('category.isActive = :isActive', { isActive });
+    }
+
+    const list = await queryBuilder
+      .select([
+        'category.id',
+        'category.name',
+        'category.code',
+        'category.isActive',
+        'category.tenantId',
+      ])
+      .orderBy('category.tenantId', 'ASC')
+      .addOrderBy('category.createdAt', 'ASC')
+      .getMany();
+
+    return list.map((item) => ({
+      label: item.name,
+      value: item.id,
+      id: item.id,
+      name: item.name,
+      code: item.code,
+      isActive: item.isActive,
+      tenantId: item.tenantId,
+    }));
+  }
+
   /** 获取详情 (对称结构) */
   async getDetail(id: string, tenantId: string | null) {
     const category = await this.categoryRepo.findOne({

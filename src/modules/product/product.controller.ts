@@ -105,7 +105,7 @@ export class ProductsController {
 
   /**
    * 下载导入模板
-   * @param categoryCode 类目编码，提供则下载该类目专属模板（属性展开为列）
+   * @param categoryCode 类目编码，提供则下载仅包含该类目的通用模板
    */
   @Get('template')
   @Header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
