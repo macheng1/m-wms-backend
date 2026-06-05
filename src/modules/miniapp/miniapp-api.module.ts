@@ -6,6 +6,7 @@ import { MiniappCategory } from './entities/miniapp-category.entity';
 import { MiniappMember } from './entities/miniapp-member.entity';
 import { MiniappPost } from './entities/miniapp-post.entity';
 import { MiniappPostCollection } from './entities/miniapp-post-collection.entity';
+import { MiniappPostView } from './entities/miniapp-post-view.entity';
 import { MiniappBannerService } from './miniapp-banner.service';
 import { MiniappCategoryService } from './miniapp-category.service';
 import { MiniappPostService } from './miniapp-post.service';
@@ -14,6 +15,7 @@ import { TenantModule } from '../tenant/tenant.module';
 import { Tenant } from '../tenant/entities/tenant.entity';
 import { Product } from '../product/product.entity';
 import { MiniappYellowPageService } from './miniapp-yellow-page.service';
+import { PortalJob } from '../portal/entities/portal-job.entity';
 
 @Module({
   imports: [
@@ -23,9 +25,11 @@ import { MiniappYellowPageService } from './miniapp-yellow-page.service';
       MiniappCategory,
       MiniappPost,
       MiniappPostCollection,
+      MiniappPostView,
       MiniappBanner,
       Tenant,
       Product,
+      PortalJob,
     ]),
   ],
   controllers: [MiniappApiController],

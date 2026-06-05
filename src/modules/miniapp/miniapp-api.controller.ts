@@ -188,6 +188,16 @@ export class MiniappApiController {
     return this.yellowPageService.findPage(query || {});
   }
 
+  @Get('yellow-pages/:tenantId/products/:productId')
+  @Public()
+  @ApiOperation({ summary: '小程序企业黄页产品详情' })
+  getYellowPageProductDetail(
+    @Param('tenantId') tenantId: string,
+    @Param('productId') productId: string,
+  ) {
+    return this.yellowPageService.getProductDetail(tenantId, productId);
+  }
+
   @Get('yellow-pages/:id')
   @Public()
   @ApiOperation({ summary: '小程序企业黄页详情' })
@@ -235,6 +245,13 @@ export class MiniappApiController {
   @ApiOperation({ summary: '小程序信息管理 - 修改审核状态' })
   updatePostStatus(@Param('id') id: string, @Body() dto: UpdateMiniappPostStatusDto) {
     return this.postService.updateStatus(id, dto);
+  }
+
+  @Post('posts/:id/resubmit')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '修改并重新提交我的发布' })
+  resubmitMyPost(@Req() req, @Param('id') id: string, @Body() dto: CreateMiniappPostDto) {
+    return this.postService.resubmitMine(id, dto, req.user?.memberId || req.user?.sub);
   }
 
   @Get('posts/my/list')
@@ -289,8 +306,18 @@ export class MiniappApiController {
   @Get('posts/:id')
   @Public()
   @ApiOperation({ summary: '小程序信息详情' })
-  getPostDetail(@Param('id') id: string, @Query('memberId') memberId?: string) {
-    return this.postService.getDetail(id, memberId);
+  getPostDetail(
+    @Param('id') id: string,
+    @Query('memberId') memberId?: string,
+    @Query('increaseView') increaseView?: string,
+    @Req() req?: any,
+  ) {
+    const clientIp =
+      req?.headers?.['x-forwarded-for']?.split(',')[0] || req?.ip || req?.socket?.remoteAddress;
+    return this.postService.getDetail(id, memberId, increaseView === '1', {
+      ip: clientIp,
+      userAgent: req?.headers?.['user-agent'] || null,
+    });
   }
 
   @Get('members')
