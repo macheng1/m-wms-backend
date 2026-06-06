@@ -16,6 +16,7 @@ import { Tenant } from '../tenant/entities/tenant.entity';
 import { Product } from '../product/product.entity';
 import { MiniappYellowPageService } from './miniapp-yellow-page.service';
 import { PortalJob } from '../portal/entities/portal-job.entity';
+import { PortalConfig } from '../portal/entities/portal-config.entity';
 import { OperationLog } from '../admin/entities/operation-log.entity';
 
 @Module({
@@ -31,6 +32,7 @@ import { OperationLog } from '../admin/entities/operation-log.entity';
       Tenant,
       Product,
       PortalJob,
+      PortalConfig,
       OperationLog,
     ]),
   ],
