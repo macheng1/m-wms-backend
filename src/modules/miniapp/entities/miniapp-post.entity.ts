@@ -46,6 +46,12 @@ export class MiniappPost extends BaseEntity {
   @Column({ type: 'text', nullable: true, comment: '审核/驳回原因' })
   auditRemark: string | null;
 
+  @Column({ type: 'char', length: 36, nullable: true, comment: '审核人ID' })
+  auditedById: string | null;
+
+  @Column({ length: 100, nullable: true, comment: '审核人名称' })
+  auditedByName: string | null;
+
   @Column({ type: 'datetime', nullable: true, comment: '审核时间' })
   auditedAt: Date | null;
 }

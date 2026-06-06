@@ -10,7 +10,9 @@ CREATE TABLE IF NOT EXISTS `miniapp_categories` (
   `name` varchar(80) NOT NULL COMMENT '分类名称',
   `code` varchar(80) NOT NULL COMMENT '分类编码',
   `iconUrl` text DEFAULT NULL COMMENT '分类图标 URL',
+  `linkUrl` text DEFAULT NULL COMMENT '点击跳转 URL',
   `description` varchar(200) DEFAULT NULL COMMENT '分类说明',
+  `templateFields` json DEFAULT NULL COMMENT '发布字段模板 JSON',
   `sortOrder` int NOT NULL DEFAULT 0 COMMENT '排序，越小越靠前',
   `isActive` tinyint NOT NULL DEFAULT 1 COMMENT '状态：1启用，0禁用',
   PRIMARY KEY (`id`),
@@ -29,13 +31,20 @@ CREATE TABLE IF NOT EXISTS `miniapp_posts` (
   `title` varchar(120) DEFAULT NULL COMMENT '标题',
   `phone` varchar(30) DEFAULT NULL COMMENT '联系电话',
   `content` text NOT NULL COMMENT '发布内容',
+  `structuredData` json DEFAULT NULL COMMENT '结构化发布字段 JSON',
+  `region` varchar(120) DEFAULT NULL COMMENT '地区',
   `imgList` text DEFAULT NULL COMMENT '图片/图纸 URL，逗号分隔',
   `viewNum` int NOT NULL DEFAULT 0 COMMENT '浏览次数',
   `status` enum('pending','published','rejected','offline') NOT NULL DEFAULT 'pending' COMMENT '状态：pending待审核/published已发布/rejected已驳回/offline已下架',
   `auditRemark` text DEFAULT NULL COMMENT '审核/驳回原因',
+  `auditedById` char(36) DEFAULT NULL COMMENT '审核人ID',
+  `auditedByName` varchar(100) DEFAULT NULL COMMENT '审核人名称',
+  `auditedAt` datetime DEFAULT NULL COMMENT '审核时间',
   PRIMARY KEY (`id`),
   KEY `IDX_miniapp_post_category` (`categoryId`),
-  KEY `IDX_miniapp_post_status_created` (`status`,`createdAt`)
+  KEY `IDX_miniapp_post_status_created` (`status`,`createdAt`),
+  KEY `IDX_miniapp_post_region` (`region`),
+  KEY `IDX_miniapp_post_audited_by` (`auditedById`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO `miniapp_categories` (`id`, `name`, `code`, `iconUrl`, `description`, `sortOrder`, `isActive`)

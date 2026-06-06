@@ -16,6 +16,7 @@ import { Tenant } from '../tenant/entities/tenant.entity';
 import { Product } from '../product/product.entity';
 import { MiniappYellowPageService } from './miniapp-yellow-page.service';
 import { PortalJob } from '../portal/entities/portal-job.entity';
+import { OperationLog } from '../admin/entities/operation-log.entity';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { PortalJob } from '../portal/entities/portal-job.entity';
       Tenant,
       Product,
       PortalJob,
+      OperationLog,
     ]),
   ],
   controllers: [MiniappApiController],

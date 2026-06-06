@@ -2,6 +2,7 @@ import { BusinessException } from '@/common/filters/business.exception';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository } from 'typeorm';
+import { OperationLog } from '../admin/entities/operation-log.entity';
 import {
   CreateMiniappPostDto,
   QueryMiniappPostDto,
@@ -26,6 +27,8 @@ export class MiniappPostService {
     private readonly collectionRepo: Repository<MiniappPostCollection>,
     @InjectRepository(MiniappPostView)
     private readonly postViewRepo: Repository<MiniappPostView>,
+    @InjectRepository(OperationLog)
+    private readonly operationLogRepo: Repository<OperationLog>,
   ) {}
 
   async create(dto: CreateMiniappPostDto, memberId?: string) {
@@ -80,12 +83,7 @@ export class MiniappPostService {
         'category',
         'category.id = post.categoryId',
       )
-      .leftJoinAndMapOne(
-        'post.member',
-        MiniappMember,
-        'member',
-        'member.id = post.memberId',
-      )
+      .leftJoinAndMapOne('post.member', MiniappMember, 'member', 'member.id = post.memberId')
       .where('1 = 1');
 
     if (options.publicOnly) {
@@ -146,6 +144,37 @@ export class MiniappPostService {
     increaseView = false,
     viewContext?: { ip?: string | null; userAgent?: string | null },
   ) {
+    return this.getDetailInternal(id, {
+      currentMemberId: memberId,
+      increaseView,
+      viewContext,
+      publicOnly: true,
+    });
+  }
+
+  async getMyDetail(id: string, memberId: string) {
+    return this.getDetailInternal(id, {
+      currentMemberId: memberId,
+      ownerMemberId: memberId,
+      excludeOffline: true,
+    });
+  }
+
+  async getAdminDetail(id: string) {
+    return this.getDetailInternal(id, {});
+  }
+
+  private async getDetailInternal(
+    id: string,
+    options: {
+      currentMemberId?: string;
+      ownerMemberId?: string;
+      increaseView?: boolean;
+      viewContext?: { ip?: string | null; userAgent?: string | null };
+      publicOnly?: boolean;
+      excludeOffline?: boolean;
+    },
+  ) {
     const post = await this.postRepo
       .createQueryBuilder('post')
       .leftJoinAndMapOne(
@@ -154,24 +183,29 @@ export class MiniappPostService {
         'category',
         'category.id = post.categoryId',
       )
-      .leftJoinAndMapOne(
-        'post.member',
-        MiniappMember,
-        'member',
-        'member.id = post.memberId',
-      )
+      .leftJoinAndMapOne('post.member', MiniappMember, 'member', 'member.id = post.memberId')
       .where('post.id = :id', { id })
       .getOne();
     if (!post) throw new BusinessException('信息不存在');
 
-    if (increaseView) {
+    if (options.publicOnly && post.status !== 'published') {
+      throw new BusinessException('信息不存在或未发布');
+    }
+    if (options.ownerMemberId && post.memberId !== options.ownerMemberId) {
+      throw new BusinessException('信息不存在');
+    }
+    if (options.excludeOffline && post.status === 'offline') {
+      throw new BusinessException('信息不存在');
+    }
+
+    if (options.increaseView) {
       await this.postRepo.increment({ id }, 'viewNum', 1);
       await this.postViewRepo.save(
         this.postViewRepo.create({
           postId: id,
-          memberId: memberId || null,
-          ip: viewContext?.ip || null,
-          userAgent: viewContext?.userAgent || null,
+          memberId: options.currentMemberId || null,
+          ip: options.viewContext?.ip || null,
+          userAgent: options.viewContext?.userAgent || null,
         }),
       );
       post.viewNum = (post.viewNum || 0) + 1;
@@ -180,17 +214,41 @@ export class MiniappPostService {
       post as MiniappPost & { category?: MiniappCategory },
       (post as any).category,
       (post as any).member,
-      memberId,
+      options.currentMemberId,
     );
   }
 
-  async updateStatus(id: string, dto: UpdateMiniappPostStatusDto) {
+  async updateStatus(
+    id: string,
+    dto: UpdateMiniappPostStatusDto,
+    operator?: {
+      userId?: string;
+      sub?: string;
+      username?: string;
+      userType?: string;
+      tenantId?: string | null;
+      ip?: string | null;
+      sourceType?: string | string[] | null;
+    },
+  ) {
     const post = await this.postRepo.findOne({ where: { id } });
     if (!post) throw new BusinessException('信息不存在');
+    const beforeData = {
+      status: post.status,
+      auditRemark: post.auditRemark,
+      auditedById: post.auditedById,
+      auditedByName: post.auditedByName,
+      auditedAt: post.auditedAt,
+    };
     post.status = dto.status;
     post.auditRemark = dto.auditRemark || null;
+    post.auditedById = operator?.userId || operator?.sub || null;
+    post.auditedByName = operator?.username || null;
     post.auditedAt = new Date();
-    return this.toPostView(await this.postRepo.save(post));
+    const saved = await this.postRepo.save(post);
+
+    await this.writeAuditLog(saved, dto, beforeData, operator);
+    return this.toPostView(saved);
   }
 
   async resubmitMine(id: string, dto: CreateMiniappPostDto, memberId: string) {
@@ -212,6 +270,8 @@ export class MiniappPostService {
     post.imgList = dto.imgList || null;
     post.status = 'pending';
     post.auditRemark = null;
+    post.auditedById = null;
+    post.auditedByName = null;
     post.auditedAt = null;
 
     const member = await this.memberRepo.findOne({ where: { id: memberId } });
@@ -247,7 +307,12 @@ export class MiniappPostService {
     const qb = this.collectionRepo
       .createQueryBuilder('collection')
       .innerJoinAndMapOne('collection.post', MiniappPost, 'post', 'post.id = collection.postId')
-      .leftJoinAndMapOne('post.category', MiniappCategory, 'category', 'category.id = post.categoryId')
+      .leftJoinAndMapOne(
+        'post.category',
+        MiniappCategory,
+        'category',
+        'category.id = post.categoryId',
+      )
       .leftJoinAndMapOne('post.member', MiniappMember, 'member', 'member.id = post.memberId')
       .where('collection.memberId = :memberId', { memberId })
       .andWhere('post.status = :status', { status: 'published' });
@@ -261,7 +326,12 @@ export class MiniappPostService {
     return {
       list: await Promise.all(
         rows.map((row: MiniappPostCollection & { post?: MiniappPost }) =>
-          this.toPostView((row as any).post, (row as any).post?.category, (row as any).post?.member, memberId),
+          this.toPostView(
+            (row as any).post,
+            (row as any).post?.category,
+            (row as any).post?.member,
+            memberId,
+          ),
         ),
       ),
       total,
@@ -335,5 +405,55 @@ export class MiniappPostService {
 
   private isTruthy(value?: string | number | boolean) {
     return value === true || value === 1 || value === '1' || value === 'true';
+  }
+
+  private async writeAuditLog(
+    post: MiniappPost,
+    dto: UpdateMiniappPostStatusDto,
+    beforeData: Record<string, any>,
+    operator?: {
+      userId?: string;
+      sub?: string;
+      username?: string;
+      userType?: string;
+      tenantId?: string | null;
+      ip?: string | null;
+      sourceType?: string | string[] | null;
+    },
+  ) {
+    try {
+      const actionMap: Record<string, string> = {
+        pending: '重置待审核',
+        published: '审核通过',
+        rejected: '审核驳回',
+        offline: '下架信息',
+      };
+      await this.operationLogRepo.save(
+        this.operationLogRepo.create({
+          tenantId: null,
+          userId: operator?.userId || operator?.sub || null,
+          username: operator?.username || null,
+          scope: 'platform',
+          module: '小程序信息审核',
+          action: actionMap[dto.status] || '修改状态',
+          targetType: 'miniapp_post',
+          targetId: post.id,
+          description: `小程序信息「${post.title || post.content.slice(0, 30)}」状态更新为 ${dto.status}`,
+          beforeData,
+          afterData: {
+            status: post.status,
+            auditRemark: post.auditRemark,
+            auditedById: post.auditedById,
+            auditedByName: post.auditedByName,
+            auditedAt: post.auditedAt,
+            sourceType: operator?.sourceType || null,
+          },
+          ip: operator?.ip || null,
+        }),
+      );
+    } catch (error) {
+      // 审核主流程不能因日志写入失败而中断。
+      console.error('写入小程序信息审核日志失败:', error);
+    }
   }
 }

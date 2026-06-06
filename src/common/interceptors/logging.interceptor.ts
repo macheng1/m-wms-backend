@@ -11,6 +11,7 @@ interface RequestLog {
   userAgent: string;
   tenantId: string | string[];
   traceId: string;
+  sourceType: string;
   body?: any;
   query?: any;
   params?: any;
@@ -24,6 +25,7 @@ interface ResponseLog {
   responseTime: number;
   tenantId: string | string[];
   traceId: string;
+  sourceType: string;
 }
 
 @Injectable()
@@ -40,9 +42,11 @@ export class LoggingInterceptor implements NestInterceptor {
 
     // 获取 traceId（前端必须传入，否则使用默认值）
     const traceId = (headers['x-trace-id'] as string) || 'MISSING_TRACE_ID';
+    const sourceType = (headers['x-source-type'] as string) || 'unknown';
 
     // 将 traceId 添加到响应头
     response.setHeader('x-trace-id', traceId);
+    response.setHeader('x-source-type', sourceType);
 
     const startTime = Date.now();
     const timestamp = new Date().toISOString();
@@ -56,6 +60,7 @@ export class LoggingInterceptor implements NestInterceptor {
       userAgent,
       tenantId,
       traceId,
+      sourceType,
     };
 
     // 只有当 body/query/params 不为空时才记录
@@ -86,6 +91,7 @@ export class LoggingInterceptor implements NestInterceptor {
             responseTime,
             tenantId,
             traceId,
+            sourceType,
           };
 
           console.log(`📤 响应 => ${JSON.stringify(responseLog)}`);
@@ -103,6 +109,7 @@ export class LoggingInterceptor implements NestInterceptor {
             responseTime,
             tenantId,
             traceId,
+            sourceType,
           };
 
           console.error(`❌ 错误 => ${JSON.stringify(responseLog)}`);

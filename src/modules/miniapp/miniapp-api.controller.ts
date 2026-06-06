@@ -184,7 +184,9 @@ export class MiniappApiController {
   @Post('yellow-pages/list')
   @Public()
   @ApiOperation({ summary: '小程序企业黄页列表' })
-  findYellowPages(@Body() query: { page?: number; pageNo?: number; pageSize?: number; keyword?: string }) {
+  findYellowPages(
+    @Body() query: { page?: number; pageNo?: number; pageSize?: number; keyword?: string },
+  ) {
     return this.yellowPageService.findPage(query || {});
   }
 
@@ -240,11 +242,24 @@ export class MiniappApiController {
     return this.postService.findAdminPage(query);
   }
 
+  @Get('posts/admin/:id')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '小程序信息管理 - 详情' })
+  getPostDetailForAdmin(@Param('id') id: string) {
+    return this.postService.getAdminDetail(id);
+  }
+
   @Post('posts/:id/status')
   @ApiBearerAuth()
   @ApiOperation({ summary: '小程序信息管理 - 修改审核状态' })
-  updatePostStatus(@Param('id') id: string, @Body() dto: UpdateMiniappPostStatusDto) {
-    return this.postService.updateStatus(id, dto);
+  updatePostStatus(@Req() req, @Param('id') id: string, @Body() dto: UpdateMiniappPostStatusDto) {
+    const clientIp =
+      req?.headers?.['x-forwarded-for']?.split(',')[0] || req?.ip || req?.socket?.remoteAddress;
+    return this.postService.updateStatus(id, dto, {
+      ...req.user,
+      ip: clientIp,
+      sourceType: req?.headers?.['x-source-type'] || null,
+    });
   }
 
   @Post('posts/:id/resubmit')
@@ -266,6 +281,13 @@ export class MiniappApiController {
   @ApiOperation({ summary: '我的发布列表' })
   findMyPostsByPost(@Req() req, @Body() query: QueryMiniappPostDto) {
     return this.postService.findMyPage(query, req.user?.memberId || req.user?.sub);
+  }
+
+  @Get('posts/my/:id')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '我的发布详情' })
+  getMyPostDetail(@Req() req, @Param('id') id: string) {
+    return this.postService.getMyDetail(id, req.user?.memberId || req.user?.sub);
   }
 
   @Post('posts/:id/delete')
