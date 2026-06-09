@@ -166,6 +166,7 @@ CREATE TABLE IF NOT EXISTS `products` (
   `name` varchar(255) NOT NULL COMMENT '产品名称',
   `code` varchar(255) NOT NULL COMMENT '产品编码/SKU',
   `categoryId` char(36) NOT NULL COMMENT '类目ID',
+  `unitId` char(36) NOT NULL COMMENT '库存主单位ID',
   `images` json DEFAULT NULL COMMENT '产品图片列表',
   `unit` varchar(255) DEFAULT NULL COMMENT '单位，如：支、kg',
   `specs` json DEFAULT NULL COMMENT '动态规格详情',
@@ -174,7 +175,9 @@ CREATE TABLE IF NOT EXISTS `products` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `UQ_products_tenant_code` (`tenantId`,`code`),
   KEY `IDX_products_category` (`categoryId`),
-  CONSTRAINT `FK_products_category` FOREIGN KEY (`categoryId`) REFERENCES `categories` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE
+  KEY `IDX_products_unit_id` (`unitId`),
+  CONSTRAINT `FK_products_category` FOREIGN KEY (`categoryId`) REFERENCES `categories` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT `FK_products_unit` FOREIGN KEY (`unitId`) REFERENCES `units` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `locations` (
@@ -228,6 +231,7 @@ CREATE TABLE IF NOT EXISTS `inventory` (
   `sku` varchar(100) NOT NULL,
   `productName` varchar(200) NOT NULL,
   `quantity` decimal(15,2) NOT NULL DEFAULT 0.00,
+  `lockedQuantity` decimal(15,2) NOT NULL DEFAULT 0.00,
   `unitId` char(36) DEFAULT NULL,
   `locationId` char(36) DEFAULT NULL,
   `multiUnitQty` json DEFAULT NULL,
@@ -274,6 +278,7 @@ CREATE TABLE IF NOT EXISTS `inventory_transactions` (
   `transactionType` enum(
     'INBOUND_PURCHASE','INBOUND_RETURN','INBOUND_TRANSFER','INBOUND_PRODUCTION',
     'OUTBOUND_SALES','OUTBOUND_MATERIAL','OUTBOUND_TRANSFER','OUTBOUND_SCRAP',
+    'STOCK_LOCK','STOCK_RELEASE',
     'ADJUSTMENT_IN','ADJUSTMENT_OUT'
   ) NOT NULL,
   `quantity` decimal(15,2) NOT NULL,
@@ -292,12 +297,84 @@ CREATE TABLE IF NOT EXISTS `orders` (
   `id` char(36) NOT NULL,
   `tenantId` char(36) NOT NULL,
   `orderNumber` varchar(50) NOT NULL,
-  `status` enum('pending','processing','completed','cancelled') NOT NULL DEFAULT 'pending',
+  `source` enum('MINIAPP','WEBSITE','ADMIN') NOT NULL DEFAULT 'ADMIN',
+  `orderType` enum('STANDARD','CUSTOM') NOT NULL DEFAULT 'STANDARD',
+  `status` enum(
+    'PENDING_CONFIRM',
+    'PENDING_REVIEW',
+    'REJECTED',
+    'CONFIRMED',
+    'PROCESSING',
+    'STOCK_LOCKED',
+    'OUT_OF_STOCK',
+    'PENDING_SCHEDULE',
+    'SCHEDULED',
+    'PRODUCING',
+    'PRODUCED',
+    'PENDING_SHIPMENT',
+    'SHIPPED',
+    'COMPLETED',
+    'CANCELLED'
+  ) NOT NULL DEFAULT 'PENDING_CONFIRM',
+  `customerName` varchar(80) DEFAULT NULL,
+  `customerPhone` varchar(30) DEFAULT NULL,
+  `customerEmail` varchar(120) DEFAULT NULL,
+  `customerAddress` varchar(255) DEFAULT NULL,
+  `miniappMemberId` char(36) DEFAULT NULL,
   `totalAmount` decimal(10,2) NOT NULL DEFAULT 0.00,
+  `remark` text DEFAULT NULL,
+  `reviewRemark` text DEFAULT NULL,
+  `rejectReason` text DEFAULT NULL,
+  `expectedDeliveryDate` datetime DEFAULT NULL,
+  `scheduledStartDate` datetime DEFAULT NULL,
+  `scheduledEndDate` datetime DEFAULT NULL,
+  `producedAt` datetime DEFAULT NULL,
+  `shippedAt` datetime DEFAULT NULL,
+  `completedAt` datetime DEFAULT NULL,
+  `cancelledAt` datetime DEFAULT NULL,
   `createdAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   `updatedAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
   PRIMARY KEY (`id`),
-  UNIQUE KEY `UQ_orders_tenant_orderNumber` (`tenantId`,`orderNumber`)
+  UNIQUE KEY `UQ_orders_tenant_orderNumber` (`tenantId`,`orderNumber`),
+  KEY `IDX_orders_miniapp_member` (`miniappMemberId`,`source`,`createdAt`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `order_items` (
+  `id` char(36) NOT NULL,
+  `tenantId` char(36) NOT NULL,
+  `orderId` char(36) NOT NULL,
+  `productId` char(36) DEFAULT NULL,
+  `sku` varchar(80) DEFAULT NULL,
+  `productName` varchar(120) NOT NULL,
+  `quantity` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `unitCode` varchar(30) DEFAULT NULL,
+  `unitName` varchar(30) DEFAULT NULL,
+  `price` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `amount` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `specs` json DEFAULT NULL,
+  `customRequirement` text DEFAULT NULL,
+  `drawingUrls` json DEFAULT NULL,
+  `createdAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `updatedAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`id`),
+  KEY `IDX_order_items_tenant_order` (`tenantId`,`orderId`),
+  CONSTRAINT `FK_order_items_order` FOREIGN KEY (`orderId`) REFERENCES `orders` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `order_flow_logs` (
+  `id` char(36) NOT NULL,
+  `tenantId` char(36) NOT NULL,
+  `orderId` char(36) NOT NULL,
+  `fromStatus` varchar(40) DEFAULT NULL,
+  `toStatus` varchar(40) NOT NULL,
+  `action` varchar(50) NOT NULL,
+  `operatorId` char(36) DEFAULT NULL,
+  `operatorName` varchar(80) DEFAULT NULL,
+  `remark` text DEFAULT NULL,
+  `createdAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`id`),
+  KEY `IDX_order_flow_logs_tenant_order` (`tenantId`,`orderId`),
+  CONSTRAINT `FK_order_flow_logs_order` FOREIGN KEY (`orderId`) REFERENCES `orders` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `portal_configs` (

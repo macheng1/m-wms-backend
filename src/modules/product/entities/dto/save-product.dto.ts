@@ -36,6 +36,11 @@ export class SaveProductDto {
   @IsString()
   categoryId: string;
 
+  @ApiProperty({ description: '库存主单位ID' })
+  @IsNotEmpty({ message: '必须选择库存主单位' })
+  @IsString()
+  unitId: string;
+
   @ApiProperty({ description: '单位', example: '支', required: false })
   @IsOptional()
   @IsString()

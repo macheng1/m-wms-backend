@@ -1,6 +1,7 @@
 import { TenantBaseEntity } from '@/database/base.entity';
 import { Entity, Column, ManyToOne, JoinColumn, Unique } from 'typeorm';
 import { Category } from './entities/category.entity';
+import { Unit } from '../unit/entities/unit.entity';
 
 // src/modules/product/entities/product.entity.ts
 @Entity('products')
@@ -14,6 +15,9 @@ export class Product extends TenantBaseEntity {
 
   @Column({ type: 'char', length: 36, comment: '类目ID' })
   categoryId: string;
+
+  @Column({ type: 'char', length: 36, comment: '库存主单位ID' })
+  unitId: string;
 
   /**
    * 产品图列表 (JSON 数组)
@@ -53,4 +57,8 @@ export class Product extends TenantBaseEntity {
   @ManyToOne(() => Category)
   @JoinColumn({ name: 'categoryId' })
   category: Category;
+
+  @ManyToOne(() => Unit)
+  @JoinColumn({ name: 'unitId' })
+  inventoryUnit: Unit;
 }

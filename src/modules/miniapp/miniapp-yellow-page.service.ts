@@ -6,6 +6,7 @@ import { Product } from '../product/product.entity';
 import { PortalConfig } from '../portal/entities/portal-config.entity';
 import { PortalJob } from '../portal/entities/portal-job.entity';
 import { Tenant } from '../tenant/entities/tenant.entity';
+import { Inventory } from '../inventory/entities/inventory.entity';
 
 @Injectable()
 export class MiniappYellowPageService {
@@ -14,6 +15,8 @@ export class MiniappYellowPageService {
     private readonly tenantRepo: Repository<Tenant>,
     @InjectRepository(Product)
     private readonly productRepo: Repository<Product>,
+    @InjectRepository(Inventory)
+    private readonly inventoryRepo: Repository<Inventory>,
     @InjectRepository(PortalJob)
     private readonly jobRepo: Repository<PortalJob>,
     @InjectRepository(PortalConfig)
@@ -64,7 +67,7 @@ export class MiniappYellowPageService {
         where: { tenantId: id, isActive: 1 },
         order: { createdAt: 'DESC' },
         take: 20,
-        relations: ['category', 'category.attributes'],
+        relations: ['category', 'category.attributes', 'inventoryUnit'],
       }),
       this.jobRepo.find({
         where: { tenantId: id, isActive: 1 },
@@ -85,7 +88,7 @@ export class MiniappYellowPageService {
       }),
       remark: tenant.remark,
       businessLicenseImage: this.extractBusinessLicenseImage(tenant.remark),
-      products: products.map((product) => this.toProductView(product)),
+      products: await this.toProductsWithStock(products),
       jobs: jobs.map((job) => ({
         id: job.id,
         position: job.position,
@@ -105,15 +108,17 @@ export class MiniappYellowPageService {
 
     const product = await this.productRepo.findOne({
       where: { id: productId, tenantId, isActive: 1 },
-      relations: ['category', 'category.attributes'],
+      relations: ['category', 'category.attributes', 'inventoryUnit'],
     });
     if (!product) throw new BusinessException('产品不存在或未公开');
 
     const meta = await this.getTenantYellowPageMeta([tenantId]);
     const tenantView = this.toTenantView(tenant, meta.get(tenantId));
+    const inventory = await this.getStockSummary(tenantId, [product.code]);
 
     return {
       ...this.toProductView(product),
+      ...this.toStockView(inventory.get(product.code), product),
       tenant: tenantView,
       tenantName: tenantView.name,
       contactPerson: tenantView.contactPerson,
@@ -245,6 +250,7 @@ export class MiniappYellowPageService {
   }
 
   private toProductView(product: Product) {
+    const inventoryUnit = product.inventoryUnit;
     return {
       id: product.id,
       name: product.name,
@@ -252,13 +258,125 @@ export class MiniappYellowPageService {
       categoryId: product.categoryId,
       categoryName: product.category?.name || '',
       images: product.images || [],
-      unit: product.unit,
+      unitId: product.unitId,
+      unit: inventoryUnit?.symbol || inventoryUnit?.name || inventoryUnit?.code || '',
+      unitCode: inventoryUnit?.code || '',
+      unitName: inventoryUnit?.name || '',
+      unitSymbol: inventoryUnit?.symbol || inventoryUnit?.name || inventoryUnit?.code || '',
       description: product.description,
       specs: product.specs || {},
       specList: this.toProductSpecList(product),
       safetyStock: product.safetyStock,
       tenantId: product.tenantId,
     };
+  }
+
+  private toStockView(
+    inventory?: {
+      stockQuantity: number;
+      lockedQuantity: number;
+      inventoryUnitId: string | null;
+      inventoryUnitCode: string | null;
+      inventoryUnitName: string | null;
+      inventoryUnitSymbol: string | null;
+      unitCount: number;
+    } | null,
+    product?: Product,
+  ) {
+    const stockQuantity = Number(inventory?.stockQuantity || 0);
+    const lockedQuantity = Number(inventory?.lockedQuantity || 0);
+    const availableStock = Math.max(stockQuantity - lockedQuantity, 0);
+    const productUnit = product?.inventoryUnit;
+    const inventoryUnitCode = inventory?.inventoryUnitCode || productUnit?.code || null;
+    const inventoryUnitName = inventory?.inventoryUnitName || productUnit?.name || null;
+    const inventoryUnitSymbol = inventory?.inventoryUnitSymbol
+      || productUnit?.symbol
+      || productUnit?.name
+      || productUnit?.code
+      || null;
+    const inventoryUnitId = inventory?.inventoryUnitId || product?.unitId || null;
+    const hasOrderUnit = Boolean(inventoryUnitCode);
+    const hasConsistentUnit = Number(inventory?.unitCount || 0) <= 1;
+    const canOrder = availableStock > 0 && hasOrderUnit && hasConsistentUnit;
+
+    return {
+      stockQuantity,
+      lockedQuantity,
+      availableStock,
+      stockStatus: availableStock > 0 ? 'IN_STOCK' : 'OUT_OF_STOCK',
+      inventoryUnitId,
+      inventoryUnitCode,
+      inventoryUnitName,
+      inventoryUnitSymbol,
+      orderUnitCode: inventoryUnitCode,
+      orderUnitName: inventoryUnitName,
+      orderUnitSymbol: inventoryUnitSymbol,
+      canOrder,
+      orderDisabledReason: canOrder
+        ? ''
+        : !hasOrderUnit
+          ? '库存单位未维护'
+          : !hasConsistentUnit
+            ? '库存单位不一致'
+            : '当前库存不足',
+    };
+  }
+
+  private async toProductsWithStock(products: Product[]) {
+    if (products.length === 0) return [];
+    const inventoryMap = await this.getStockSummary(
+      products[0].tenantId!,
+      products.map((product) => product.code),
+    );
+
+    return products.map((product) => ({
+      ...this.toProductView(product),
+      ...this.toStockView(inventoryMap.get(product.code), product),
+    }));
+  }
+
+  private async getStockSummary(tenantId: string, skus: string[]) {
+    if (skus.length === 0) return new Map();
+
+    const rows = await this.inventoryRepo
+      .createQueryBuilder('inventory')
+      .leftJoin('inventory.unit', 'unit')
+      .where('inventory.tenantId = :tenantId', { tenantId })
+      .andWhere('inventory.sku IN (:...skus)', { skus })
+      .select('inventory.sku', 'sku')
+      .addSelect('COALESCE(SUM(inventory.quantity), 0)', 'stockQuantity')
+      .addSelect('COALESCE(SUM(inventory.lockedQuantity), 0)', 'lockedQuantity')
+      .addSelect('MIN(inventory.unitId)', 'inventoryUnitId')
+      .addSelect('MAX(unit.code)', 'inventoryUnitCode')
+      .addSelect('MAX(unit.name)', 'inventoryUnitName')
+      .addSelect('MAX(unit.symbol)', 'inventoryUnitSymbol')
+      .addSelect('COUNT(DISTINCT inventory.unitId)', 'unitCount')
+      .groupBy('inventory.sku')
+      .getRawMany<{
+        sku: string;
+        stockQuantity: string;
+        lockedQuantity: string;
+        inventoryUnitId: string | null;
+        inventoryUnitCode: string | null;
+        inventoryUnitName: string | null;
+        inventoryUnitSymbol: string | null;
+        unitCount: string;
+      }>();
+
+    return new Map(
+      rows.map((row) => [
+        row.sku,
+        {
+          stockQuantity: Number(row.stockQuantity || 0),
+          lockedQuantity: Number(row.lockedQuantity || 0),
+          inventoryUnitId: row.inventoryUnitId || null,
+          inventoryUnitCode: row.inventoryUnitCode || null,
+          inventoryUnitName: row.inventoryUnitName || null,
+          inventoryUnitSymbol: row.inventoryUnitSymbol || row.inventoryUnitName || row.inventoryUnitCode || null,
+          unitCount: Number(row.unitCount || 0),
+        },
+      ]),
+    );
   }
 
   private extractProductImages(products: Product[]) {

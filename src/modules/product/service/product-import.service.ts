@@ -10,6 +10,7 @@ import { Category } from '../entities/category.entity';
 import { ImportProductResultDto } from '../entities/dto/import-product.dto';
 import { BaseImportService } from '@/common/services/base-import.service';
 import { OssService } from '@/modules/aliyun/oss/oss.service';
+import { Unit } from '@/modules/unit/entities/unit.entity';
 
 /**
  * 产品导入导出服务
@@ -22,6 +23,8 @@ export class ProductImportService extends BaseImportService {
     private readonly productRepo: Repository<Product>,
     @InjectRepository(Category)
     private readonly categoryRepo: Repository<Category>,
+    @InjectRepository(Unit)
+    private readonly unitRepo: Repository<Unit>,
     private readonly ossService: OssService,
   ) {
     super();
@@ -103,7 +106,7 @@ export class ProductImportService extends BaseImportService {
       { header: '产品图片3', key: 'image3', width: 24 },
       { header: '产品图片4', key: 'image4', width: 24 },
       { header: '产品图片5', key: 'image5', width: 24 },
-      { header: '单位', key: 'unit', width: 10 },
+      { header: '库存主单位*', key: 'unit', width: 14 },
       { header: '安全库存', key: 'safetyStock', width: 12 },
       { header: '状态', key: 'isActive', width: 8 },
       { header: '属性1', key: 'attr1', width: 15 },
@@ -172,7 +175,8 @@ export class ProductImportService extends BaseImportService {
     worksheet.addRow(['4. 可以填写多个属性（最多10个），不用的属性列可以留空']);
     worksheet.addRow(['5. 产品图片可以留空，最多5张；每张图片请填写或插入到一个独立的产品图片单元格']);
     worksheet.addRow(['6. 产品编码由系统自动生成']);
-    worksheet.addRow(['7. 状态：是启用/否禁用，不填默认为是']);
+    worksheet.addRow(['7. 库存主单位：填写单位编码、名称或符号，如 PCS、个、箱']);
+    worksheet.addRow(['8. 状态：是启用/否禁用，不填默认为是']);
 
     const infoEndRow = worksheet.rowCount;
     const endColLetter = 'AD';
@@ -268,7 +272,7 @@ export class ProductImportService extends BaseImportService {
       '产品图片3',
       '产品图片4',
       '产品图片5',
-      '单位',
+      '库存主单位*',
       '安全库存',
       '状态',
       '属性1',
@@ -446,7 +450,12 @@ export class ProductImportService extends BaseImportService {
       console.log('数据开始行:', dataStartRow);
       const imageColumns = this.findImageColumns(worksheet, dataStartRow);
       const codeColumn = this.findColumnIndex(worksheet, ['产品编码'], 0, dataStartRow);
-      const unitColumn = this.findColumnIndex(worksheet, ['单位'], 8, dataStartRow);
+      const unitColumn = this.findColumnIndex(
+        worksheet,
+        ['库存主单位*', '库存主单位'],
+        8,
+        dataStartRow,
+      );
       const safetyStockColumn = this.findColumnIndex(worksheet, ['安全库存'], 9, dataStartRow);
       const statusColumn = this.findColumnIndex(worksheet, ['状态'], 10, dataStartRow);
       const attrStartColumn = this.findColumnIndex(worksheet, ['属性1'], 11, dataStartRow);
@@ -636,6 +645,9 @@ export class ProductImportService extends BaseImportService {
     if (!categoryCode) {
       throw new Error('类目不能为空');
     }
+    if (!unit) {
+      throw new Error('库存主单位不能为空');
+    }
 
     const category = await this.categoryRepo.findOne({
       where: this.buildReadableCategoryWhere(tenantId, categoryCode),
@@ -682,6 +694,11 @@ export class ProductImportService extends BaseImportService {
       throw new Error(`产品编码 ${productCode} 已存在`);
     }
 
+    const inventoryUnit = await this.findUnitByText(unit, tenantId);
+    if (!inventoryUnit) {
+      throw new Error(`库存主单位 ${unit} 不存在或未启用`);
+    }
+
     const status = this.parseImportStatus(isActive);
 
     let stock = 0;
@@ -702,7 +719,8 @@ export class ProductImportService extends BaseImportService {
       name,
       code: productCode,
       categoryId: category.id,
-      unit: unit || null,
+      unitId: inventoryUnit.id,
+      unit: inventoryUnit.symbol || inventoryUnit.name || inventoryUnit.code,
       safetyStock: stock,
       isActive: status,
       specs: Object.keys(specsObj).length > 0 ? specsObj : null,
@@ -711,6 +729,27 @@ export class ProductImportService extends BaseImportService {
     });
 
     await this.productRepo.save(product);
+  }
+
+  private async findUnitByText(value: string, tenantId: string) {
+    const keyword = value.trim();
+    if (!keyword) return null;
+
+    const units = await this.unitRepo.find({
+      where: [
+        { id: keyword, tenantId, isActive: 1 },
+        { id: keyword, tenantId: IsNull(), isActive: 1 },
+        { code: keyword, tenantId, isActive: 1 },
+        { code: keyword, tenantId: IsNull(), isActive: 1 },
+        { name: keyword, tenantId, isActive: 1 },
+        { name: keyword, tenantId: IsNull(), isActive: 1 },
+        { symbol: keyword, tenantId, isActive: 1 },
+        { symbol: keyword, tenantId: IsNull(), isActive: 1 },
+      ],
+      order: { tenantId: 'DESC', sortOrder: 'ASC', createdAt: 'ASC' },
+    });
+
+    return units[0] || null;
   }
 
   private parseImportStatus(value?: string): number {

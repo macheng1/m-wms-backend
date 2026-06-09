@@ -7,12 +7,14 @@ import { Category } from './entities/category.entity';
 import { QueryProductDto } from './entities/dto/query-product.dto';
 import { SaveProductDto } from './entities/dto/save-product.dto';
 import { Product } from './product.entity';
+import { Unit } from '../unit/entities/unit.entity';
 
 @Injectable()
 export class ProductsService {
   constructor(
     @InjectRepository(Product) private readonly productRepo: Repository<Product>,
     @InjectRepository(Category) private readonly categoryRepo: Repository<Category>,
+    @InjectRepository(Unit) private readonly unitRepo: Repository<Unit>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -29,6 +31,7 @@ export class ProductsService {
   /** 新增产品 */
   async save(dto: SaveProductDto, tenantId: string) {
     const category = await this.validateCategory(dto.categoryId, tenantId);
+    const unit = await this.validateUnit(dto.unitId, tenantId);
     dto.specs = this.normalizeAndValidateSpecs(category, dto.specs || {});
 
     // 如果未传编码，则自动生成通用SKU
@@ -39,7 +42,11 @@ export class ProductsService {
     const exists = await this.productRepo.findOne({ where: { code: dto.code, tenantId } });
     if (exists) throw new BusinessException(`产品编码 ${dto.code} 已存在`);
 
-    const product = this.productRepo.create({ ...dto, tenantId });
+    const product = this.productRepo.create({
+      ...dto,
+      tenantId,
+      unit: unit.symbol || unit.name || unit.code,
+    });
     const saved = await this.productRepo.save(product);
     return this.getDetail(saved.id, tenantId);
   }
@@ -51,12 +58,19 @@ export class ProductsService {
     const product = await this.productRepo.findOne({ where: { id: dto.id, tenantId } });
     if (!product) throw new BusinessException('产品不存在');
     const category = await this.validateCategory(dto.categoryId, tenantId);
+    const unit = await this.validateUnit(dto.unitId, tenantId);
     dto.specs = this.normalizeAndValidateSpecs(category, dto.specs || {});
 
     const exists = await this.productRepo.findOne({
       where: { code: dto.code || product.code, tenantId, id: Not(dto.id) },
     });
     if (exists) throw new BusinessException(`产品编码 ${dto.code || product.code} 已存在`);
+
+    if (product.unitId !== dto.unitId) {
+      await this.assertProductUnitCanChange(product, tenantId);
+    }
+
+    dto.unit = unit.symbol || unit.name || unit.code;
 
     // 对称赋值
     Object.assign(product, dto);
@@ -71,6 +85,7 @@ export class ProductsService {
       .createQueryBuilder('p')
       .leftJoinAndSelect('p.category', 'c')
       .leftJoinAndSelect('c.attributes', 'attrs')
+      .leftJoinAndSelect('p.inventoryUnit', 'unit')
       .where('p.tenantId = :tenantId', { tenantId });
 
     if (keyword) {
@@ -102,14 +117,14 @@ export class ProductsService {
     // 1. 查询产品及必要关联
     const product = await this.productRepo.findOne({
       where: { id, tenantId },
-      relations: ['category'], // 加载类目信息以备不时之需
+      relations: ['category', 'inventoryUnit'], // 加载类目和库存主单位
     });
 
     if (!product) throw new BusinessException('产品不存在');
 
     // 2. 构建对称返回结构
     // 显式提取字段，确保 categoryId 以字符串形式存在于顶层
-    const { category, ...baseInfo } = product;
+    const { category, inventoryUnit, ...baseInfo } = product;
 
     return {
       ...baseInfo,
@@ -122,6 +137,11 @@ export class ProductsService {
       categoryId: product.categoryId,
       // 如果之后需要在列表展示类目名称，可以保留 category 对象，但 categoryId 必须在顶层
       categoryName: category?.name,
+      unitId: product.unitId,
+      unitCode: inventoryUnit?.code,
+      unitName: inventoryUnit?.name,
+      unitSymbol: inventoryUnit?.symbol || inventoryUnit?.name || inventoryUnit?.code,
+      inventoryUnit,
     };
   }
   /**
@@ -156,6 +176,32 @@ export class ProductsService {
     if (!category) throw new BusinessException('所选类目不存在或无权使用');
     if (category.isActive !== 1) throw new BusinessException('所选类目已禁用');
     return category;
+  }
+
+  private async validateUnit(unitId: string, tenantId: string) {
+    const unit = await this.unitRepo.findOne({
+      where: [{ id: unitId, tenantId }, { id: unitId, tenantId: IsNull() }],
+    });
+    if (!unit) throw new BusinessException('所选库存主单位不存在或无权使用');
+    if (unit.isActive !== 1) throw new BusinessException('所选库存主单位已禁用');
+    return unit;
+  }
+
+  private async assertProductUnitCanChange(product: Product, tenantId: string) {
+    const [inventoryRows, transactionRows] = await Promise.all([
+      this.dataSource.query(
+        'SELECT COUNT(*) AS total FROM inventory WHERE tenantId = ? AND sku = ?',
+        [tenantId, product.code],
+      ),
+      this.dataSource.query(
+        'SELECT COUNT(*) AS total FROM inventory_transactions WHERE tenantId = ? AND sku = ?',
+        [tenantId, product.code],
+      ),
+    ]);
+
+    if (Number(inventoryRows?.[0]?.total || 0) > 0 || Number(transactionRows?.[0]?.total || 0) > 0) {
+      throw new BusinessException('该产品已有库存或库存流水，不能修改库存主单位');
+    }
   }
 
   private normalizeAndValidateSpecs(category: Category, specs: Record<string, any>) {
@@ -216,6 +262,7 @@ export class ProductsService {
       id: p.id,
       name: p.name,
       code: p.code,
+      unitId: p.unitId,
     }));
   }
 }

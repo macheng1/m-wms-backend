@@ -735,10 +735,11 @@ export class LocationService {
         'location.code as code',
         'location.name as name',
         'inventoryLocation.quantity as quantity',
+        'inventoryLocation.lockedQuantity as lockedQuantity',
       ])
       .where('inventoryLocation.tenantId = :tenantId', { tenantId })
       .andWhere('inventoryLocation.sku = :sku', { sku })
-      .andWhere('inventoryLocation.quantity > 0')
+      .andWhere('(inventoryLocation.quantity - COALESCE(inventoryLocation.lockedQuantity, 0)) > 0')
       .andWhere('location.status <> :disabled', {
         disabled: LocationStatus.DISABLED,
       })
@@ -750,13 +751,19 @@ export class LocationService {
       .getRawMany();
 
     if (detailRows.length > 0) {
-      return detailRows.map((row) => ({
-        value: row.value,
-        label: `${row.code} - ${row.name} / 库存 ${Number(row.quantity || 0)}`,
-        code: row.code,
-        name: row.name,
-        quantity: Number(row.quantity || 0),
-      }));
+      return detailRows.map((row) => {
+        const availableQuantity = Math.max(
+          Number(row.quantity || 0) - Number(row.lockedQuantity || 0),
+          0,
+        );
+        return {
+          value: row.value,
+          label: `${row.code} - ${row.name} / 可用 ${availableQuantity}`,
+          code: row.code,
+          name: row.name,
+          quantity: availableQuantity,
+        };
+      });
     }
 
     const fallbackRows = await this.inventoryRepository
@@ -767,10 +774,11 @@ export class LocationService {
         'location.code as code',
         'location.name as name',
         'inventory.quantity as quantity',
+        'inventory.lockedQuantity as lockedQuantity',
       ])
       .where('inventory.tenantId = :tenantId', { tenantId })
       .andWhere('inventory.sku = :sku', { sku })
-      .andWhere('inventory.quantity > 0')
+      .andWhere('(inventory.quantity - COALESCE(inventory.lockedQuantity, 0)) > 0')
       .andWhere('inventory.locationId IS NOT NULL')
       .andWhere('location.status <> :disabled', {
         disabled: LocationStatus.DISABLED,
@@ -782,12 +790,18 @@ export class LocationService {
       .addOrderBy('location.position', 'ASC')
       .getRawMany();
 
-    return fallbackRows.map((row) => ({
-      value: row.value,
-      label: `${row.code} - ${row.name} / 库存 ${Number(row.quantity || 0)}`,
-      code: row.code,
-      name: row.name,
-      quantity: Number(row.quantity || 0),
-    }));
+    return fallbackRows.map((row) => {
+      const availableQuantity = Math.max(
+        Number(row.quantity || 0) - Number(row.lockedQuantity || 0),
+        0,
+      );
+      return {
+        value: row.value,
+        label: `${row.code} - ${row.name} / 可用 ${availableQuantity}`,
+        code: row.code,
+        name: row.name,
+        quantity: availableQuantity,
+      };
+    });
   }
 }

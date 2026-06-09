@@ -28,6 +28,9 @@ export class Inventory {
   @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
   quantity: number;
 
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
+  lockedQuantity: number;
+
   @Index('inventory_unit_id_idx')
   @Column({ type: 'char', length: 36, nullable: true })
   unitId: string;

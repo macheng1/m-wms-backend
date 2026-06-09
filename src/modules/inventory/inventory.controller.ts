@@ -43,8 +43,9 @@ export class InventoryController {
     @Query('pageSize') pageSize?: number,
     @Query('sku') sku?: string,
     @Query('keyword') keyword?: string,
+    @Query('stockStatus') stockStatus?: string,
   ) {
-    return this.inventoryService.findPage(tenantId, { page, pageSize, sku, keyword });
+    return this.inventoryService.findPage(tenantId, { page, pageSize, sku, keyword, stockStatus });
   }
 
   @Get('alerts')

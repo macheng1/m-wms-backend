@@ -18,10 +18,13 @@ import { MiniappYellowPageService } from './miniapp-yellow-page.service';
 import { PortalJob } from '../portal/entities/portal-job.entity';
 import { PortalConfig } from '../portal/entities/portal-config.entity';
 import { OperationLog } from '../admin/entities/operation-log.entity';
+import { OrderModule } from '../order/order.module';
+import { Inventory } from '../inventory/entities/inventory.entity';
 
 @Module({
   imports: [
     TenantModule,
+    OrderModule,
     TypeOrmModule.forFeature([
       MiniappMember,
       MiniappCategory,
@@ -34,6 +37,7 @@ import { OperationLog } from '../admin/entities/operation-log.entity';
       PortalJob,
       PortalConfig,
       OperationLog,
+      Inventory,
     ]),
   ],
   controllers: [MiniappApiController],

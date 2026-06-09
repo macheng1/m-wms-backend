@@ -24,6 +24,8 @@ import { MiniappBannerService } from './miniapp-banner.service';
 import { MiniappCategoryService } from './miniapp-category.service';
 import { MiniappPostService } from './miniapp-post.service';
 import { MiniappYellowPageService } from './miniapp-yellow-page.service';
+import { OrderService } from '../order/order.service';
+import { CreateMiniappOrderDto } from '../order/dto/create-miniapp-order.dto';
 import {
   BindCurrentMiniappMemberPhoneDto,
   QueryMiniappMemberDto,
@@ -42,6 +44,7 @@ export class MiniappApiController {
     private readonly postService: MiniappPostService,
     private readonly bannerService: MiniappBannerService,
     private readonly yellowPageService: MiniappYellowPageService,
+    private readonly orderService: OrderService,
   ) {}
 
   @Get('meta')
@@ -198,6 +201,34 @@ export class MiniappApiController {
     @Param('productId') productId: string,
   ) {
     return this.yellowPageService.getProductDetail(tenantId, productId);
+  }
+
+  @Post('orders')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '小程序提交产品订购单' })
+  createOrder(@Req() req, @Body() dto: CreateMiniappOrderDto) {
+    return this.orderService.createMiniappOrder(dto, req.user.memberId || req.user.sub);
+  }
+
+  @Get('orders/my')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '小程序我的订购单列表' })
+  findMyOrders(@Req() req, @Query() query: any) {
+    return this.orderService.findMiniappOrders(req.user.memberId || req.user.sub, query);
+  }
+
+  @Get('orders/my/:id')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '小程序我的订购单详情' })
+  findMyOrderDetail(@Req() req, @Param('id') id: string) {
+    return this.orderService.findMiniappOrderDetail(req.user.memberId || req.user.sub, id);
+  }
+
+  @Post('orders/my/:id/cancel')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '小程序取消我的待确认订购单' })
+  cancelMyOrder(@Req() req, @Param('id') id: string) {
+    return this.orderService.cancelMiniappOrder(req.user.memberId || req.user.sub, id);
   }
 
   @Get('yellow-pages/:id')

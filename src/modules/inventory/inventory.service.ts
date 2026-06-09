@@ -74,11 +74,19 @@ export class InventoryService {
   private async getProductBySku(sku: string, tenantId: string): Promise<Product> {
     const product = await this.productRepository.findOne({
       where: { code: sku, tenantId },
+      relations: ['inventoryUnit'],
     });
     if (!product) {
       throw new NotFoundException(`SKU ${sku} 对应的产品不存在`);
     }
     return product;
+  }
+
+  private getProductInventoryUnit(product: Product) {
+    if (!product.unitId || !(product as any).inventoryUnit) {
+      throw new BadRequestException(`产品 ${product.name} 未维护库存主单位，请先在产品资料中选择单位`);
+    }
+    return (product as any).inventoryUnit;
   }
 
   private async updateLocationOccupancy(
@@ -234,6 +242,7 @@ export class InventoryService {
         'inventory',
         'unit.name as unitName',
         'unit.code as unitCode',
+        'unit.category as unitCategory',
         'unit.symbol as unitSymbol',
         'location.name as locationName',
         'location.code as locationCode',
@@ -254,11 +263,11 @@ export class InventoryService {
 
     // 在数据库层面进行库存状态筛选
     if (stockStatus === 'OUT_OF_STOCK') {
-      queryBuilder.andWhere('inventory.quantity = 0');
+      queryBuilder.andWhere('(inventory.quantity - COALESCE(inventory.lockedQuantity, 0)) = 0');
     } else if (stockStatus === 'LOW_STOCK') {
-      queryBuilder.andWhere('inventory.quantity > 0 AND inventory.quantity < COALESCE(product.safetyStock, 0)');
+      queryBuilder.andWhere('(inventory.quantity - COALESCE(inventory.lockedQuantity, 0)) > 0 AND (inventory.quantity - COALESCE(inventory.lockedQuantity, 0)) < COALESCE(product.safetyStock, 0)');
     } else if (stockStatus === 'IN_STOCK') {
-      queryBuilder.andWhere('inventory.quantity >= COALESCE(product.safetyStock, 0)');
+      queryBuilder.andWhere('(inventory.quantity - COALESCE(inventory.lockedQuantity, 0)) >= COALESCE(product.safetyStock, 0)');
       queryBuilder.andWhere('product.safetyStock IS NOT NULL');
     }
 
@@ -299,8 +308,10 @@ export class InventoryService {
     let list = result.entities.map((entity: any, index) => {
       const raw = result.raw[index];
       const numQuantity = Number(entity.quantity);
+      const lockedQuantity = Number(entity.lockedQuantity || 0);
+      const availableQuantity = Math.max(numQuantity - lockedQuantity, 0);
       const safetyStock = raw.safetyStock ? Number(raw.safetyStock) : 0;
-      const status = calculateStockStatus(numQuantity, safetyStock);
+      const status = calculateStockStatus(availableQuantity, safetyStock);
 
       // 实时计算多单位库存（确保数据正确，不依赖数据库中可能过期的 multiUnitQty）
       const formattedMultiUnitQty: Record<string, any> = {};
@@ -336,6 +347,7 @@ export class InventoryService {
         quantity: Math.round(numQuantity * 100) / 100 === Math.floor(numQuantity) ? Math.floor(numQuantity) : Math.round(numQuantity * 100) / 100,
         unitName: raw.unitName,
         unitCode: raw.unitCode,
+        unitCategory: raw.unitCategory,
         unitSymbol: raw.unitSymbol,
         // 库位信息
         locationName: raw.locationName,
@@ -344,6 +356,14 @@ export class InventoryService {
         quantityDisplay: raw.unitSymbol
           ? `${formatNumber(numQuantity)} ${raw.unitSymbol}`
           : `${formatNumber(numQuantity)}`,
+        lockedQuantity: Math.round(lockedQuantity * 100) / 100 === Math.floor(lockedQuantity) ? Math.floor(lockedQuantity) : Math.round(lockedQuantity * 100) / 100,
+        lockedQuantityDisplay: raw.unitSymbol
+          ? `${formatNumber(lockedQuantity)} ${raw.unitSymbol}`
+          : `${formatNumber(lockedQuantity)}`,
+        availableQuantity: Math.round(availableQuantity * 100) / 100 === Math.floor(availableQuantity) ? Math.floor(availableQuantity) : Math.round(availableQuantity * 100) / 100,
+        availableQuantityDisplay: raw.unitSymbol
+          ? `${formatNumber(availableQuantity)} ${raw.unitSymbol}`
+          : `${formatNumber(availableQuantity)}`,
         // 多单位库存带单位信息（实时计算，整数不显示小数位）
         multiUnitQty: formattedMultiUnitQty,
         // 安全库存
@@ -415,16 +435,14 @@ export class InventoryService {
     const queryBuilder = this.inventoryRepository.createQueryBuilder('inventory');
     queryBuilder
       .leftJoin('inventory.unit', 'unit')
-      .select([
-        'inventory.sku',
-        'inventory.productName',
-        'inventory.quantity',
-        'unit.name',
-        'unit.symbol',
-        'inventory.updatedAt',
-      ])
+      .select('inventory.sku', 'sku')
+      .addSelect('MAX(inventory.productName)', 'productName')
+      .addSelect('SUM(inventory.quantity - COALESCE(inventory.lockedQuantity, 0))', 'availableQuantity')
+      .addSelect('MAX(unit.name)', 'unitName')
+      .addSelect('MAX(unit.symbol)', 'unitSymbol')
       .where('inventory.tenantId = :tenantId', { tenantId })
-      .andWhere('inventory.quantity > 0');
+      .groupBy('inventory.sku')
+      .having('SUM(inventory.quantity - COALESCE(inventory.lockedQuantity, 0)) > 0');
 
     if (keyword) {
       queryBuilder.andWhere(
@@ -435,28 +453,18 @@ export class InventoryService {
 
     queryBuilder
       .orderBy('inventory.sku', 'ASC')
-      .addOrderBy('inventory.updatedAt', 'DESC')
       .take(100); // 限制最多返回100条
 
     const result = await queryBuilder.getRawMany();
 
-    // 对相同 SKU 的记录去重，只保留最新的（按 updatedAt 降序排列后第一个）
-    const uniqueMap = new Map<string, any>();
-    for (const item of result) {
-      const sku = item.inventory_sku;
-      if (!uniqueMap.has(sku)) {
-        uniqueMap.set(sku, item);
-      }
-    }
-
-    return Array.from(uniqueMap.values()).map((item) => ({
-      value: item.inventory_sku,
-      label: `${item.inventory_productName} (${item.inventory_sku}) - 库存: ${item.inventory_quantity}${item.unit_symbol || ''}`,
-      sku: item.inventory_sku,
-      productName: item.inventory_productName,
-      quantity: Number(item.inventory_quantity),
-      unitName: item.unit_name,
-      unitSymbol: item.unit_symbol,
+    return result.map((item) => ({
+      value: item.sku,
+      label: `${item.productName} (${item.sku}) - 可用: ${formatNumber(item.availableQuantity)}${item.unitSymbol || ''}`,
+      sku: item.sku,
+      productName: item.productName,
+      quantity: Number(item.availableQuantity || 0),
+      unitName: item.unitName,
+      unitSymbol: item.unitSymbol,
     }));
   }
 
@@ -472,6 +480,13 @@ export class InventoryService {
     await queryRunner.startTransaction();
 
     try {
+      if (dto.quantity <= 0) {
+        throw new BadRequestException('入库数量必须大于 0');
+      }
+      if (!isInboundType(dto.type)) {
+        throw new BadRequestException('入库操作不能使用出库类型');
+      }
+
       // 1. 验证产品并获取产品信息（SKU 即为产品 code）
       const product = await this.getProductBySku(dto.sku, tenantId);
 
@@ -496,13 +511,11 @@ export class InventoryService {
       const beforeQty = inventory ? Number(inventory.quantity) : 0;
       let convertedQty: number;
 
-      let inventoryUnit: any; // 库存主单位
-      if (inventory && inventory.unitId) {
-        // 库存记录存在且有单位，需要换算
-        inventoryUnit = await this.unitService.findOne(
-          inventory.unitId,
-          tenantId,
-        );
+      const inventoryUnit = this.getProductInventoryUnit(product);
+      if (inventory) {
+        if (inventory.unitId && inventory.unitId !== inventoryUnit.id) {
+          throw new BadRequestException('库存单位与产品库存主单位不一致，请先同步库存单位');
+        }
         convertedQty = UnitConverter.convert(
           dto.quantity,
           unit,
@@ -516,6 +529,7 @@ export class InventoryService {
           {
             quantity: beforeQty + convertedQty,
             productName: product.name,
+            unitId: inventoryUnit.id,
           },
         );
 
@@ -523,14 +537,17 @@ export class InventoryService {
           where: { id: inventory.id },
         });
       } else {
-        // 库存记录不存在或无单位，直接创建
-        convertedQty = dto.quantity;
-        inventoryUnit = unit; // 新建时，用户选择的单位就是库存主单位
+        // 库存记录不存在，按产品库存主单位创建
+        convertedQty = UnitConverter.convert(
+          dto.quantity,
+          unit,
+          this.toUnit(inventoryUnit),
+        );
         inventory = queryRunner.manager.create(Inventory, {
           sku: dto.sku,
           productName: product.name, // 使用产品表中的名称
           quantity: convertedQty,
-          unitId: unit.id,
+          unitId: inventoryUnit.id,
           locationId: dto.locationId,
           tenantId,
           multiUnitQty: null,
@@ -653,6 +670,7 @@ export class InventoryService {
           locationId: item.locationId || dto.locationId,
           type: dto.type,
           remark: dto.remark,
+          notifyUserIds: dto.notifyUserIds,
         },
         tenantId,
       );
@@ -674,6 +692,13 @@ export class InventoryService {
     await queryRunner.startTransaction();
 
     try {
+      if (dto.quantity <= 0) {
+        throw new BadRequestException('出库数量必须大于 0');
+      }
+      if (!isOutboundType(dto.type)) {
+        throw new BadRequestException('出库操作不能使用入库类型');
+      }
+
       // 1. 验证产品并获取产品信息（SKU 即为产品 code）
       const product = await this.getProductBySku(dto.sku, tenantId);
 
@@ -688,12 +713,14 @@ export class InventoryService {
       }
 
       const beforeQty = Number(inventory.quantity);
+      const lockedQty = Number(inventory.lockedQuantity || 0);
+      const availableQty = Math.max(beforeQty - lockedQty, 0);
 
-      // 3. 获取库存单位
-      const inventoryUnit = await this.unitService.findOne(
-        inventory.unitId!,
-        tenantId,
-      );
+      // 3. 获取产品库存主单位，并校验库存记录一致
+      const inventoryUnit = this.getProductInventoryUnit(product);
+      if (inventory.unitId && inventory.unitId !== inventoryUnit.id) {
+        throw new BadRequestException('库存单位与产品库存主单位不一致，请先同步库存单位');
+      }
 
       // 4. 确定出库单位（优先使用传入的 unitCode，否则使用库存单位）
       let unit: any;
@@ -721,10 +748,10 @@ export class InventoryService {
         this.toUnit(inventoryUnit),
       );
 
-      // 6. 检查库存是否充足
-      if (beforeQty < outboundQty) {
+      // 6. 检查可用库存是否充足，不能扣减已锁定库存
+      if (availableQty < outboundQty) {
         throw new BadRequestException(
-          `库存不足: 当前${beforeQty}${inventoryUnit.symbol}, 需要出库${outboundQty}${inventoryUnit.symbol}`,
+          `可用库存不足: 当前可用${availableQty}${inventoryUnit.symbol}, 需要出库${outboundQty}${inventoryUnit.symbol}`,
         );
       }
 
@@ -744,10 +771,11 @@ export class InventoryService {
       await queryRunner.manager.update(
         Inventory,
         { id: inventory.id },
-        {
-          quantity: afterQty,
-        },
-      );
+          {
+            quantity: afterQty,
+            unitId: inventoryUnit.id,
+          },
+        );
 
       // 7. 更新多单位库存
       const updatedInventory = await queryRunner.manager.findOne(Inventory, {
@@ -855,6 +883,7 @@ export class InventoryService {
           locationId: item.locationId || dto.locationId,
           type: dto.type,
           remark: dto.remark,
+          notifyUserIds: dto.notifyUserIds,
         },
         tenantId,
       );
@@ -1234,30 +1263,48 @@ export class InventoryService {
   }> {
     const { page = 1, pageSize = 10 } = options;
 
-    // 查询库存数量低于安全库存的记录（关联产品表）
-    const queryBuilder = this.inventoryRepository.createQueryBuilder('inventory');
-    queryBuilder
-      .leftJoin('inventory.unit', 'unit')
+    // 查询可用库存低于安全库存的记录（关联产品表）。
+    // 先分页查 ID，再查详情，避免 TypeORM 在 join + take 场景下生成 DISTINCT 外层查询时丢失排序别名。
+    const baseQueryBuilder = this.inventoryRepository.createQueryBuilder('inventory');
+    baseQueryBuilder
       .leftJoin('products', 'product', 'inventory.sku = product.code AND product.tenantId = :tenantId')
-      .select([
-        'inventory',
-        'unit.name as unitName',
-        'unit.code as unitCode',
-        'unit.symbol as unitSymbol',
-        'product.safetyStock as safetyStock',
-      ])
       .where('inventory.tenantId = :tenantId', { tenantId })
-      .andWhere('inventory.quantity < COALESCE(product.safetyStock, 0)')
-      .orderBy('inventory.quantity', 'ASC')
-      .addOrderBy('inventory.createdAt', 'DESC');
+      .andWhere('(inventory.quantity - COALESCE(inventory.lockedQuantity, 0)) < COALESCE(product.safetyStock, 0)');
 
-    const result = await queryBuilder
-      .skip((page - 1) * pageSize)
-      .take(pageSize)
-      .getRawAndEntities();
+    const total = await baseQueryBuilder.clone().getCount();
+    const idRows = await baseQueryBuilder
+      .clone()
+      .select('inventory.id', 'id')
+      .addSelect('(inventory.quantity - COALESCE(inventory.lockedQuantity, 0))', 'availableQuantitySort')
+      .orderBy('availableQuantitySort', 'ASC')
+      .addOrderBy('inventory.createdAt', 'DESC')
+      .offset((page - 1) * pageSize)
+      .limit(pageSize)
+      .getRawMany();
 
-    // 获取总数
-    const total = await queryBuilder.getCount();
+    const ids = idRows.map((row) => row.id).filter(Boolean);
+    const result =
+      ids.length > 0
+        ? await this.inventoryRepository
+            .createQueryBuilder('inventory')
+            .leftJoin('inventory.unit', 'unit')
+            .leftJoin('products', 'product', 'inventory.sku = product.code AND product.tenantId = :tenantId')
+            .select([
+              'inventory',
+              'unit.name as unitName',
+              'unit.code as unitCode',
+              'unit.symbol as unitSymbol',
+              'product.safetyStock as safetyStock',
+            ])
+            .where('inventory.tenantId = :tenantId', { tenantId })
+            .andWhere('inventory.id IN (:...ids)', { ids })
+            .getRawAndEntities()
+        : { entities: [], raw: [] };
+    const rawById = new Map(result.raw.map((raw: any) => [raw.inventory_id, raw]));
+    const entityById = new Map(result.entities.map((entity: any) => [entity.id, entity]));
+    const orderedEntities = ids
+      .map((id) => entityById.get(id))
+      .filter(Boolean);
 
     // 获取所有单位，用于多单位库存显示
     const allUnits = await this.unitService.getAllUnits(tenantId);
@@ -1292,11 +1339,13 @@ export class InventoryService {
     };
 
     // 格式化返回数据
-    const list = result.entities.map((entity: any, index) => {
-      const raw = result.raw[index];
+    const list = orderedEntities.map((entity: any) => {
+      const raw = rawById.get(entity.id) || {};
       const numQuantity = Number(entity.quantity);
+      const lockedQuantity = Number(entity.lockedQuantity || 0);
+      const availableQuantity = Math.max(numQuantity - lockedQuantity, 0);
       const safetyStock = raw.safetyStock ? Number(raw.safetyStock) : 0;
-      const alertLevel = calculateAlertLevel(numQuantity, safetyStock);
+      const alertLevel = calculateAlertLevel(availableQuantity, safetyStock);
       const alertInfo = AlertLevelInfo[alertLevel];
 
       // 实时计算多单位库存（确保数据正确，不依赖数据库中可能过期的 multiUnitQty）
@@ -1336,6 +1385,10 @@ export class InventoryService {
         unitSymbol: raw.unitSymbol,
         // quantity 带单位显示（整数不显示小数位）
         quantityDisplay: raw.unitSymbol ? `${formatNumber(numQuantity)} ${raw.unitSymbol}` : formatNumber(numQuantity),
+        lockedQuantity: Math.round(lockedQuantity * 100) / 100 === Math.floor(lockedQuantity) ? Math.floor(lockedQuantity) : Math.round(lockedQuantity * 100) / 100,
+        lockedQuantityDisplay: raw.unitSymbol ? `${formatNumber(lockedQuantity)} ${raw.unitSymbol}` : formatNumber(lockedQuantity),
+        availableQuantity: Math.round(availableQuantity * 100) / 100 === Math.floor(availableQuantity) ? Math.floor(availableQuantity) : Math.round(availableQuantity * 100) / 100,
+        availableQuantityDisplay: raw.unitSymbol ? `${formatNumber(availableQuantity)} ${raw.unitSymbol}` : formatNumber(availableQuantity),
         // 多单位库存带单位信息（实时计算，整数不显示小数位）
         multiUnitQty: formattedMultiUnitQty,
         // 将 decimal 类型转换为数字类型（整数返回整数，小数返回小数）
@@ -1406,6 +1459,10 @@ export class InventoryService {
     await queryRunner.startTransaction();
 
     try {
+      if (dto.quantity === 0) {
+        throw new BadRequestException('调整数量不能为 0');
+      }
+
       // 1. 验证产品并获取产品信息
       const product = await this.getProductBySku(dto.sku, tenantId);
 
@@ -1428,6 +1485,7 @@ export class InventoryService {
       });
 
       const beforeQty = inventory ? Number(inventory.quantity) : 0;
+      const lockedQty = inventory ? Number(inventory.lockedQuantity || 0) : 0;
       let adjustedQty: number;
 
       // 4. 判断调整类型并计算调整后的数量
@@ -1437,13 +1495,11 @@ export class InventoryService {
           : TransactionType.ADJUSTMENT_OUT;
       const absQuantity = Math.abs(dto.quantity);
 
-      let inventoryUnit: any; // 库存主单位
-      if (inventory && inventory.unitId) {
-        // 库存记录存在且有单位，需要换算
-        inventoryUnit = await this.unitService.findOne(
-          inventory.unitId,
-          tenantId,
-        );
+      const inventoryUnit = this.getProductInventoryUnit(product);
+      if (inventory) {
+        if (inventory.unitId && inventory.unitId !== inventoryUnit.id) {
+          throw new BadRequestException('库存单位与产品库存主单位不一致，请先同步库存单位');
+        }
         adjustedQty = UnitConverter.convert(
           absQuantity,
           unit,
@@ -1454,6 +1510,11 @@ export class InventoryService {
         if (adjustType === TransactionType.ADJUSTMENT_OUT && beforeQty < adjustedQty) {
           throw new BadRequestException(
             `库存不足: 当前${beforeQty}${inventoryUnit.symbol}, 需要调整${adjustedQty}${inventoryUnit.symbol}`,
+          );
+        }
+        if (adjustType === TransactionType.ADJUSTMENT_OUT && beforeQty - adjustedQty < lockedQty) {
+          throw new BadRequestException(
+            `存在锁定库存，不能将总库存调整到锁定数量以下: 当前锁定${lockedQty}${inventoryUnit.symbol}`,
           );
         }
 
@@ -1469,6 +1530,7 @@ export class InventoryService {
           {
             quantity: newQty,
             productName: product.name,
+            unitId: inventoryUnit.id,
           },
         );
 
@@ -1480,13 +1542,16 @@ export class InventoryService {
         if (adjustType === TransactionType.ADJUSTMENT_OUT) {
           throw new BadRequestException('库存记录不存在，无法减少库存');
         }
-        adjustedQty = absQuantity;
-        inventoryUnit = unit; // 新建时，用户选择的单位就是库存主单位
+        adjustedQty = UnitConverter.convert(
+          absQuantity,
+          unit,
+          this.toUnit(inventoryUnit),
+        );
         inventory = queryRunner.manager.create(Inventory, {
           sku: dto.sku,
           productName: product.name,
           quantity: adjustedQty,
-          unitId: unit.id,
+          unitId: inventoryUnit.id,
           locationId: dto.locationId,
           tenantId,
           multiUnitQty: null,

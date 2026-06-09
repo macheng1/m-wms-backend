@@ -5,7 +5,13 @@ import { BusinessException } from '@/common/filters/business.exception';
 import { Order, OrderSource, OrderStatus, OrderType } from './entities/order.entity';
 import { OrderItem } from './entities/order-item.entity';
 import { OrderFlowLog } from './entities/order-flow-log.entity';
+import { Product } from '../product/product.entity';
+import { Inventory } from '../inventory/entities/inventory.entity';
+import { InventoryTransaction } from '../inventory/entities/inventory-transaction.entity';
+import { MiniappMember } from '../miniapp/entities/miniapp-member.entity';
+import { TransactionType } from '@/common/constants/unit.constant';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { CreateMiniappOrderDto } from './dto/create-miniapp-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { QueryOrderDto } from './dto/query-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
@@ -17,6 +23,12 @@ export class OrderService {
     private readonly orderRepository: Repository<Order>,
     @InjectRepository(OrderFlowLog)
     private readonly flowLogRepository: Repository<OrderFlowLog>,
+    @InjectRepository(Product)
+    private readonly productRepository: Repository<Product>,
+    @InjectRepository(Inventory)
+    private readonly inventoryRepository: Repository<Inventory>,
+    @InjectRepository(MiniappMember)
+    private readonly miniappMemberRepository: Repository<MiniappMember>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -42,9 +54,10 @@ export class OrderService {
 
     if (orderType === OrderType.CUSTOM) {
       return {
-        [OrderStatus.PENDING_CONFIRM]: [OrderStatus.PENDING_REVIEW, OrderStatus.CANCELLED],
+        [OrderStatus.PENDING_CONFIRM]: [OrderStatus.PENDING_REVIEW, OrderStatus.REJECTED, OrderStatus.CANCELLED],
         [OrderStatus.PENDING_REVIEW]: [OrderStatus.PENDING_SCHEDULE, OrderStatus.REJECTED, OrderStatus.CANCELLED],
-        [OrderStatus.CONFIRMED]: [OrderStatus.PENDING_SCHEDULE, OrderStatus.CANCELLED],
+        [OrderStatus.CONFIRMED]: [OrderStatus.PROCESSING, OrderStatus.PENDING_SCHEDULE, OrderStatus.CANCELLED],
+        [OrderStatus.PROCESSING]: [OrderStatus.COMPLETED, OrderStatus.CANCELLED],
         [OrderStatus.STOCK_LOCKED]: [OrderStatus.PENDING_SHIPMENT, OrderStatus.CANCELLED],
         [OrderStatus.OUT_OF_STOCK]: [OrderStatus.PENDING_SCHEDULE, OrderStatus.CANCELLED],
         [OrderStatus.PENDING_SCHEDULE]: [OrderStatus.SCHEDULED, OrderStatus.CANCELLED],
@@ -58,18 +71,21 @@ export class OrderService {
     }
 
     return {
-      [OrderStatus.PENDING_CONFIRM]: [
-        OrderStatus.CONFIRMED,
-        OrderStatus.OUT_OF_STOCK,
-        OrderStatus.CANCELLED,
-      ],
+        [OrderStatus.PENDING_CONFIRM]: [
+          OrderStatus.CONFIRMED,
+          OrderStatus.REJECTED,
+          OrderStatus.OUT_OF_STOCK,
+          OrderStatus.CANCELLED,
+        ],
       [OrderStatus.PENDING_REVIEW]: [OrderStatus.CONFIRMED, OrderStatus.REJECTED, OrderStatus.CANCELLED],
       [OrderStatus.CONFIRMED]: [
+        OrderStatus.PROCESSING,
         OrderStatus.STOCK_LOCKED,
         OrderStatus.PENDING_SHIPMENT,
         OrderStatus.OUT_OF_STOCK,
         OrderStatus.CANCELLED,
       ],
+      [OrderStatus.PROCESSING]: [OrderStatus.COMPLETED, OrderStatus.CANCELLED],
       [OrderStatus.STOCK_LOCKED]: [OrderStatus.PENDING_SHIPMENT, OrderStatus.CANCELLED],
       [OrderStatus.OUT_OF_STOCK]: [OrderStatus.PENDING_SCHEDULE, OrderStatus.CANCELLED],
       [OrderStatus.PENDING_SCHEDULE]: [OrderStatus.SCHEDULED, OrderStatus.CANCELLED],
@@ -93,6 +109,240 @@ export class OrderService {
     if (status === OrderStatus.CANCELLED) order.cancelledAt = new Date();
   }
 
+  private async createInventoryTransaction(
+    manager: any,
+    params: {
+      tenantId: string;
+      sku: string;
+      productName: string;
+      transactionType: TransactionType;
+      quantity: number;
+      unitId?: string | null;
+      beforeQty: number;
+      afterQty: number;
+      orderNo: string;
+      locationId?: string | null;
+      remark?: string | null;
+    },
+  ) {
+    await manager.save(
+      manager.create(InventoryTransaction, {
+        tenantId: params.tenantId,
+        sku: params.sku,
+        productName: params.productName,
+        transactionType: params.transactionType,
+        quantity: params.quantity,
+        unitId: params.unitId || null,
+        beforeQty: params.beforeQty,
+        afterQty: params.afterQty,
+        orderNo: params.orderNo,
+        locationId: params.locationId || null,
+        remark: params.remark || null,
+      }),
+    );
+  }
+
+  private async getSkuOrderUnit(tenantId: string, product: Product) {
+    const productUnit = product.inventoryUnit;
+    if (!product.unitId || !productUnit) {
+      throw new BusinessException('产品库存主单位未维护，暂不能订购');
+    }
+
+    const row = await this.inventoryRepository
+      .createQueryBuilder('inventory')
+      .where('inventory.tenantId = :tenantId', { tenantId })
+      .andWhere('inventory.sku = :sku', { sku: product.code })
+      .select('COUNT(inventory.id)', 'stockRows')
+      .addSelect('COUNT(DISTINCT inventory.unitId)', 'unitCount')
+      .addSelect('MIN(inventory.unitId)', 'unitId')
+      .addSelect('COALESCE(SUM(inventory.quantity - COALESCE(inventory.lockedQuantity, 0)), 0)', 'availableQuantity')
+      .getRawOne<{
+        stockRows: string;
+        unitCount: string;
+        unitId: string | null;
+        availableQuantity: string;
+      }>();
+
+    if (!row || Number(row.stockRows || 0) === 0) {
+      throw new BusinessException(`SKU ${product.code} 的库存记录不存在`);
+    }
+    if (!row.unitId) {
+      throw new BusinessException('库存单位未维护，暂不能订购');
+    }
+    if (Number(row.unitCount || 0) > 1) {
+      throw new BusinessException('该产品存在多个库存主单位，请先统一库存单位后再订购');
+    }
+    if (row.unitId !== product.unitId) {
+      throw new BusinessException('库存单位与产品库存主单位不一致，请先同步库存单位');
+    }
+
+    return {
+      unitId: product.unitId,
+      unitCode: productUnit.code,
+      unitName: productUnit.name || productUnit.symbol || productUnit.code,
+      unitSymbol: productUnit.symbol || productUnit.name || productUnit.code,
+      availableQuantity: Number(row.availableQuantity || 0),
+    };
+  }
+
+  private async lockOrderItemsStock(manager: any, order: Order, remark?: string | null) {
+    for (const item of order.items || []) {
+      if (!item.sku) continue;
+      const quantity = Number(item.quantity || 0);
+      if (quantity <= 0) continue;
+
+      const inventories = await manager.find(Inventory, {
+        where: { tenantId: order.tenantId, sku: item.sku },
+        lock: { mode: 'pessimistic_write' },
+        order: { updatedAt: 'ASC' },
+      });
+      if (inventories.length === 0) throw new BusinessException(`SKU ${item.sku} 的库存记录不存在`);
+
+      const totalAvailableQty = inventories.reduce(
+        (sum, inventory) =>
+          sum + Math.max(Number(inventory.quantity || 0) - Number(inventory.lockedQuantity || 0), 0),
+        0,
+      );
+      if (totalAvailableQty < quantity) {
+        throw new BusinessException(
+          `${item.productName} 库存不足：可订购 ${totalAvailableQty}，需要 ${quantity}`,
+        );
+      }
+
+      let remaining = quantity;
+      for (const inventory of inventories) {
+        if (remaining <= 0) break;
+        const stockQty = Number(inventory.quantity || 0);
+        const lockedQty = Number(inventory.lockedQuantity || 0);
+        const availableQty = Math.max(stockQty - lockedQty, 0);
+        if (availableQty <= 0) continue;
+        const lockQty = Math.min(availableQty, remaining);
+
+        await manager.update(
+          Inventory,
+          { id: inventory.id },
+          { lockedQuantity: lockedQty + lockQty },
+        );
+        await this.createInventoryTransaction(manager, {
+          tenantId: order.tenantId,
+          sku: item.sku,
+          productName: item.productName,
+          transactionType: TransactionType.STOCK_LOCK,
+          quantity: lockQty,
+          unitId: inventory.unitId,
+          beforeQty: availableQty,
+          afterQty: availableQty - lockQty,
+          orderNo: order.orderNumber,
+          locationId: inventory.locationId,
+          remark: remark || '订购单锁定库存',
+        });
+        remaining -= lockQty;
+      }
+    }
+  }
+
+  private async releaseOrderItemsStock(manager: any, order: Order, remark?: string | null) {
+    for (const item of order.items || []) {
+      if (!item.sku) continue;
+      const quantity = Number(item.quantity || 0);
+      if (quantity <= 0) continue;
+
+      const inventories = await manager.find(Inventory, {
+        where: { tenantId: order.tenantId, sku: item.sku },
+        lock: { mode: 'pessimistic_write' },
+        order: { updatedAt: 'ASC' },
+      });
+      if (inventories.length === 0) throw new BusinessException(`SKU ${item.sku} 的库存记录不存在`);
+
+      const totalLockedQty = inventories.reduce((sum, inventory) => sum + Number(inventory.lockedQuantity || 0), 0);
+      if (totalLockedQty < quantity) {
+        throw new BusinessException(`${item.productName} 锁定库存不足，无法释放`);
+      }
+
+      let remaining = quantity;
+      for (const inventory of inventories) {
+        if (remaining <= 0) break;
+        const stockQty = Number(inventory.quantity || 0);
+        const lockedQty = Number(inventory.lockedQuantity || 0);
+        if (lockedQty <= 0) continue;
+        const releaseQty = Math.min(lockedQty, remaining);
+        const beforeAvailable = stockQty - lockedQty;
+
+        await manager.update(
+          Inventory,
+          { id: inventory.id },
+          { lockedQuantity: lockedQty - releaseQty },
+        );
+        await this.createInventoryTransaction(manager, {
+          tenantId: order.tenantId,
+          sku: item.sku,
+          productName: item.productName,
+          transactionType: TransactionType.STOCK_RELEASE,
+          quantity: releaseQty,
+          unitId: inventory.unitId,
+          beforeQty: beforeAvailable,
+          afterQty: beforeAvailable + releaseQty,
+          orderNo: order.orderNumber,
+          locationId: inventory.locationId,
+          remark: remark || '订购单释放库存',
+        });
+        remaining -= releaseQty;
+      }
+    }
+  }
+
+  private async deductOrderItemsStock(manager: any, order: Order, remark?: string | null) {
+    for (const item of order.items || []) {
+      if (!item.sku) continue;
+      const quantity = Number(item.quantity || 0);
+      if (quantity <= 0) continue;
+
+      const inventories = await manager.find(Inventory, {
+        where: { tenantId: order.tenantId, sku: item.sku },
+        lock: { mode: 'pessimistic_write' },
+        order: { updatedAt: 'ASC' },
+      });
+      if (inventories.length === 0) throw new BusinessException(`SKU ${item.sku} 的库存记录不存在`);
+
+      const totalLockedQty = inventories.reduce((sum, inventory) => sum + Number(inventory.lockedQuantity || 0), 0);
+      const totalStockQty = inventories.reduce((sum, inventory) => sum + Number(inventory.quantity || 0), 0);
+      if (totalLockedQty < quantity) throw new BusinessException(`${item.productName} 锁定库存不足，无法完成`);
+      if (totalStockQty < quantity) throw new BusinessException(`${item.productName} 库存不足，无法扣减`);
+
+      let remaining = quantity;
+      for (const inventory of inventories) {
+        if (remaining <= 0) break;
+        const stockQty = Number(inventory.quantity || 0);
+        const lockedQty = Number(inventory.lockedQuantity || 0);
+        if (lockedQty <= 0) continue;
+        const deductQty = Math.min(lockedQty, remaining);
+
+        await manager.update(
+          Inventory,
+          { id: inventory.id },
+          {
+            quantity: stockQty - deductQty,
+            lockedQuantity: lockedQty - deductQty,
+          },
+        );
+        await this.createInventoryTransaction(manager, {
+          tenantId: order.tenantId,
+          sku: item.sku,
+          productName: item.productName,
+          transactionType: TransactionType.OUTBOUND_SALES,
+          quantity: -deductQty,
+          unitId: inventory.unitId,
+          beforeQty: stockQty,
+          afterQty: stockQty - deductQty,
+          orderNo: order.orderNumber,
+          locationId: inventory.locationId,
+          remark: remark || '订购单完成扣减库存',
+        });
+        remaining -= deductQty;
+      }
+    }
+  }
+
   async create(createOrderDto: CreateOrderDto, tenantId: string): Promise<Order> {
     const orderNumber = createOrderDto.orderNumber || this.generateOrderNumber();
     const exists = await this.orderRepository.findOne({ where: { tenantId, orderNumber } });
@@ -114,7 +364,7 @@ export class OrderService {
           : null,
       });
 
-      order.items = (createOrderDto.items || []).map((item) =>
+      const orderItems = (createOrderDto.items || []).map((item) =>
         manager.create(OrderItem, {
           ...item,
           tenantId,
@@ -130,6 +380,15 @@ export class OrderService {
       );
 
       const saved = await manager.save(order);
+      if (orderItems.length > 0) {
+        saved.items = await manager.save(
+          OrderItem,
+          orderItems.map((item) => ({
+            ...item,
+            orderId: saved.id,
+          })),
+        );
+      }
       await manager.save(
         manager.create(OrderFlowLog, {
           tenantId,
@@ -142,7 +401,93 @@ export class OrderService {
           remark: '创建订单',
         }),
       );
-      return this.findOne(saved.id, tenantId);
+      return manager.findOne(Order, {
+        where: { id: saved.id, tenantId },
+        relations: ['items'],
+        order: { items: { createdAt: 'ASC' } },
+      });
+    });
+  }
+
+  async createMiniappOrder(dto: CreateMiniappOrderDto, memberId: string): Promise<Order> {
+    const quantity = Number(dto.quantity || 0);
+    if (quantity <= 0) throw new BusinessException('订购数量必须大于 0');
+
+    const member = await this.miniappMemberRepository.findOne({ where: { id: memberId } });
+    if (!member || member.isActive !== 1) throw new BusinessException('会员不存在或已禁用');
+
+    const product = await this.productRepository.findOne({
+      where: { id: dto.productId, tenantId: dto.tenantId, isActive: 1 },
+      relations: ['inventoryUnit'],
+    });
+    if (!product) throw new BusinessException('产品不存在或已下架');
+
+    const orderUnit = await this.getSkuOrderUnit(dto.tenantId, product);
+    if (orderUnit.availableQuantity < quantity) {
+      throw new BusinessException(
+        `${product.name} 库存不足：可订购 ${orderUnit.availableQuantity}${orderUnit.unitSymbol}，需要 ${quantity}${orderUnit.unitSymbol}`,
+      );
+    }
+
+    const orderNumber = this.generateOrderNumber();
+
+    return this.dataSource.transaction(async (manager) => {
+      const order = manager.create(Order, {
+        tenantId: dto.tenantId,
+        orderNumber,
+        source: OrderSource.MINIAPP,
+        orderType: OrderType.STANDARD,
+        status: OrderStatus.PENDING_CONFIRM,
+        customerName: dto.contactName,
+        customerPhone: dto.contactPhone,
+        customerEmail: null,
+        customerAddress: dto.address || null,
+        miniappMemberId: member.id,
+        totalAmount: 0,
+        remark: dto.remark || null,
+      });
+
+      const orderItems = [
+        manager.create(OrderItem, {
+          tenantId: dto.tenantId,
+          productId: product.id,
+          sku: product.code,
+          productName: product.name,
+          quantity,
+          unitCode: orderUnit.unitCode,
+          unitName: orderUnit.unitName,
+          price: 0,
+          amount: 0,
+          specs: product.specs || null,
+        }),
+      ];
+
+      const saved = await manager.save(order);
+      saved.items = await manager.save(
+        OrderItem,
+        orderItems.map((item) => ({
+          ...item,
+          orderId: saved.id,
+        })),
+      );
+      await this.lockOrderItemsStock(manager, saved, '小程序订购锁定库存');
+      await manager.save(
+        manager.create(OrderFlowLog, {
+          tenantId: dto.tenantId,
+          orderId: saved.id,
+          fromStatus: null,
+          toStatus: OrderStatus.PENDING_CONFIRM,
+          action: 'MINIAPP_SUBSCRIBE',
+          operatorId: member.id,
+          operatorName: member.nickName || dto.contactName,
+          remark: '小程序提交订购单',
+        }),
+      );
+      return manager.findOne(Order, {
+        where: { id: saved.id, tenantId: dto.tenantId },
+        relations: ['items'],
+        order: { items: { createdAt: 'ASC' } },
+      });
     });
   }
 
@@ -178,6 +523,81 @@ export class OrderService {
       .getManyAndCount();
 
     return { list, total, page, pageSize };
+  }
+
+  async findMiniappOrders(memberId: string, query: { page?: number; pageNo?: number; pageSize?: number; status?: OrderStatus }) {
+    const page = Number(query.page || query.pageNo || 1);
+    const pageSize = Number(query.pageSize || 10);
+    const qb = this.orderRepository
+      .createQueryBuilder('order')
+      .leftJoinAndSelect('order.items', 'items')
+      .where('order.miniappMemberId = :memberId', { memberId })
+      .andWhere('order.source = :source', { source: OrderSource.MINIAPP });
+
+    if (query.status) qb.andWhere('order.status = :status', { status: query.status });
+
+    const [list, total] = await qb
+      .orderBy('order.createdAt', 'DESC')
+      .skip((page - 1) * pageSize)
+      .take(pageSize)
+      .getManyAndCount();
+
+    return {
+      list,
+      total,
+      page,
+      pageNo: page,
+      pageSize,
+      hasNext: page * pageSize < total,
+    };
+  }
+
+  async findMiniappOrderDetail(memberId: string, id: string) {
+    const order = await this.orderRepository.findOne({
+      where: { id, miniappMemberId: memberId, source: OrderSource.MINIAPP },
+      relations: ['items'],
+      order: { items: { createdAt: 'ASC' } },
+    });
+    if (!order) throw new BusinessException('订单不存在');
+    return order;
+  }
+
+  async cancelMiniappOrder(memberId: string, id: string) {
+    const order = await this.orderRepository.findOne({
+      where: { id, miniappMemberId: memberId, source: OrderSource.MINIAPP },
+      relations: ['items'],
+      order: { items: { createdAt: 'ASC' } },
+    });
+    if (!order) throw new BusinessException('订单不存在');
+    if (order.status !== OrderStatus.PENDING_CONFIRM) {
+      throw new BusinessException('只有待确认订单可以取消');
+    }
+
+    const fromStatus = order.status;
+    order.status = OrderStatus.CANCELLED;
+    order.cancelledAt = new Date();
+
+    return this.dataSource.transaction(async (manager) => {
+      await this.releaseOrderItemsStock(manager, order, '用户取消订购单');
+      const saved = await manager.save(order);
+      await manager.save(
+        manager.create(OrderFlowLog, {
+          tenantId: order.tenantId,
+          orderId: order.id,
+          fromStatus,
+          toStatus: OrderStatus.CANCELLED,
+          action: 'MINIAPP_CANCEL',
+          operatorId: memberId,
+          operatorName: order.customerName,
+          remark: '小程序用户取消订单',
+        }),
+      );
+      return manager.findOne(Order, {
+        where: { id: saved.id, miniappMemberId: memberId, source: OrderSource.MINIAPP },
+        relations: ['items'],
+        order: { items: { createdAt: 'ASC' } },
+      });
+    });
   }
 
   async findAll(tenantId: string): Promise<Order[]> {
@@ -224,6 +644,12 @@ export class OrderService {
     this.applyStatusTime(order, dto.status, dto);
 
     return this.dataSource.transaction(async (manager) => {
+      if (order.source === OrderSource.MINIAPP && [OrderStatus.CANCELLED, OrderStatus.REJECTED].includes(dto.status)) {
+        await this.releaseOrderItemsStock(manager, order, dto.remark || null);
+      }
+      if (order.source === OrderSource.MINIAPP && dto.status === OrderStatus.COMPLETED) {
+        await this.deductOrderItemsStock(manager, order, dto.remark || null);
+      }
       const saved = await manager.save(order);
       await manager.save(
         manager.create(OrderFlowLog, {

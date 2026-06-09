@@ -26,6 +26,7 @@ export enum OrderStatus {
   PENDING_REVIEW = 'PENDING_REVIEW',
   REJECTED = 'REJECTED',
   CONFIRMED = 'CONFIRMED',
+  PROCESSING = 'PROCESSING',
   STOCK_LOCKED = 'STOCK_LOCKED',
   OUT_OF_STOCK = 'OUT_OF_STOCK',
   PENDING_SCHEDULE = 'PENDING_SCHEDULE',
@@ -67,6 +68,12 @@ export class Order {
 
   @Column({ nullable: true, length: 120 })
   customerEmail: string | null;
+
+  @Column({ nullable: true, length: 255 })
+  customerAddress: string | null;
+
+  @Column({ nullable: true, length: 36 })
+  miniappMemberId: string | null;
 
   @Column('decimal', { precision: 10, scale: 2, default: 0 })
   totalAmount: number;

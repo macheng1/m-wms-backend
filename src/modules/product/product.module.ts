@@ -20,11 +20,12 @@ import { Product } from './product.entity';
 import { ProductsController } from './product.controller';
 import { ProductsService } from './product.service';
 import { OssModule } from '../aliyun/oss/oos.module';
+import { Unit } from '../unit/entities/unit.entity';
 
 @Module({
   imports: [
     // 1. 在 TypeOrmModule 中注册 Category 实体
-    TypeOrmModule.forFeature([AttributeOption, Attribute, Category, Product]),
+    TypeOrmModule.forFeature([AttributeOption, Attribute, Category, Product, Unit]),
     OssModule,
   ],
   controllers: [

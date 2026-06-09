@@ -121,11 +121,10 @@ export class UsersService {
 
     const rows = await this.dataSource.query(
       `
-        SELECT id, code, name, type, routePath, componentPath, icon, parentId, sortOrder
+        SELECT id, code, name, type, routePath, componentPath, icon, parentId, sortOrder, isHidden
         FROM menus
         WHERE scope = ?
           AND isActive = 1
-          AND isHidden = 0
           AND type IN ('DIRECTORY', 'MENU', 'BUTTON')
         ORDER BY parentId ASC, sortOrder ASC, id ASC
       `,
@@ -135,8 +134,9 @@ export class UsersService {
     this.addAncestorMenuCodes(rows, allowedCodes);
 
     const canUse = (menu: any) => isPlatformSuperAdmin || allowedCodes.has(menu.code);
+    const visibleRows = rows.filter((menu: any) => Number(menu.isHidden || 0) === 0);
     return {
-      menus: this.buildVisibleMenuTree(rows, 0, allowedCodes, isPlatformSuperAdmin),
+      menus: this.buildVisibleMenuTree(visibleRows, 0, allowedCodes, isPlatformSuperAdmin),
       butAuths: rows
         .filter((menu: any) => menu.type === 'BUTTON' && canUse(menu))
         .map((menu: any) => menu.code),
