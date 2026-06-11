@@ -29,8 +29,8 @@ export class UnitController {
 
   @Get('active')
   @ApiOperation({ summary: '获取启用的单位列表' })
-  findActive(@TenantId() tenantId: string) {
-    return this.unitService.findActive(tenantId);
+  findActive(@TenantId() tenantId: string, @Query('category') category?: string) {
+    return this.unitService.findActive(tenantId, category);
   }
 
   @Get('page')

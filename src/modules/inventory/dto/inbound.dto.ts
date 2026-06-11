@@ -31,6 +31,11 @@ export class InboundItemDto {
   @IsNotEmpty()
   unitCode: string;
 
+  @ApiPropertyOptional({ description: '人工确认后的库存主单位数量' })
+  @IsNumber()
+  @IsOptional()
+  convertedQuantity?: number;
+
   @ApiPropertyOptional({
     description: '库位ID（行内库位优先于批量单头库位）',
     example: 'location-uuid-001',
@@ -58,6 +63,11 @@ export class InboundDto {
   @IsString()
   @IsNotEmpty()
   unitCode: string;
+
+  @ApiPropertyOptional({ description: '人工确认后的库存主单位数量' })
+  @IsNumber()
+  @IsOptional()
+  convertedQuantity?: number;
 
   @ApiPropertyOptional({ description: '订单号', example: 'PO-20240101-001' })
   @IsString()

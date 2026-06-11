@@ -14,7 +14,12 @@ import { OutboundDto, BatchOutboundDto } from './dto/outbound.dto';
 import { InventoryResult } from './dto/inventory-result.dto';
 import { UnitService } from '../unit/unit.service';
 import { UnitConverter, Unit } from '../../common/utils/unit-converter.util';
-import { isInboundType, isOutboundType, TransactionType, TransactionTypeNames } from '../../common/constants/unit.constant';
+import {
+  isInboundType,
+  isOutboundType,
+  TransactionType,
+  TransactionTypeNames,
+} from '../../common/constants/unit.constant';
 import { Product } from '../product/product.entity';
 import { InventoryLocation } from '../location/entities/inventory-location.entity';
 import { Location, LocationStatus } from '../location/entities/location.entity';
@@ -87,6 +92,32 @@ export class InventoryService {
       throw new BadRequestException(`产品 ${product.name} 未维护库存主单位，请先在产品资料中选择单位`);
     }
     return (product as any).inventoryUnit;
+  }
+
+  private async convertToInventoryUnit(
+    product: Product,
+    quantity: number,
+    fromUnit: any,
+    inventoryUnit: any,
+    options: {
+      convertedQuantity?: number;
+    } = {},
+  ) {
+    if (fromUnit.id === inventoryUnit.id) return Number(quantity);
+
+    const fromUnitObj = this.toUnit(fromUnit);
+    const inventoryUnitObj = this.toUnit(inventoryUnit);
+    if (fromUnit.category === inventoryUnit.category) {
+      return UnitConverter.convert(quantity, fromUnitObj, inventoryUnitObj);
+    }
+
+    const manualQty = Number(options.convertedQuantity);
+    if (!manualQty || manualQty <= 0) {
+      throw new BadRequestException(
+        `入库单位 ${fromUnit.name} 与产品库存主单位 ${inventoryUnit.name} 分类不同，请填写折合后的库存数量`,
+      );
+    }
+    return manualQty;
   }
 
   private async updateLocationOccupancy(
@@ -426,6 +457,7 @@ export class InventoryService {
       sku: string;
       productName: string;
       quantity: number;
+      unitCode: string;
       unitName: string;
       unitSymbol: string;
     }>
@@ -438,6 +470,7 @@ export class InventoryService {
       .select('inventory.sku', 'sku')
       .addSelect('MAX(inventory.productName)', 'productName')
       .addSelect('SUM(inventory.quantity - COALESCE(inventory.lockedQuantity, 0))', 'availableQuantity')
+      .addSelect('MAX(unit.code)', 'unitCode')
       .addSelect('MAX(unit.name)', 'unitName')
       .addSelect('MAX(unit.symbol)', 'unitSymbol')
       .where('inventory.tenantId = :tenantId', { tenantId })
@@ -463,6 +496,7 @@ export class InventoryService {
       sku: item.sku,
       productName: item.productName,
       quantity: Number(item.availableQuantity || 0),
+      unitCode: item.unitCode,
       unitName: item.unitName,
       unitSymbol: item.unitSymbol,
     }));
@@ -516,10 +550,12 @@ export class InventoryService {
         if (inventory.unitId && inventory.unitId !== inventoryUnit.id) {
           throw new BadRequestException('库存单位与产品库存主单位不一致，请先同步库存单位');
         }
-        convertedQty = UnitConverter.convert(
+        convertedQty = await this.convertToInventoryUnit(
+          product,
           dto.quantity,
           unit,
-          this.toUnit(inventoryUnit),
+          inventoryUnit,
+          { convertedQuantity: dto.convertedQuantity },
         );
 
         // 4. 更新库存（同时更新产品名称，以防产品名称变更）
@@ -538,10 +574,12 @@ export class InventoryService {
         });
       } else {
         // 库存记录不存在，按产品库存主单位创建
-        convertedQty = UnitConverter.convert(
+        convertedQty = await this.convertToInventoryUnit(
+          product,
           dto.quantity,
           unit,
-          this.toUnit(inventoryUnit),
+          inventoryUnit,
+          { convertedQuantity: dto.convertedQuantity },
         );
         inventory = queryRunner.manager.create(Inventory, {
           sku: dto.sku,
@@ -906,6 +944,16 @@ export class InventoryService {
     });
   }
 
+  private getTransactionDirection(transactionType: TransactionType) {
+    if (isInboundType(transactionType) || transactionType === TransactionType.STOCK_RELEASE) {
+      return 'INBOUND';
+    }
+    if (isOutboundType(transactionType) || transactionType === TransactionType.STOCK_LOCK) {
+      return 'OUTBOUND';
+    }
+    return 'OTHER';
+  }
+
   /**
    * 分页获取库存流水列表
    */
@@ -929,15 +977,21 @@ export class InventoryService {
     queryBuilder
       .leftJoin('units', 'unit', 'transaction.unitId = unit.id')
       .leftJoin('locations', 'location', 'transaction.locationId = location.id AND location.tenantId = :tenantId')
-      .leftJoin('inventory', 'inventory', 'transaction.sku = inventory.sku AND transaction.tenantId = inventory.tenantId')
+      .leftJoin('products', 'product', 'transaction.sku = product.code AND transaction.tenantId = product.tenantId')
+      .leftJoin('units', 'inventoryUnit', 'product.unitId = inventoryUnit.id')
       .select([
         'transaction',
         'unit.name as unitName',
         'unit.code as unitCode',
+        'unit.category as unitCategory',
         'unit.symbol as unitSymbol',
         'location.name as locationName',
         'location.code as locationCode',
-        'inventory.unitId as inventoryUnitId',
+        'product.unitId as inventoryUnitId',
+        'inventoryUnit.name as inventoryUnitName',
+        'inventoryUnit.code as inventoryUnitCode',
+        'inventoryUnit.category as inventoryUnitCategory',
+        'inventoryUnit.symbol as inventoryUnitSymbol',
       ])
       .where('transaction.tenantId = :tenantId', { tenantId });
 
@@ -972,27 +1026,27 @@ export class InventoryService {
       let beforeQty = Number(entity.beforeQty);
       let afterQty = Number(entity.afterQty);
 
-      // 如果流水记录的单位不是库存主单位，需要将 beforeQty 和 afterQty 换算成流水单位
+      let stockQtyUnitSymbol = raw.unitSymbol;
+
+      // 如果流水记录的单位不是库存主单位，且单位分类一致，才换算成流水单位；跨分类时仍显示库存主单位。
       if (raw.inventoryUnitId && entity.unitId && raw.inventoryUnitId !== entity.unitId) {
         const inventoryUnit = allUnits.find(u => u.id === raw.inventoryUnitId);
         const transactionUnit = allUnits.find(u => u.id === entity.unitId);
 
-        if (inventoryUnit && transactionUnit) {
+        if (inventoryUnit && transactionUnit && inventoryUnit.category === transactionUnit.category) {
           // 将库存主单位数量换算成流水单位数量
           beforeQty = UnitConverter.convert(beforeQty, this.toUnit(inventoryUnit), this.toUnit(transactionUnit));
           afterQty = UnitConverter.convert(afterQty, this.toUnit(inventoryUnit), this.toUnit(transactionUnit));
+          stockQtyUnitSymbol = raw.unitSymbol;
+        } else {
+          stockQtyUnitSymbol = raw.inventoryUnitSymbol || raw.inventoryUnitName || raw.inventoryUnitCode;
         }
       }
 
       // 获取类型显示信息
       const transactionType = entity.transactionType as TransactionType;
       const typeDisplayName = TransactionTypeNames[transactionType] || transactionType;
-      let typeDirection = 'OTHER';
-      if (isInboundType(transactionType)) {
-        typeDirection = 'INBOUND';
-      } else if (isOutboundType(transactionType)) {
-        typeDirection = 'OUTBOUND';
-      }
+      const typeDirection = this.getTransactionDirection(transactionType);
 
       return {
         ...entity,
@@ -1011,8 +1065,8 @@ export class InventoryService {
         typeDirection: typeDirection, // INBOUND/OUTBOUND/OTHER
         // 格式化显示字段
         quantityDisplay: raw.unitSymbol ? `${formatNumber(quantity)} ${raw.unitSymbol}` : formatNumber(quantity),
-        beforeQtyDisplay: raw.unitSymbol ? `${formatNumber(beforeQty)} ${raw.unitSymbol}` : formatNumber(beforeQty),
-        afterQtyDisplay: raw.unitSymbol ? `${formatNumber(afterQty)} ${raw.unitSymbol}` : formatNumber(afterQty),
+        beforeQtyDisplay: stockQtyUnitSymbol ? `${formatNumber(beforeQty)} ${stockQtyUnitSymbol}` : formatNumber(beforeQty),
+        afterQtyDisplay: stockQtyUnitSymbol ? `${formatNumber(afterQty)} ${stockQtyUnitSymbol}` : formatNumber(afterQty),
       };
     });
 
@@ -1042,15 +1096,21 @@ export class InventoryService {
     queryBuilder
       .leftJoin('units', 'unit', 'transaction.unitId = unit.id')
       .leftJoin('locations', 'location', 'transaction.locationId = location.id AND location.tenantId = :tenantId')
-      .leftJoin('inventory', 'inventory', 'transaction.sku = inventory.sku AND transaction.tenantId = inventory.tenantId')
+      .leftJoin('products', 'product', 'transaction.sku = product.code AND transaction.tenantId = product.tenantId')
+      .leftJoin('units', 'inventoryUnit', 'product.unitId = inventoryUnit.id')
       .select([
         'transaction',
         'unit.name as unitName',
         'unit.code as unitCode',
+        'unit.category as unitCategory',
         'unit.symbol as unitSymbol',
         'location.name as locationName',
         'location.code as locationCode',
-        'inventory.unitId as inventoryUnitId',
+        'product.unitId as inventoryUnitId',
+        'inventoryUnit.name as inventoryUnitName',
+        'inventoryUnit.code as inventoryUnitCode',
+        'inventoryUnit.category as inventoryUnitCategory',
+        'inventoryUnit.symbol as inventoryUnitSymbol',
       ])
       .where('transaction.tenantId = :tenantId', { tenantId });
 
@@ -1092,21 +1152,27 @@ export class InventoryService {
       let beforeQty = Number(entity.beforeQty);
       let afterQty = Number(entity.afterQty);
 
-      // 如果流水记录的单位不是库存主单位，需要将 beforeQty 和 afterQty 换算成流水单位
+      let stockQtyUnitSymbol = raw.unitSymbol;
+
+      // 如果流水记录的单位不是库存主单位，且单位分类一致，才换算成流水单位；跨分类时仍显示库存主单位。
       if (raw.inventoryUnitId && entity.unitId && raw.inventoryUnitId !== entity.unitId) {
         const inventoryUnit = allUnits.find(u => u.id === raw.inventoryUnitId);
         const transactionUnit = allUnits.find(u => u.id === entity.unitId);
 
-        if (inventoryUnit && transactionUnit) {
+        if (inventoryUnit && transactionUnit && inventoryUnit.category === transactionUnit.category) {
           // 将库存主单位数量换算成流水单位数量
           beforeQty = UnitConverter.convert(beforeQty, this.toUnit(inventoryUnit), this.toUnit(transactionUnit));
           afterQty = UnitConverter.convert(afterQty, this.toUnit(inventoryUnit), this.toUnit(transactionUnit));
+          stockQtyUnitSymbol = raw.unitSymbol;
+        } else {
+          stockQtyUnitSymbol = raw.inventoryUnitSymbol || raw.inventoryUnitName || raw.inventoryUnitCode;
         }
       }
 
       // 获取类型显示信息
       const transactionType = entity.transactionType as TransactionType;
       const typeDisplayName = TransactionTypeNames[transactionType] || transactionType;
+      const typeDirection = this.getTransactionDirection(transactionType);
 
       return {
         ...entity,
@@ -1122,10 +1188,11 @@ export class InventoryService {
         locationCode: raw.locationCode,
         // 类型显示信息
         typeName: typeDisplayName,
+        typeDirection,
         // 格式化显示字段
         quantityDisplay: raw.unitSymbol ? `${formatNumber(quantity)} ${raw.unitSymbol}` : formatNumber(quantity),
-        beforeQtyDisplay: raw.unitSymbol ? `${formatNumber(beforeQty)} ${raw.unitSymbol}` : formatNumber(beforeQty),
-        afterQtyDisplay: raw.unitSymbol ? `${formatNumber(afterQty)} ${raw.unitSymbol}` : formatNumber(afterQty),
+        beforeQtyDisplay: stockQtyUnitSymbol ? `${formatNumber(beforeQty)} ${stockQtyUnitSymbol}` : formatNumber(beforeQty),
+        afterQtyDisplay: stockQtyUnitSymbol ? `${formatNumber(afterQty)} ${stockQtyUnitSymbol}` : formatNumber(afterQty),
       };
     });
 
@@ -1155,15 +1222,21 @@ export class InventoryService {
     queryBuilder
       .leftJoin('units', 'unit', 'transaction.unitId = unit.id')
       .leftJoin('locations', 'location', 'transaction.locationId = location.id AND location.tenantId = :tenantId')
-      .leftJoin('inventory', 'inventory', 'transaction.sku = inventory.sku AND transaction.tenantId = inventory.tenantId')
+      .leftJoin('products', 'product', 'transaction.sku = product.code AND transaction.tenantId = product.tenantId')
+      .leftJoin('units', 'inventoryUnit', 'product.unitId = inventoryUnit.id')
       .select([
         'transaction',
         'unit.name as unitName',
         'unit.code as unitCode',
+        'unit.category as unitCategory',
         'unit.symbol as unitSymbol',
         'location.name as locationName',
         'location.code as locationCode',
-        'inventory.unitId as inventoryUnitId',
+        'product.unitId as inventoryUnitId',
+        'inventoryUnit.name as inventoryUnitName',
+        'inventoryUnit.code as inventoryUnitCode',
+        'inventoryUnit.category as inventoryUnitCategory',
+        'inventoryUnit.symbol as inventoryUnitSymbol',
       ])
       .where('transaction.tenantId = :tenantId', { tenantId });
 
@@ -1205,21 +1278,27 @@ export class InventoryService {
       let beforeQty = Number(entity.beforeQty);
       let afterQty = Number(entity.afterQty);
 
-      // 如果流水记录的单位不是库存主单位，需要将 beforeQty 和 afterQty 换算成流水单位
+      let stockQtyUnitSymbol = raw.unitSymbol;
+
+      // 如果流水记录的单位不是库存主单位，且单位分类一致，才换算成流水单位；跨分类时仍显示库存主单位。
       if (raw.inventoryUnitId && entity.unitId && raw.inventoryUnitId !== entity.unitId) {
         const inventoryUnit = allUnits.find(u => u.id === raw.inventoryUnitId);
         const transactionUnit = allUnits.find(u => u.id === entity.unitId);
 
-        if (inventoryUnit && transactionUnit) {
+        if (inventoryUnit && transactionUnit && inventoryUnit.category === transactionUnit.category) {
           // 将库存主单位数量换算成流水单位数量
           beforeQty = UnitConverter.convert(beforeQty, this.toUnit(inventoryUnit), this.toUnit(transactionUnit));
           afterQty = UnitConverter.convert(afterQty, this.toUnit(inventoryUnit), this.toUnit(transactionUnit));
+          stockQtyUnitSymbol = raw.unitSymbol;
+        } else {
+          stockQtyUnitSymbol = raw.inventoryUnitSymbol || raw.inventoryUnitName || raw.inventoryUnitCode;
         }
       }
 
       // 获取类型显示信息
       const transactionType = entity.transactionType as TransactionType;
       const typeDisplayName = TransactionTypeNames[transactionType] || transactionType;
+      const typeDirection = this.getTransactionDirection(transactionType);
 
       return {
         ...entity,
@@ -1235,10 +1314,11 @@ export class InventoryService {
         locationCode: raw.locationCode,
         // 类型显示信息
         typeName: typeDisplayName,
+        typeDirection,
         // 格式化显示字段
         quantityDisplay: raw.unitSymbol ? `${formatNumber(quantity)} ${raw.unitSymbol}` : formatNumber(quantity),
-        beforeQtyDisplay: raw.unitSymbol ? `${formatNumber(beforeQty)} ${raw.unitSymbol}` : formatNumber(beforeQty),
-        afterQtyDisplay: raw.unitSymbol ? `${formatNumber(afterQty)} ${raw.unitSymbol}` : formatNumber(afterQty),
+        beforeQtyDisplay: stockQtyUnitSymbol ? `${formatNumber(beforeQty)} ${stockQtyUnitSymbol}` : formatNumber(beforeQty),
+        afterQtyDisplay: stockQtyUnitSymbol ? `${formatNumber(afterQty)} ${stockQtyUnitSymbol}` : formatNumber(afterQty),
       };
     });
 

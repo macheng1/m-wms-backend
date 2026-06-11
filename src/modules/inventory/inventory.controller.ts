@@ -67,8 +67,14 @@ export class InventoryController {
     @Query('pageSize') pageSize?: number,
     @Query('sku') sku?: string,
     @Query('type') type?: string,
+    @Query('transactionType') transactionType?: string,
   ) {
-    return this.inventoryService.getTransactionsPage(tenantId, { page, pageSize, sku, type });
+    return this.inventoryService.getTransactionsPage(tenantId, {
+      page,
+      pageSize,
+      sku,
+      type: type || transactionType,
+    });
   }
 
   @Get('available-for-outbound')

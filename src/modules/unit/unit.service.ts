@@ -175,9 +175,13 @@ export class UnitService {
   /**
    * 获取启用的单位列表
    */
-  async findActive(tenantId: string | null): Promise<Unit[]> {
+  async findActive(tenantId: string | null, category?: string): Promise<Unit[]> {
     const units = await this.unitRepository.find({
-      where: this.readableScopeWhere(tenantId).map((scope) => ({ ...scope, isActive: 1 })),
+      where: this.readableScopeWhere(tenantId).map((scope) => ({
+        ...scope,
+        isActive: 1,
+        ...(category ? { category: category as any } : {}),
+      })),
       order: { category: 'ASC', sortOrder: 'ASC' },
     });
     return units || [];
