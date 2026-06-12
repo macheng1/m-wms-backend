@@ -7,12 +7,14 @@ import {
   Controller,
   HttpCode,
   Post,
+  Req,
   UploadedFiles,
   UseInterceptors,
 } from '@nestjs/common';
 
 import multer = require('multer');
 import { memoryStorageConfig } from '@/common/config/multer.config';
+import { AuditLogService } from '@/common/audit/audit-log.service';
 
 const ALLOWED_UPLOAD_MIME_TYPES = new Set([
   'image/jpeg',
@@ -28,7 +30,10 @@ const ALLOWED_UPLOAD_MIME_TYPES = new Set([
 @ApiBearerAuth()
 @Controller('upload')
 export class UploadController {
-  constructor(private readonly uploadService: UploadService) {}
+  constructor(
+    private readonly uploadService: UploadService,
+    private readonly auditLogService: AuditLogService,
+  ) {}
 
   @Post('fileList')
   @ApiOperation({ summary: '批量上传文件' })
@@ -69,10 +74,31 @@ export class UploadController {
     }),
   )
   @HttpCode(200)
-  async uploadMultiple(@UploadedFiles() files: Array<Express.Multer.File>, @Body() body) {
-    if (!files || !files || !Array.isArray(files) || files.length === 0) {
+  async uploadMultiple(
+    @UploadedFiles() files: Array<Express.Multer.File>,
+    @Body() body,
+    @Req() req,
+  ) {
+    if (!files || !Array.isArray(files) || files.length === 0) {
       throw new BadRequestException('请上传文件');
     }
-    return this.uploadService.uploadMultiple(files, body?.path);
+    const result = await this.uploadService.uploadMultiple(files, body?.path);
+    const requestAudit = this.auditLogService.fromRequest(req);
+    await this.auditLogService.record({
+      ...requestAudit,
+      module: 'upload',
+      action: 'file.upload',
+      targetType: 'oss-file',
+      description: `上传文件 ${files.length} 个`,
+      afterData: {
+        path: body?.path || 'image',
+        files: result.map((item) => ({
+          filename: item.filename,
+          url: item.url,
+          success: item.success,
+        })),
+      },
+    });
+    return result;
   }
 }

@@ -8,6 +8,7 @@ import {
   Param,
   Delete,
   Patch,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiHeader } from '@nestjs/swagger';
@@ -18,11 +19,16 @@ import { DetailTenantDto } from './dto/detail-tenant.dto';
 import { TenantsService } from './tenants.service';
 import { Public } from '@/common/decorators/public.decorator';
 import { OpenApiSignatureGuard } from '@/common/guards/open-api-signature.guard';
+import { PublicTenantDetailDto, PublicTenantListDto } from './dto/public-tenant.dto';
+import { AuditLogService } from '@/common/audit/audit-log.service';
 
 @ApiTags('租户管理 (SaaS)') // 更加清晰的 Swagger 分类
 @Controller('tenants')
 export class TenantController {
-  constructor(private readonly tenantsService: TenantsService) {}
+  constructor(
+    private readonly tenantsService: TenantsService,
+    private readonly auditLogService: AuditLogService,
+  ) {}
 
   /**
    * 工厂入驻 (Onboard)
@@ -64,20 +70,23 @@ export class TenantController {
   @ApiHeader({ name: 'x-signature', description: 'HMAC-SHA256 请求签名' })
   @Public()
   @UseGuards(OpenApiSignatureGuard)
-  async publicFindAll(
-    @Body()
-    body: {
-      page?: number;
-      pageSize?: number;
-      tenantSource?: 'platform' | 'miniapp' | 'import' | 'api' | 'all';
-    },
-  ) {
-    const { page = 1, pageSize = 20, tenantSource } = body || {};
-    return await this.tenantsService.findAll({
+  async publicFindAll(@Body() body: PublicTenantListDto, @Req() req) {
+    const { page = 1, pageSize = 20, tenantSource, name } = body || {};
+    const result = await this.tenantsService.findPublicAll({
       page: Number(page),
       pageSize: Number(pageSize),
       tenantSource,
+      name,
     });
+    await this.auditLogService.record({
+      scope: 'platform',
+      module: 'open-api',
+      action: 'tenant.public.list',
+      targetType: 'tenant',
+      description: '第三方调用租户公开列表',
+      ip: this.auditLogService.fromRequest(req).ip,
+    });
+    return result;
   }
 
   @Post('detail')
@@ -94,8 +103,18 @@ export class TenantController {
   @ApiHeader({ name: 'x-signature', description: 'HMAC-SHA256 请求签名' })
   @Public()
   @UseGuards(OpenApiSignatureGuard)
-  async publicFindOne(@Body() body: { id: string }) {
-    return await this.tenantsService.findOne(body.id);
+  async publicFindOne(@Body() body: PublicTenantDetailDto, @Req() req) {
+    const result = await this.tenantsService.findPublicOne(body.id);
+    await this.auditLogService.record({
+      scope: 'platform',
+      module: 'open-api',
+      action: 'tenant.public.detail',
+      targetType: 'tenant',
+      targetId: body.id,
+      description: '第三方调用租户公开详情',
+      ip: this.auditLogService.fromRequest(req).ip,
+    });
+    return result;
   }
 
   @Patch(':id')

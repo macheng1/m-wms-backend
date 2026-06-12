@@ -144,6 +144,22 @@ export class ProductsService {
       inventoryUnit,
     };
   }
+
+  async findPublicPage(query: QueryProductDto, tenantId: string) {
+    const result = await this.findPage({ ...query, isActive: 1 }, tenantId);
+    return {
+      ...result,
+      list: result.list.map((product) => this.toPublicProduct(product)),
+    };
+  }
+
+  async getPublicDetail(id: string, tenantId: string) {
+    const product = await this.getDetail(id, tenantId);
+    if (product.isActive !== 1) {
+      throw new BusinessException('产品暂未开放展示');
+    }
+    return this.toPublicProduct(product);
+  }
   /**
    * 修改产品状态 (1:启用, 0:禁用)
    */
@@ -170,7 +186,10 @@ export class ProductsService {
 
   private async validateCategory(categoryId: string, tenantId: string) {
     const category = await this.categoryRepo.findOne({
-      where: [{ id: categoryId, tenantId }, { id: categoryId, tenantId: IsNull() }],
+      where: [
+        { id: categoryId, tenantId },
+        { id: categoryId, tenantId: IsNull() },
+      ],
       relations: ['attributes', 'attributes.options'],
     });
     if (!category) throw new BusinessException('所选类目不存在或无权使用');
@@ -180,7 +199,10 @@ export class ProductsService {
 
   private async validateUnit(unitId: string, tenantId: string) {
     const unit = await this.unitRepo.findOne({
-      where: [{ id: unitId, tenantId }, { id: unitId, tenantId: IsNull() }],
+      where: [
+        { id: unitId, tenantId },
+        { id: unitId, tenantId: IsNull() },
+      ],
     });
     if (!unit) throw new BusinessException('所选库存主单位不存在或无权使用');
     if (unit.isActive !== 1) throw new BusinessException('所选库存主单位已禁用');
@@ -199,7 +221,10 @@ export class ProductsService {
       ),
     ]);
 
-    if (Number(inventoryRows?.[0]?.total || 0) > 0 || Number(transactionRows?.[0]?.total || 0) > 0) {
+    if (
+      Number(inventoryRows?.[0]?.total || 0) > 0 ||
+      Number(transactionRows?.[0]?.total || 0) > 0
+    ) {
       throw new BusinessException('该产品已有库存或库存流水，不能修改库存主单位');
     }
   }
@@ -238,6 +263,28 @@ export class ProductsService {
     return normalized;
   }
 
+  private toPublicProduct(product: any) {
+    return {
+      id: product.id,
+      tenantId: product.tenantId,
+      name: product.name,
+      code: product.code,
+      categoryId: product.categoryId,
+      categoryName: product.categoryName || product.category?.name || null,
+      unit: product.unit,
+      unitId: product.unitId,
+      unitCode: product.unitCode || product.inventoryUnit?.code || null,
+      unitName: product.unitName || product.inventoryUnit?.name || null,
+      unitSymbol: product.unitSymbol || product.inventoryUnit?.symbol || null,
+      description: product.description || '',
+      specs: product.specs || {},
+      images: Array.isArray(product.images) ? product.images : [],
+      isActive: product.isActive,
+      createdAt: product.createdAt,
+      updatedAt: product.updatedAt,
+    };
+  }
+
   /**
    * 获取产品下拉选择列表
    * 返回格式：{ label: string, value: string }[]
@@ -252,9 +299,7 @@ export class ProductsService {
       query.andWhere('(p.name LIKE :kw OR p.code LIKE :kw)', { kw: `%${keyword}%` });
     }
 
-    const products = await query
-      .orderBy('p.name', 'ASC')
-      .getMany();
+    const products = await query.orderBy('p.name', 'ASC').getMany();
 
     return products.map((p) => ({
       label: `${p.name} (${p.code})`,

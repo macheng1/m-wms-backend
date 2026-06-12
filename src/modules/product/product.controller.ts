@@ -22,6 +22,7 @@ import {
 } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { QueryProductDto } from './entities/dto/query-product.dto';
+import { PublicProductDetailDto, PublicProductPageDto } from './entities/dto/public-product.dto';
 import { SaveProductDto } from './entities/dto/save-product.dto';
 import { ImportProductDto } from './entities/dto/import-product.dto';
 import { ProductsService } from './product.service';
@@ -29,6 +30,7 @@ import { ProductImportService } from './service/product-import.service';
 import { Public } from '@/common/decorators/public.decorator';
 import { memoryStorageConfig } from '@/common/config/multer.config';
 import { OpenApiSignatureGuard } from '@/common/guards/open-api-signature.guard';
+import { AuditLogService } from '@/common/audit/audit-log.service';
 
 @ApiTags('产品管理-产品管理')
 @ApiBearerAuth()
@@ -37,6 +39,7 @@ export class ProductsController {
   constructor(
     private readonly productsService: ProductsService,
     private readonly importService: ProductImportService,
+    private readonly auditLogService: AuditLogService,
   ) {}
 
   @Get('select')
@@ -88,12 +91,23 @@ export class ProductsController {
   @ApiHeader({ name: 'x-signature', description: 'HMAC-SHA256 请求签名' })
   @Public()
   @UseGuards(OpenApiSignatureGuard)
-  async publicFindPage(@Body() body: { tenantId: string } & Partial<QueryProductDto>) {
+  async publicFindPage(@Body() body: PublicProductPageDto, @Req() req) {
     const { tenantId, ...query } = body;
     if (!tenantId) {
       throw new BusinessException('租户ID不能为空');
     }
-    return this.productsService.findPage(query as QueryProductDto, tenantId);
+    const result = await this.productsService.findPublicPage(query as QueryProductDto, tenantId);
+    await this.auditLogService.record({
+      tenantId,
+      scope: 'tenant',
+      module: 'open-api',
+      action: 'product.public.page',
+      targetType: 'tenant',
+      targetId: tenantId,
+      description: '第三方调用产品公开列表',
+      ip: this.auditLogService.fromRequest(req).ip,
+    });
+    return result;
   }
 
   /**
@@ -107,12 +121,23 @@ export class ProductsController {
   @ApiHeader({ name: 'x-signature', description: 'HMAC-SHA256 请求签名' })
   @Public()
   @UseGuards(OpenApiSignatureGuard)
-  async publicGetDetail(@Body() body: { id: string; tenantId: string }) {
+  async publicGetDetail(@Body() body: PublicProductDetailDto, @Req() req) {
     const { id, tenantId } = body;
     if (!id || !tenantId) {
       throw new BusinessException('产品ID和租户ID不能为空');
     }
-    return this.productsService.getDetail(id, tenantId);
+    const result = await this.productsService.getPublicDetail(id, tenantId);
+    await this.auditLogService.record({
+      tenantId,
+      scope: 'tenant',
+      module: 'open-api',
+      action: 'product.public.detail',
+      targetType: 'product',
+      targetId: id,
+      description: '第三方调用产品公开详情',
+      ip: this.auditLogService.fromRequest(req).ip,
+    });
+    return result;
   }
   /** 修改产品状态 */
   @Post('status')

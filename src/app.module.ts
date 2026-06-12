@@ -32,6 +32,8 @@ import { AdminApiModule } from './modules/admin/admin-api.module';
 import { MiniappApiModule } from './modules/miniapp/miniapp-api.module';
 import { OpenApiModule } from './modules/open/open-api.module';
 import { SystemModule } from './modules/system/system.module';
+import { AuditModule } from './common/audit/audit.module';
+import { RateLimitGuard } from './common/guards/rate-limit.guard';
 console.log('当前运行环境:', process.env.NODE_ENV);
 console.log('当前工作目录:', process.cwd());
 @Module({
@@ -83,6 +85,7 @@ console.log('当前工作目录:', process.cwd());
     TypeOrmModule.forFeature([User, Tenant, Permission, Menu, Role, Inventory, Order]),
     // Infrastructure modules
     RedisModule,
+    AuditModule,
     // Business modules
     TenantModule,
     AuthModule,
@@ -108,6 +111,10 @@ console.log('当前工作目录:', process.cwd());
       // 声明全局守卫
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: RateLimitGuard,
     },
   ],
 })

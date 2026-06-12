@@ -4,6 +4,7 @@ import { PortalService } from './portal.service';
 import { CreateInquiryDto } from './dto/create-inquiry.dto';
 import { Public } from '@/common/decorators/public.decorator';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { RateLimit } from '@/common/decorators/rate-limit.decorator';
 
 @ApiTags('官网门户')
 @Controller('portal/:domain') // 💡 匹配 https://.../portal/ent-wxyskj-xc7n/zh
@@ -34,6 +35,12 @@ export class PortalController {
    */
   @Post('inquiry')
   @ApiOperation({ summary: '官网访客提交询盘' })
+  @RateLimit({
+    keyPrefix: 'portal-inquiry',
+    points: 5,
+    durationSeconds: 300,
+    keyFields: ['domain', 'phone'],
+  })
   async inquiry(
     @Param('domain') domain: string,
     @Body() dto: CreateInquiryDto, // 💡 使用 DTO

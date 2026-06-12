@@ -1,10 +1,20 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsOptional, IsString } from 'class-validator';
+import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class QueryProductDto {
-  @IsOptional() @Type(() => Number) page?: number = 1;
-  @IsOptional() @Type(() => Number) pageSize?: number = 20;
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  pageSize?: number = 20;
 
   @ApiProperty({ description: '产品名称或编码模糊查询', required: false })
   @IsOptional()
@@ -19,5 +29,8 @@ export class QueryProductDto {
   @ApiProperty({ description: '状态筛选', required: false })
   @IsOptional()
   @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1)
   isActive?: number;
 }

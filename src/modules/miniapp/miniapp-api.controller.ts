@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Public } from '@/common/decorators/public.decorator';
+import { RateLimit } from '@/common/decorators/rate-limit.decorator';
 import {
   QueryMiniappBannerDto,
   SaveMiniappBannerDto,
@@ -63,6 +64,12 @@ export class MiniappApiController {
 
   @Post('auth/login')
   @Public()
+  @RateLimit({
+    keyPrefix: 'miniapp-login',
+    points: 20,
+    durationSeconds: 60,
+    keyFields: ['code', 'platform'],
+  })
   @ApiOperation({ summary: '小程序静默登录' })
   silentLogin(@Body() dto: MiniappSilentLoginDto, @Req() req) {
     const clientIp =
@@ -107,6 +114,7 @@ export class MiniappApiController {
 
   @Post('location')
   @Public()
+  @RateLimit({ keyPrefix: 'miniapp-location', points: 30, durationSeconds: 60 })
   @ApiOperation({ summary: '小程序根据经纬度获取地址信息' })
   getLocation(@Body() dto: MiniappLocationDto, @Req() req) {
     const clientIp =
@@ -186,6 +194,12 @@ export class MiniappApiController {
 
   @Post('yellow-pages/list')
   @Public()
+  @RateLimit({
+    keyPrefix: 'miniapp-yellow-pages',
+    points: 60,
+    durationSeconds: 60,
+    keyFields: ['keyword'],
+  })
   @ApiOperation({ summary: '小程序企业黄页列表' })
   findYellowPages(
     @Body() query: { page?: number; pageNo?: number; pageSize?: number; keyword?: string },
@@ -247,6 +261,12 @@ export class MiniappApiController {
 
   @Get('posts/list')
   @Public()
+  @RateLimit({
+    keyPrefix: 'miniapp-posts-list',
+    points: 60,
+    durationSeconds: 60,
+    keyFields: ['keyword', 'categoryId'],
+  })
   @ApiOperation({ summary: '小程序信息列表' })
   findPosts(@Query() query: QueryMiniappPostDto) {
     return this.postService.findPublicPage(query);
@@ -254,6 +274,12 @@ export class MiniappApiController {
 
   @Post('posts/list')
   @Public()
+  @RateLimit({
+    keyPrefix: 'miniapp-posts-list',
+    points: 60,
+    durationSeconds: 60,
+    keyFields: ['keyword', 'categoryId'],
+  })
   @ApiOperation({ summary: '小程序信息列表' })
   findPostsByPost(@Body() query: QueryMiniappPostDto) {
     return this.postService.findPublicPage(query);

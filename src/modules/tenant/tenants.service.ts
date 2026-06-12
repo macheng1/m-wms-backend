@@ -216,6 +216,32 @@ export class TenantsService {
     };
   }
 
+  async findPublicAll(query: {
+    page: number;
+    pageSize: number;
+    tenantSource?: 'platform' | 'miniapp' | 'import' | 'api' | 'all';
+    name?: string;
+  }) {
+    const result = await this.findAll({
+      ...query,
+      lifecycleStatus: 'active',
+      isActive: 1,
+    });
+
+    return {
+      ...result,
+      list: result.list.map((tenant) => this.toPublicTenant(tenant)),
+    };
+  }
+
+  async findPublicOne(id: string) {
+    const tenant = await this.findOne(id);
+    if (tenant.isActive !== 1 || tenant.lifecycleStatus !== 'active') {
+      throw new BusinessException('企业暂未开放展示');
+    }
+    return this.toPublicTenant(tenant);
+  }
+
   async approve(id: string) {
     const repo = this.dataSource.getRepository(Tenant);
     const tenant = await repo.findOne({ where: { id } });
@@ -236,6 +262,28 @@ export class TenantsService {
       isActive: savedTenant.isActive,
       lifecycleStatus: savedTenant.lifecycleStatus,
       message: '租户审核已通过',
+    };
+  }
+
+  private toPublicTenant(tenant: any) {
+    return {
+      id: tenant.id,
+      code: tenant.code,
+      name: tenant.name,
+      tenantSource: tenant.tenantSource,
+      industryCode: tenant.industryCode,
+      industryName: tenant.industryName || tenant.industryType || null,
+      contactPerson: tenant.contactPerson,
+      contactPhone: tenant.contactPhone,
+      address: tenant.address || tenant.factoryAddress || null,
+      website: tenant.website,
+      mainProducts: tenant.mainProducts,
+      annualCapacity: tenant.annualCapacity,
+      foundDate: tenant.foundDate,
+      staffCount: tenant.staffCount,
+      isActive: tenant.isActive,
+      lifecycleStatus: tenant.lifecycleStatus,
+      createdAt: tenant.createdAt,
     };
   }
 
@@ -266,7 +314,8 @@ export class TenantsService {
     const repo = this.dataSource.getRepository(Tenant);
     const tenant = await repo.findOne({ where: { id } });
     if (!tenant) throw new ConflictException('租户不存在');
-    if (tenant.tenantSource !== 'miniapp') throw new BusinessException('仅小程序认证企业支持重新提交');
+    if (tenant.tenantSource !== 'miniapp')
+      throw new BusinessException('仅小程序认证企业支持重新提交');
     if (!['active', 'rejected'].includes(tenant.lifecycleStatus)) {
       throw new BusinessException('当前企业认证状态不支持重新提交');
     }

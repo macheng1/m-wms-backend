@@ -11,6 +11,10 @@
 
 - 第三方服务端调用接口必须携带签名，降低接口被匿名调用、重放调用和伪造调用的风险。
 - 上传接口改为登录态接口，并增加文件类型、大小、数量和目录边界校验。
+- 登录、短信验证码、官网询盘和小程序公开高频接口增加限流，降低撞库、刷短信和恶意提交风险。
+- 第三方公开接口只返回白名单字段，避免把内部租户资料、成本、库存、银行税务等敏感字段暴露给外部系统。
+- 关键上传和 Open API 调用写入审计日志，方便追踪调用来源和排查异常。
+- 补强部分 DTO 入参校验，减少异常数据进入业务层。
 - 保持官网、小程序首页等普通公开展示接口不受影响。
 - 给前端和第三方调用方提供清晰的联调规则。
 
@@ -18,13 +22,13 @@
 
 当前系统至少有 4 类前端/客户端场景，接口安全策略不能混用。
 
-| 场景 | 典型使用方 | 推荐接口边界 | 鉴权方式 | 是否使用 Open API 签名 |
-| --- | --- | --- | --- | --- |
-| 小程序 | 微信/抖音等小程序用户端 | `/api/miniapp/*` | 小程序登录态 JWT | 否 |
-| App | 移动 App 用户端 | 建议独立 `/api/app/*`，当前如复用管理端接口则用 JWT | App 登录态 JWT | 否 |
-| 网站管理端 | 管理后台、运营后台、租户后台 | `/api/admin/*` 或当前管理端业务接口 | 管理端 JWT + 后续 RBAC | 否 |
-| 官网 | 企业官网、门户展示页 | `/api/portal/:domain/*` | 公开访问，按 domain 解析租户 | 否 |
-| 第三方服务端调用 | 外部系统、服务端集成、BFF 转发 | `/api/*/public/*` 或后续 `/api/open/v1/*` | appKey + appSecret 签名 | 是 |
+| 场景             | 典型使用方                     | 推荐接口边界                                        | 鉴权方式                     | 是否使用 Open API 签名 |
+| ---------------- | ------------------------------ | --------------------------------------------------- | ---------------------------- | ---------------------- |
+| 小程序           | 微信/抖音等小程序用户端        | `/api/miniapp/*`                                    | 小程序登录态 JWT             | 否                     |
+| App              | 移动 App 用户端                | 建议独立 `/api/app/*`，当前如复用管理端接口则用 JWT | App 登录态 JWT               | 否                     |
+| 网站管理端       | 管理后台、运营后台、租户后台   | `/api/admin/*` 或当前管理端业务接口                 | 管理端 JWT + 后续 RBAC       | 否                     |
+| 官网             | 企业官网、门户展示页           | `/api/portal/:domain/*`                             | 公开访问，按 domain 解析租户 | 否                     |
+| 第三方服务端调用 | 外部系统、服务端集成、BFF 转发 | `/api/*/public/*` 或后续 `/api/open/v1/*`           | appKey + appSecret 签名      | 是                     |
 
 关键规则：
 
@@ -117,6 +121,57 @@ Authorization: Bearer <admin_token>
 
 这些接口仍保留 `@Public()`，但会额外执行 `OpenApiSignatureGuard`。
 
+### 公开接口返回白名单
+
+本期对以下接口改为专用公开查询方法，不再直接复用内部详情返回：
+
+- `POST /api/products/public/page`
+- `POST /api/products/public/detail`
+- `POST /api/tenants/public/list`
+- `POST /api/tenants/public/detail`
+
+产品公开返回字段：
+
+- `id`
+- `tenantId`
+- `name`
+- `code`
+- `categoryId`
+- `categoryName`
+- `unit`
+- `unitId`
+- `unitCode`
+- `unitName`
+- `unitSymbol`
+- `description`
+- `specs`
+- `images`
+- `isActive`
+- `createdAt`
+- `updatedAt`
+
+租户公开返回字段：
+
+- `id`
+- `code`
+- `name`
+- `tenantSource`
+- `industryCode`
+- `industryName`
+- `contactPerson`
+- `contactPhone`
+- `address`
+- `website`
+- `mainProducts`
+- `annualCapacity`
+- `foundDate`
+- `staffCount`
+- `isActive`
+- `lifecycleStatus`
+- `createdAt`
+
+租户公开列表和详情只展示 `isActive = 1` 且 `lifecycleStatus = active` 的企业。
+
 ### 上传接口安全
 
 本期对以下接口调整：
@@ -132,16 +187,59 @@ Authorization: Bearer <admin_token>
 - 上传目录只允许指定业务前缀。
 - 清理上传服务中的调试日志。
 
+### 限流保护
+
+新增全局 `RateLimitGuard`，仅对标注 `@RateLimit()` 的接口生效。本期覆盖：
+
+| 接口                                  | 限流策略                                | 说明                     |
+| ------------------------------------- | --------------------------------------- | ------------------------ |
+| `POST /api/auth/login`                | 同 IP + 用户名/验证码，60 秒 10 次      | 降低管理端撞库风险       |
+| `GET /api/send/sendSMS`               | 同 IP + 手机号，60 秒 3 次              | 降低短信轰炸风险         |
+| `POST /api/portal/:domain/inquiry`    | 同 IP + 域名/手机号，300 秒 5 次        | 降低官网询盘刷单风险     |
+| `POST /api/miniapp/auth/login`        | 同 IP + code/platform，60 秒 20 次      | 降低小程序登录接口刷请求 |
+| `POST /api/miniapp/location`          | 同 IP，60 秒 30 次                      | 降低定位接口高频调用     |
+| `POST /api/miniapp/yellow-pages/list` | 同 IP + keyword，60 秒 60 次            | 降低黄页列表抓取压力     |
+| `GET/POST /api/miniapp/posts/list`    | 同 IP + keyword/categoryId，60 秒 60 次 | 降低帖子列表抓取压力     |
+
+限流依赖 Redis，key 形态为：
+
+```text
+rate-limit:{keyPrefix}:{ip}:{fieldValues}
+```
+
+超过阈值时返回 `请求过于频繁，请稍后再试`。
+
+### 审计日志
+
+新增通用 `AuditLogService`，复用现有 `operation_logs` 表记录关键动作。本期覆盖：
+
+- Open API 产品列表调用：`module = open-api`，`action = product.public.page`
+- Open API 产品详情调用：`module = open-api`，`action = product.public.detail`
+- Open API 租户列表调用：`module = open-api`，`action = tenant.public.list`
+- Open API 租户详情调用：`module = open-api`，`action = tenant.public.detail`
+- 登录态文件上传：`module = upload`，`action = file.upload`
+
+审计写入失败不阻断主流程，只记录服务端警告日志。
+
+### DTO 校验增强
+
+本期补强以下入参校验：
+
+- 产品分页：`page >= 1`，`pageSize` 范围为 `1-100`，`isActive` 只能为 `0/1`。
+- Open API 产品公开分页/详情：显式校验 `tenantId`、`id`、分页参数和搜索字段类型。
+- Open API 租户公开分页/详情：显式校验 `id`、`tenantSource`、分页参数和企业名称搜索字段类型。
+- 官网询盘：手机号使用中国大陆手机号格式校验，附件字段限制为可选字符串且最长 1000 字符。
+- 小程序定位：纬度范围 `-90 到 90`，经度范围 `-180 到 180`。
+
 ## 非本期范围
 
 - 不新增 Open API 应用管理表。
 - 不支持多 appKey、多租户独立 appSecret。
 - 不做 IP 白名单。
-- 不做接口级调用频率限制。
 - 不调整普通官网、小程序公开展示接口。
 - 不调整 OSS 存储策略、回源域名、图片压缩和病毒扫描。
 
-以上能力建议后续作为 Open API 管理台和上传安全二期建设。
+以上未覆盖能力建议后续作为 Open API 管理台和上传安全二期建设。
 
 ## 配置项
 
@@ -222,7 +320,7 @@ SHA256(canonicalJson(body))
 规范化后：
 
 ```json
-{"page":1,"pageSize":20,"tenantId":"tenant-001"}
+{ "page": 1, "pageSize": 20, "tenantId": "tenant-001" }
 ```
 
 ### 签名计算示例
@@ -267,7 +365,8 @@ POST /api/products/public/page
   "tenantId": "tenant-uuid",
   "page": 1,
   "pageSize": 20,
-  "name": "产品关键字"
+  "keyword": "产品关键字",
+  "categoryId": "category-uuid"
 }
 ```
 
@@ -275,6 +374,8 @@ POST /api/products/public/page
 
 - 需要 Open API 签名。
 - 不需要 JWT。
+- 只返回启用产品。
+- 返回字段为公开白名单字段，不包含成本价、库存内部结构等内部字段。
 
 ### 产品详情
 
@@ -295,6 +396,8 @@ POST /api/products/public/detail
 
 - 需要 Open API 签名。
 - 不需要 JWT。
+- 只返回启用产品。
+- 返回字段为公开白名单字段。
 
 ### 租户列表
 
@@ -308,7 +411,8 @@ POST /api/tenants/public/list
 {
   "page": 1,
   "pageSize": 20,
-  "tenantSource": "all"
+  "tenantSource": "all",
+  "name": "企业关键字"
 }
 ```
 
@@ -316,6 +420,8 @@ POST /api/tenants/public/list
 
 - 需要 Open API 签名。
 - 不需要 JWT。
+- 只返回启用且审核通过的企业。
+- 返回字段为公开白名单字段，不包含税号、银行账户、管理员账号、审核备注等内部字段。
 
 ### 租户详情
 
@@ -335,6 +441,8 @@ POST /api/tenants/public/detail
 
 - 需要 Open API 签名。
 - 不需要 JWT。
+- 只返回启用且审核通过的企业。
+- 返回字段为公开白名单字段。
 
 ## 前端/第三方如何使用 Open API
 
@@ -367,22 +475,14 @@ function canonicalJson(value: any): string {
     .join(',')}}`;
 }
 
-function signOpenApi(params: {
-  method: string;
-  path: string;
-  body: any;
-  appSecret: string;
-}) {
+function signOpenApi(params: { method: string; path: string; body: any; appSecret: string }) {
   const timestamp = String(Date.now());
   const nonce = crypto.randomBytes(16).toString('hex');
-  const bodyHash = crypto.createHash('sha256').update(canonicalJson(params.body || {})).digest('hex');
-  const payload = [
-    params.method.toUpperCase(),
-    params.path,
-    timestamp,
-    nonce,
-    bodyHash,
-  ].join('\n');
+  const bodyHash = crypto
+    .createHash('sha256')
+    .update(canonicalJson(params.body || {}))
+    .digest('hex');
+  const payload = [params.method.toUpperCase(), params.path, timestamp, nonce, bodyHash].join('\n');
 
   const signature = crypto.createHmac('sha256', params.appSecret).update(payload).digest('hex');
 
@@ -450,10 +550,10 @@ Authorization: Bearer <access_token>
 
 表单字段：
 
-| 字段 | 类型 | 必填 | 说明 |
-| --- | --- | --- | --- |
-| `file` | file[] | 是 | 文件数组，最多 6 个 |
-| `path` | string | 否 | 上传目录，不传默认 `image` |
+| 字段   | 类型   | 必填 | 说明                       |
+| ------ | ------ | ---- | -------------------------- |
+| `file` | file[] | 是   | 文件数组，最多 6 个        |
+| `path` | string | 否   | 上传目录，不传默认 `image` |
 
 允许上传目录前缀：
 

@@ -5,6 +5,7 @@ import { LoginDto } from './dto/login.dto';
 import { TenantId } from '@common/decorators';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Public } from '@/common/decorators/public.decorator';
+import { RateLimit } from '@/common/decorators/rate-limit.decorator';
 
 @ApiTags('认证登录')
 @ApiBearerAuth()
@@ -38,6 +39,12 @@ export class AuthController {
   @Post('login')
   @HttpCode(HttpStatus.OK) // 登录通常返回 200 而非 201
   @Public()
+  @RateLimit({
+    keyPrefix: 'admin-login',
+    points: 10,
+    durationSeconds: 60,
+    keyFields: ['username', 'code'],
+  })
   @ApiOperation({ summary: '用户登录', description: '支持账号密码登录，成功后返回 JWT' })
   @ApiBody({
     type: LoginDto,
