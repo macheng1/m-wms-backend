@@ -30,6 +30,7 @@ export class AdminPortalController {
    * 更新网站配置 (Logo, Slogan, 关于我们, 页脚等)
    */
   @Patch('config')
+  @ApiOperation({ summary: '更新网站配置' })
   async updateConfig(
     @Req() req,
     @Body() dto: UpdatePortalConfigDto, // 💡 使用 DTO

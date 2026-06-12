@@ -1,5 +1,5 @@
 import { UploadService } from './upload.service';
-import { ApiBody, ApiConsumes, ApiTags } from '@nestjs/swagger';
+import { ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { Body, Controller, HttpCode, Post, UploadedFiles, UseInterceptors } from '@nestjs/common';
 
@@ -12,6 +12,7 @@ import { Public } from '@/common/decorators/public.decorator';
 export class UploadController {
   constructor(private readonly uploadService: UploadService) {}
   @Post('fileList')
+  @ApiOperation({ summary: '批量上传文件' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     description: '文件列表',

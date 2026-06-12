@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Header, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse, ApiBody } from '@nestjs/swagger';
 
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '@/common/guards/jwt-auth.guard';
@@ -50,6 +50,7 @@ export class UsersController {
   @Get('page')
   @UseGuards(JwtAuthGuard)
   @Header('Cache-Control', 'no-cache, no-store, must-revalidate')
+  @ApiOperation({ summary: '分页查询员工列表' })
   async findPage(@Query() query: QueryUserDto, @Req() req) {
     return this.usersService.findPage(query, req.user.tenantId);
   }
@@ -60,9 +61,16 @@ export class UsersController {
    */
   @Post('save')
   @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: '保存员工' })
   async save(@Body() createUserDto: CreateUserDto & { id?: string }, @Req() req) {
     const result = await this.usersService.save(createUserDto, req.user.tenantId);
-    await this.recordTenantAudit(req, 'user', 'save', result?.id, `保存员工：${result?.username || createUserDto.username}`);
+    await this.recordTenantAudit(
+      req,
+      'user',
+      'save',
+      result?.id,
+      `保存员工：${result?.username || createUserDto.username}`,
+    );
     return result;
   }
 
@@ -72,9 +80,16 @@ export class UsersController {
    */
   @Post('update')
   @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: '更新员工信息' })
   async update(@Body() updateUserDto: UpdateUserDto, @Req() req) {
     const result = await this.usersService.update(updateUserDto, req.user.tenantId);
-    await this.recordTenantAudit(req, 'user', 'update', updateUserDto.id, `更新员工：${result?.username || updateUserDto.username || updateUserDto.id}`);
+    await this.recordTenantAudit(
+      req,
+      'user',
+      'update',
+      updateUserDto.id,
+      `更新员工：${result?.username || updateUserDto.username || updateUserDto.id}`,
+    );
     return result;
   }
 
@@ -109,6 +124,7 @@ export class UsersController {
    */
   @Post('status')
   @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: '切换员工状态' })
   async status(@Body() dto: UpdateUserStatusDto, @Req() req) {
     const result = await this.usersService.status(dto, req.user.tenantId);
     await this.recordTenantAudit(req, 'user', 'status', dto.id, `切换员工状态：${dto.isActive}`);
@@ -121,6 +137,14 @@ export class UsersController {
    */
   @Post('delete')
   @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: '删除员工' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['id'],
+      properties: { id: { type: 'string', description: '员工ID' } },
+    },
+  })
   async delete(@Body('id') id: string, @Req() req) {
     const result = await this.usersService.delete(id, req.user.tenantId);
     await this.recordTenantAudit(req, 'user', 'delete', id, '删除员工');
@@ -132,17 +156,32 @@ export class UsersController {
    */
   @Post('detail')
   @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: '查询员工详情' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['id'],
+      properties: { id: { type: 'string', description: '员工ID' } },
+    },
+  })
   async getUserDetail(@Body('id') id: string, @Req() req) {
     return this.usersService.getDetail(id, req.user.tenantId);
   }
 
   @Get(':id')
   @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: '根据 ID 查询员工详情' })
   async getUserDetailById(@Param('id') id: string, @Req() req) {
     return this.usersService.getDetail(id, req.user.tenantId);
   }
 
-  private recordTenantAudit(req: any, module: string, action: string, targetId?: string, description?: string) {
+  private recordTenantAudit(
+    req: any,
+    module: string,
+    action: string,
+    targetId?: string,
+    description?: string,
+  ) {
     return this.operationLogRepo.save(
       this.operationLogRepo.create({
         tenantId: req.user?.tenantId || null,

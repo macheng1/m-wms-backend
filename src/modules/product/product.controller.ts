@@ -39,16 +39,19 @@ export class ProductsController {
   }
 
   @Post('save')
+  @ApiOperation({ summary: '保存产品' })
   async save(@Body() dto: SaveProductDto, @Req() req) {
     return this.productsService.save(dto, req.user.tenantId);
   }
 
   @Post('update')
+  @ApiOperation({ summary: '更新产品' })
   async update(@Body() dto: SaveProductDto, @Req() req) {
     return this.productsService.update(dto, req.user.tenantId);
   }
 
   @Get('page')
+  @ApiOperation({ summary: '分页查询产品列表' })
   @Header('Cache-Control', 'no-cache, no-store, must-revalidate')
   @Header('Pragma', 'no-cache')
   @Header('Expires', '0')
@@ -57,6 +60,7 @@ export class ProductsController {
   }
 
   @Get('detail')
+  @ApiOperation({ summary: '查询产品详情' })
   @Header('Cache-Control', 'no-cache, no-store, must-revalidate')
   @Header('Pragma', 'no-cache')
   @Header('Expires', '0')
@@ -93,12 +97,31 @@ export class ProductsController {
   }
   /** 修改产品状态 */
   @Post('status')
+  @ApiOperation({ summary: '切换产品状态' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['id', 'isActive'],
+      properties: {
+        id: { type: 'string', description: '产品ID' },
+        isActive: { type: 'number', description: '状态：1启用，0禁用' },
+      },
+    },
+  })
   async updateStatus(@Body() body: { id: string; isActive: number }, @Req() req) {
     return this.productsService.updateStatus(body.id, body.isActive, req.user.tenantId);
   }
 
   /** 删除产品 */
   @Post('delete')
+  @ApiOperation({ summary: '删除产品' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['id'],
+      properties: { id: { type: 'string', description: '产品ID' } },
+    },
+  })
   async delete(@Body('id') id: string, @Req() req) {
     return this.productsService.delete(id, req.user.tenantId);
   }
@@ -108,6 +131,7 @@ export class ProductsController {
    * @param categoryCode 类目编码，提供则下载仅包含该类目的通用模板
    */
   @Get('template')
+  @ApiOperation({ summary: '下载产品导入模板' })
   @Header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
   async downloadTemplate(@Query('categoryCode') categoryCode: string, @Req() req, @Res() res) {
     const buffer = await this.importService.generateTemplate(categoryCode, req.user.tenantId);
@@ -122,6 +146,7 @@ export class ProductsController {
    * 导入产品数据
    */
   @Post('import')
+  @ApiOperation({ summary: '导入产品数据' })
   @UseInterceptors(FileInterceptor('file', { storage: memoryStorageConfig }))
   @ApiConsumes('multipart/form-data')
   @ApiBody({
