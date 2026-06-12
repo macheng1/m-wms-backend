@@ -15,6 +15,10 @@ export class OpenApiController {
       auth: 'app-signature',
       tenantSource: 'app-credential',
       basePath: '/api/open/v1',
+      headers: ['x-app-key', 'x-timestamp', 'x-nonce', 'x-signature'],
+      signature:
+        'HMAC-SHA256(secret, METHOD + "\\n" + PATH + "\\n" + TIMESTAMP + "\\n" + NONCE + "\\n" + SHA256(canonicalJson(body)))',
+      signWindowSeconds: 300,
       status: 'skeleton',
     };
   }

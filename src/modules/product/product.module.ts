@@ -21,6 +21,7 @@ import { ProductsController } from './product.controller';
 import { ProductsService } from './product.service';
 import { OssModule } from '../aliyun/oss/oos.module';
 import { Unit } from '../unit/entities/unit.entity';
+import { OpenApiSignatureGuard } from '@/common/guards/open-api-signature.guard';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { Unit } from '../unit/entities/unit.entity';
     CategoriesService, // 3. 注册类目服务
     ProductsService,
     ProductImportService,
+    OpenApiSignatureGuard,
   ],
   exports: [
     OptionsService,

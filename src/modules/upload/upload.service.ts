@@ -1,6 +1,19 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 
 import { OssService } from '../aliyun/oss/oss.service';
+
+const MAX_UPLOAD_FILE_SIZE = 5 * 1024 * 1024;
+const ALLOWED_UPLOAD_PATH_PREFIXES = ['avatar', 'product', 'tenant', 'portal', 'miniapp', 'image'];
+const ALLOWED_UPLOAD_EXTENSIONS = new Set([
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.gif',
+  '.webp',
+  '.pdf',
+  '.xls',
+  '.xlsx',
+]);
 
 @Injectable()
 export class UploadService {
@@ -9,10 +22,12 @@ export class UploadService {
   /**
    * 上传
    */
-  async upload(file, uploadPath = 'image') {
-    console.log('file=======', file);
-    const ossUrl = await this.ossService.putOssFile(this.buildOssKey(file.originalname, uploadPath), file.buffer);
-    console.log('ossUrl=======', ossUrl);
+  async upload(file: Express.Multer.File, uploadPath = 'image') {
+    this.validateFile(file);
+    const ossUrl = await this.ossService.putOssFile(
+      this.buildOssKey(file.originalname, uploadPath),
+      file.buffer,
+    );
 
     return {
       url: ossUrl,
@@ -22,10 +37,15 @@ export class UploadService {
    * 多文件上传
    */
   async uploadMultiple(files: Array<Express.Multer.File>, uploadPath = 'image') {
+    files.forEach((file) => this.validateFile(file));
+
     const results = await Promise.all(
       files.map(async (file) => {
         try {
-          const ossUrl = await this.ossService.putOssFile(this.buildOssKey(file.originalname, uploadPath), file.buffer);
+          const ossUrl = await this.ossService.putOssFile(
+            this.buildOssKey(file.originalname, uploadPath),
+            file.buffer,
+          );
           return {
             filename: file.originalname,
             url: ossUrl,
@@ -40,7 +60,6 @@ export class UploadService {
         }
       }),
     );
-    console.log('TCL: UploadService -> uploadMultiple -> results', results);
     return results;
   }
 
@@ -59,6 +78,11 @@ export class UploadService {
       .replace(/\.\./g, '')
       .replace(/[^a-zA-Z0-9/_-]/g, '');
 
+    const root = path.split('/')[0] || 'image';
+    if (!ALLOWED_UPLOAD_PATH_PREFIXES.includes(root)) {
+      throw new BadRequestException('上传目录不允许');
+    }
+
     return path || 'image';
   }
 
@@ -71,5 +95,20 @@ export class UploadService {
       .replace(/[^a-zA-Z0-9._\-\u4e00-\u9fa5]/g, '');
 
     return name || 'file';
+  }
+
+  private validateFile(file: Express.Multer.File) {
+    if (!file?.buffer || !file.originalname) {
+      throw new BadRequestException('上传文件无效');
+    }
+    if (file.size > MAX_UPLOAD_FILE_SIZE) {
+      throw new BadRequestException('文件大小不能超过 5MB');
+    }
+
+    const filename = this.normalizeFilename(file.originalname);
+    const extension = filename.includes('.') ? `.${filename.split('.').pop()?.toLowerCase()}` : '';
+    if (!ALLOWED_UPLOAD_EXTENSIONS.has(extension)) {
+      throw new BadRequestException('文件扩展名不允许');
+    }
   }
 }

@@ -1,7 +1,7 @@
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { appConfig, databaseConfig, jwtConfig, redisConfig } from '@config/index';
+import { appConfig, databaseConfig, jwtConfig, openApiConfig, redisConfig } from '@config/index';
 import { TenantModule } from '@modules/tenant/tenant.module';
 import { AuthModule } from '@modules/auth/auth.module';
 import { InventoryModule } from '@modules/inventory/inventory.module';
@@ -40,7 +40,7 @@ console.log('当前工作目录:', process.cwd());
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: resolve(process.cwd(), 'envs', `.env.${process.env.NODE_ENV || 'development'}`),
-      load: [appConfig, databaseConfig, jwtConfig, redisConfig],
+      load: [appConfig, databaseConfig, jwtConfig, openApiConfig, redisConfig],
     }),
 
     // Database configuration

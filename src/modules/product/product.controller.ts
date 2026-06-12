@@ -9,9 +9,17 @@ import {
   Res,
   UseInterceptors,
   UploadedFile,
+  UseGuards,
 } from '@nestjs/common';
 import { BusinessException } from '@/common/filters/business.exception';
-import { ApiTags, ApiConsumes, ApiBody, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiConsumes,
+  ApiBody,
+  ApiBearerAuth,
+  ApiHeader,
+  ApiOperation,
+} from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { QueryProductDto } from './entities/dto/query-product.dto';
 import { SaveProductDto } from './entities/dto/save-product.dto';
@@ -20,6 +28,7 @@ import { ProductsService } from './product.service';
 import { ProductImportService } from './service/product-import.service';
 import { Public } from '@/common/decorators/public.decorator';
 import { memoryStorageConfig } from '@/common/config/multer.config';
+import { OpenApiSignatureGuard } from '@/common/guards/open-api-signature.guard';
 
 @ApiTags('产品管理-产品管理')
 @ApiBearerAuth()
@@ -73,7 +82,12 @@ export class ProductsController {
    */
   @Post('public/page')
   @ApiOperation({ summary: '第三方调用 - 产品列表' })
+  @ApiHeader({ name: 'x-app-key', description: 'Open API appKey' })
+  @ApiHeader({ name: 'x-timestamp', description: '毫秒时间戳，默认 5 分钟有效' })
+  @ApiHeader({ name: 'x-nonce', description: '随机字符串，同一时间窗内不可重复' })
+  @ApiHeader({ name: 'x-signature', description: 'HMAC-SHA256 请求签名' })
   @Public()
+  @UseGuards(OpenApiSignatureGuard)
   async publicFindPage(@Body() body: { tenantId: string } & Partial<QueryProductDto>) {
     const { tenantId, ...query } = body;
     if (!tenantId) {
@@ -87,7 +101,12 @@ export class ProductsController {
    */
   @Post('public/detail')
   @ApiOperation({ summary: '第三方调用 - 产品详情' })
+  @ApiHeader({ name: 'x-app-key', description: 'Open API appKey' })
+  @ApiHeader({ name: 'x-timestamp', description: '毫秒时间戳，默认 5 分钟有效' })
+  @ApiHeader({ name: 'x-nonce', description: '随机字符串，同一时间窗内不可重复' })
+  @ApiHeader({ name: 'x-signature', description: 'HMAC-SHA256 请求签名' })
   @Public()
+  @UseGuards(OpenApiSignatureGuard)
   async publicGetDetail(@Body() body: { id: string; tenantId: string }) {
     const { id, tenantId } = body;
     if (!id || !tenantId) {
