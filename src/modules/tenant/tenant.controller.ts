@@ -9,16 +9,14 @@ import {
   Delete,
   Patch,
   Req,
-  UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiHeader } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { DetailTenantDto } from './dto/detail-tenant.dto';
 import { TenantsService } from './tenants.service';
 import { Public } from '@/common/decorators/public.decorator';
-import { OpenApiSignatureGuard } from '@/common/guards/open-api-signature.guard';
 import { PublicTenantDetailDto, PublicTenantListDto } from './dto/public-tenant.dto';
 import { AuditLogService } from '@/common/audit/audit-log.service';
 
@@ -63,13 +61,8 @@ export class TenantController {
   }
 
   @Post('public/list')
-  @ApiOperation({ summary: '第三方调用 - 分页查询租户列表' })
-  @ApiHeader({ name: 'x-app-key', description: 'Open API appKey' })
-  @ApiHeader({ name: 'x-timestamp', description: '毫秒时间戳，默认 5 分钟有效' })
-  @ApiHeader({ name: 'x-nonce', description: '随机字符串，同一时间窗内不可重复' })
-  @ApiHeader({ name: 'x-signature', description: 'HMAC-SHA256 请求签名' })
+  @ApiOperation({ summary: '公开分页查询租户列表' })
   @Public()
-  @UseGuards(OpenApiSignatureGuard)
   async publicFindAll(@Body() body: PublicTenantListDto, @Req() req) {
     const { page = 1, pageSize = 20, tenantSource, name } = body || {};
     const result = await this.tenantsService.findPublicAll({
@@ -96,13 +89,8 @@ export class TenantController {
   }
 
   @Post('public/detail')
-  @ApiOperation({ summary: '第三方调用 - 获取租户详情' })
-  @ApiHeader({ name: 'x-app-key', description: 'Open API appKey' })
-  @ApiHeader({ name: 'x-timestamp', description: '毫秒时间戳，默认 5 分钟有效' })
-  @ApiHeader({ name: 'x-nonce', description: '随机字符串，同一时间窗内不可重复' })
-  @ApiHeader({ name: 'x-signature', description: 'HMAC-SHA256 请求签名' })
+  @ApiOperation({ summary: '公开获取租户详情' })
   @Public()
-  @UseGuards(OpenApiSignatureGuard)
   async publicFindOne(@Body() body: PublicTenantDetailDto, @Req() req) {
     const result = await this.tenantsService.findPublicOne(body.id);
     await this.auditLogService.record({

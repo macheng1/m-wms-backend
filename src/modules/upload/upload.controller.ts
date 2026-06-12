@@ -15,6 +15,8 @@ import {
 import multer = require('multer');
 import { memoryStorageConfig } from '@/common/config/multer.config';
 import { AuditLogService } from '@/common/audit/audit-log.service';
+import { Public } from '@/common/decorators/public.decorator';
+import { RateLimit } from '@/common/decorators/rate-limit.decorator';
 
 const ALLOWED_UPLOAD_MIME_TYPES = new Set([
   'image/jpeg',
@@ -24,6 +26,10 @@ const ALLOWED_UPLOAD_MIME_TYPES = new Set([
   'application/pdf',
   'application/vnd.ms-excel',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/dwg',
+  'application/zip',
+  'application/x-zip-compressed',
+  'application/octet-stream',
 ]);
 
 @ApiTags('上传图片')
@@ -92,6 +98,76 @@ export class UploadController {
       description: `上传文件 ${files.length} 个`,
       afterData: {
         path: body?.path || 'image',
+        files: result.map((item) => ({
+          filename: item.filename,
+          url: item.url,
+          success: item.success,
+        })),
+      },
+    });
+    return result;
+  }
+
+  @Post('public/fileList')
+  @Public()
+  @RateLimit({
+    keyPrefix: 'portal-public-upload',
+    points: 10,
+    durationSeconds: 300,
+  })
+  @ApiOperation({ summary: '官网访客公共附件上传' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: '官网访客附件列表',
+    type: 'multipart/form-data',
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'array',
+          items: {
+            type: 'string',
+            format: 'binary',
+          },
+        },
+      },
+    },
+  })
+  @UseInterceptors(
+    FilesInterceptor('file', 6, {
+      storage: memoryStorageConfig,
+      limits: {
+        fileSize: 5 * 1024 * 1024,
+        files: 6,
+      },
+      fileFilter: (_req, file, callback) => {
+        if (!ALLOWED_UPLOAD_MIME_TYPES.has(file.mimetype)) {
+          return callback(new BadRequestException('不支持的文件类型'), false);
+        }
+        callback(null, true);
+      },
+    }),
+  )
+  @HttpCode(200)
+  async uploadPublicPortalFiles(
+    @UploadedFiles() files: Array<Express.Multer.File>,
+    @Req() req,
+  ) {
+    if (!files || !Array.isArray(files) || files.length === 0) {
+      throw new BadRequestException('请上传文件');
+    }
+
+    const result = await this.uploadService.uploadMultiple(files, 'portal/inquiry');
+    const requestAudit = this.auditLogService.fromRequest(req);
+    await this.auditLogService.record({
+      module: 'upload',
+      action: 'portal.public.file.upload',
+      targetType: 'portal-inquiry-file',
+      scope: 'platform',
+      description: `官网访客上传附件 ${files.length} 个`,
+      ip: requestAudit.ip,
+      afterData: {
+        path: 'portal/inquiry',
         files: result.map((item) => ({
           filename: item.filename,
           url: item.url,

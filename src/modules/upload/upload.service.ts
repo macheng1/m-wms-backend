@@ -13,6 +13,8 @@ const ALLOWED_UPLOAD_EXTENSIONS = new Set([
   '.pdf',
   '.xls',
   '.xlsx',
+  '.dwg',
+  '.zip',
 ]);
 
 @Injectable()
@@ -24,8 +26,9 @@ export class UploadService {
    */
   async upload(file: Express.Multer.File, uploadPath = 'image') {
     this.validateFile(file);
+    const safePath = this.normalizeUploadPath(uploadPath);
     const ossUrl = await this.ossService.putOssFile(
-      this.buildOssKey(file.originalname, uploadPath),
+      this.buildOssKey(file.originalname, safePath),
       file.buffer,
     );
 
@@ -38,12 +41,13 @@ export class UploadService {
    */
   async uploadMultiple(files: Array<Express.Multer.File>, uploadPath = 'image') {
     files.forEach((file) => this.validateFile(file));
+    const safePath = this.normalizeUploadPath(uploadPath);
 
     const results = await Promise.all(
       files.map(async (file) => {
         try {
           const ossUrl = await this.ossService.putOssFile(
-            this.buildOssKey(file.originalname, uploadPath),
+            this.buildOssKey(file.originalname, safePath),
             file.buffer,
           );
           return {
@@ -71,12 +75,20 @@ export class UploadService {
   }
 
   private normalizeUploadPath(uploadPath = 'image') {
-    const path = String(uploadPath || 'image')
-      .trim()
-      .replace(/\\/g, '/')
-      .replace(/^\/+|\/+$/g, '')
-      .replace(/\.\./g, '')
-      .replace(/[^a-zA-Z0-9/_-]/g, '');
+    const rawPath = String(uploadPath || 'image').trim();
+    if (!rawPath) return 'image';
+
+    if (
+      rawPath.startsWith('/') ||
+      rawPath.includes('\\') ||
+      rawPath.includes('//') ||
+      rawPath.split('/').some((segment) => segment === '.' || segment === '..') ||
+      !/^[a-zA-Z0-9/_-]+$/.test(rawPath)
+    ) {
+      throw new BadRequestException('上传目录不允许');
+    }
+
+    const path = rawPath.replace(/\/+$/g, '');
 
     const root = path.split('/')[0] || 'image';
     if (!ALLOWED_UPLOAD_PATH_PREFIXES.includes(root)) {

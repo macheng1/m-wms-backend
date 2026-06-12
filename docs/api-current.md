@@ -386,9 +386,15 @@
 
 - `GET /api/miniapp/meta`（Public）：小程序 API 边界信息
 
-### 4.13 服务器调用 Open API
+### 4.13 公开产品/企业接口
 
 - `GET /api/open/v1/meta`（Public）：Open API 边界信息
+- `POST /api/products/public/page`（Public）：公开产品列表，仅返回白名单字段
+- `POST /api/products/public/detail`（Public）：公开产品详情，仅返回白名单字段
+- `POST /api/tenants/public/list`（Public）：公开企业列表，仅返回启用且审核通过企业
+- `POST /api/tenants/public/detail`（Public）：公开企业详情，仅返回启用且审核通过企业
+
+说明：Open API 签名能力代码暂时保留，但当前 public 产品/企业接口不启用签名校验。前端可直接请求，后端仍保留字段白名单、状态过滤和审计日志。
 
 ### 4.14 通知 Notifications
 
@@ -404,7 +410,8 @@
 
 ### 4.15 上传 Upload
 
-- `POST /api/upload/fileList`（Public）：多文件上传，`multipart/form-data` 字段名 `file`，最多 6 个
+- `POST /api/upload/fileList`：登录态多文件上传，`multipart/form-data` 字段名 `file`，最多 6 个，单文件最大 5MB。必须携带 `Authorization: Bearer <token>`，支持目录前缀 `avatar/product/tenant/portal/miniapp/image`。
+- `POST /api/upload/public/fileList`（Public）：官网访客附件上传，`multipart/form-data` 字段名 `file`，最多 6 个，单文件最大 5MB，固定上传到 `portal/inquiry`，带限流。
 
 ### 4.16 短信 SMS
 
