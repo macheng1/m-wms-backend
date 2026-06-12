@@ -694,6 +694,11 @@ export class ProductImportService extends BaseImportService {
       throw new Error(`产品编码 ${productCode} 已存在`);
     }
 
+    const barcodeExists = await this.productRepo.findOne({ where: { barcode: productCode, tenantId } });
+    if (barcodeExists) {
+      throw new Error(`产品条形码 ${productCode} 已存在`);
+    }
+
     const inventoryUnit = await this.findUnitByText(unit, tenantId);
     if (!inventoryUnit) {
       throw new Error(`库存主单位 ${unit} 不存在或未启用`);
@@ -718,6 +723,7 @@ export class ProductImportService extends BaseImportService {
     const product = this.productRepo.create({
       name,
       code: productCode,
+      barcode: productCode,
       categoryId: category.id,
       unitId: inventoryUnit.id,
       unit: inventoryUnit.symbol || inventoryUnit.name || inventoryUnit.code,

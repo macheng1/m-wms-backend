@@ -13,6 +13,9 @@ export class Product extends TenantBaseEntity {
   @Column({ comment: '产品编码/SKU' })
   code: string;
 
+  @Column({ length: 120, nullable: true, comment: '产品条形码，默认与产品编码/SKU一致' })
+  barcode: string | null;
+
   @Column({ type: 'char', length: 36, comment: '类目ID' })
   categoryId: string;
 

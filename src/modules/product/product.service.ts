@@ -28,6 +28,11 @@ export class ProductsService {
     return `SKU-${timestamp}-${random}`;
   }
 
+  private normalizeBarcode(value?: string | null): string | null {
+    const normalized = value?.trim();
+    return normalized ? normalized.toUpperCase() : null;
+  }
+
   /** 新增产品 */
   async save(dto: SaveProductDto, tenantId: string) {
     const category = await this.validateCategory(dto.categoryId, tenantId);
@@ -38,9 +43,15 @@ export class ProductsService {
     if (!dto.code) {
       dto.code = this.generateSkuCode();
     }
+    dto.barcode = this.normalizeBarcode(dto.barcode) || dto.code;
 
     const exists = await this.productRepo.findOne({ where: { code: dto.code, tenantId } });
     if (exists) throw new BusinessException(`产品编码 ${dto.code} 已存在`);
+
+    const barcodeExists = await this.productRepo.findOne({
+      where: { barcode: dto.barcode, tenantId },
+    });
+    if (barcodeExists) throw new BusinessException(`产品条形码 ${dto.barcode} 已存在`);
 
     const product = this.productRepo.create({
       ...dto,
@@ -66,6 +77,12 @@ export class ProductsService {
     });
     if (exists) throw new BusinessException(`产品编码 ${dto.code || product.code} 已存在`);
 
+    dto.barcode = this.normalizeBarcode(dto.barcode) || product.barcode || dto.code || product.code;
+    const barcodeExists = await this.productRepo.findOne({
+      where: { barcode: dto.barcode, tenantId, id: Not(dto.id) },
+    });
+    if (barcodeExists) throw new BusinessException(`产品条形码 ${dto.barcode} 已存在`);
+
     if (product.unitId !== dto.unitId) {
       await this.assertProductUnitCanChange(product, tenantId);
     }
@@ -89,7 +106,7 @@ export class ProductsService {
       .where('p.tenantId = :tenantId', { tenantId });
 
     if (keyword) {
-      qb.andWhere('(p.name LIKE :kw OR p.code LIKE :kw)', { kw: `%${keyword}%` });
+      qb.andWhere('(p.name LIKE :kw OR p.code LIKE :kw OR p.barcode LIKE :kw)', { kw: `%${keyword}%` });
     }
     if (categoryId) {
       qb.andWhere('p.categoryId = :categoryId', { categoryId });
@@ -143,6 +160,17 @@ export class ProductsService {
       unitSymbol: inventoryUnit?.symbol || inventoryUnit?.name || inventoryUnit?.code,
       inventoryUnit,
     };
+  }
+
+  async getByBarcode(barcode: string, tenantId: string) {
+    const normalizedBarcode = this.normalizeBarcode(barcode);
+    if (!normalizedBarcode) throw new BusinessException('条形码不能为空');
+    const product = await this.productRepo.findOne({
+      where: { barcode: normalizedBarcode, tenantId },
+      relations: ['category', 'inventoryUnit'],
+    });
+    if (!product) throw new BusinessException(`条形码 ${normalizedBarcode} 对应的产品不存在`);
+    return this.getDetail(product.id, tenantId);
   }
 
   async findPublicPage(query: QueryProductDto, tenantId: string) {
@@ -269,6 +297,7 @@ export class ProductsService {
       tenantId: product.tenantId,
       name: product.name,
       code: product.code,
+      barcode: product.barcode || product.code,
       categoryId: product.categoryId,
       categoryName: product.categoryName || product.category?.name || null,
       unit: product.unit,
@@ -296,7 +325,7 @@ export class ProductsService {
       .andWhere('p.isActive = :isActive', { isActive: 1 });
 
     if (keyword) {
-      query.andWhere('(p.name LIKE :kw OR p.code LIKE :kw)', { kw: `%${keyword}%` });
+      query.andWhere('(p.name LIKE :kw OR p.code LIKE :kw OR p.barcode LIKE :kw)', { kw: `%${keyword}%` });
     }
 
     const products = await query.orderBy('p.name', 'ASC').getMany();
@@ -307,6 +336,7 @@ export class ProductsService {
       id: p.id,
       name: p.name,
       code: p.code,
+      barcode: p.barcode || p.code,
       unitId: p.unitId,
     }));
   }

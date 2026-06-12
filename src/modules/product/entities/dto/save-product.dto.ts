@@ -31,6 +31,11 @@ export class SaveProductDto {
   @IsString()
   code?: string;
 
+  @ApiProperty({ description: '产品条形码（不传则默认等于SKU编码）', required: false })
+  @IsOptional()
+  @IsString()
+  barcode?: string;
+
   @ApiProperty({ description: '所属类目ID' })
   @IsNotEmpty({ message: '必须选择一个类目' })
   @IsString()

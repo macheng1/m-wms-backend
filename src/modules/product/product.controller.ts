@@ -3,6 +3,7 @@ import {
   Post,
   Body,
   Get,
+  Param,
   Query,
   Req,
   Header,
@@ -75,6 +76,12 @@ export class ProductsController {
   @Header('Expires', '0')
   async getDetail(@Query('id') id: string, @Req() req) {
     return this.productsService.getDetail(id, req.user.tenantId);
+  }
+
+  @Get('barcode/:barcode')
+  @ApiOperation({ summary: '按产品条形码查询产品详情' })
+  async getByBarcode(@Param('barcode') barcode: string, @Req() req) {
+    return this.productsService.getByBarcode(barcode, req.user.tenantId);
   }
 
   /**
