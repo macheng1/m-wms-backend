@@ -43,9 +43,6 @@ export class Inventory {
   @Column({ type: 'char', length: 36, nullable: true })
   locationId: string;
 
-  @Column({ type: 'json', nullable: true })
-  multiUnitQty: Record<string, number>;
-
   @CreateDateColumn()
   createdAt: Date;
 

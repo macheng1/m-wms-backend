@@ -7,6 +7,7 @@ import { OrderItem } from './entities/order-item.entity';
 import { OrderFlowLog } from './entities/order-flow-log.entity';
 import { Product } from '../product/product.entity';
 import { Inventory } from '../inventory/entities/inventory.entity';
+import { InventoryLocation } from '../location/entities/inventory-location.entity';
 import { InventoryTransaction } from '../inventory/entities/inventory-transaction.entity';
 import { MiniappMember } from '../miniapp/entities/miniapp-member.entity';
 import { TransactionType } from '@/common/constants/unit.constant';
@@ -142,6 +143,166 @@ export class OrderService {
     );
   }
 
+  private async updateLocationLockedQuantity(
+    manager: any,
+    inventory: Inventory,
+    delta: number,
+  ): Promise<string | null> {
+    if (delta === 0) return inventory.locationId || null;
+    const locationStocks = await manager.find(InventoryLocation, {
+      where: {
+        tenantId: inventory.tenantId,
+        sku: inventory.sku,
+      },
+      lock: { mode: 'pessimistic_write' },
+      order: { updatedAt: 'ASC' },
+    });
+    if (locationStocks.length === 0) {
+      throw new BusinessException(`SKU ${inventory.sku} 的库位库存记录不存在`);
+    }
+
+    const firstLocationId = locationStocks[0]?.locationId || inventory.locationId || null;
+
+    if (delta > 0) {
+      const totalAvailable = locationStocks.reduce(
+        (sum, stock) => sum + Math.max(Number(stock.quantity || 0) - Number(stock.lockedQuantity || 0), 0),
+        0,
+      );
+      if (totalAvailable < delta) {
+        throw new BusinessException(`SKU ${inventory.sku} 库位可用库存不足，无法锁定`);
+      }
+
+      let remaining = delta;
+      for (const stock of locationStocks) {
+        if (remaining <= 0) break;
+        const quantity = Number(stock.quantity || 0);
+        const lockedQty = Number(stock.lockedQuantity || 0);
+        const available = Math.max(quantity - lockedQty, 0);
+        if (available <= 0) continue;
+        const lockQty = Math.min(available, remaining);
+        await manager.update(
+          InventoryLocation,
+          { id: stock.id },
+          { lockedQuantity: lockedQty + lockQty },
+        );
+        remaining -= lockQty;
+      }
+      return firstLocationId;
+    }
+
+    const releaseQuantity = Math.abs(delta);
+    const totalLocked = locationStocks.reduce(
+      (sum, stock) => sum + Number(stock.lockedQuantity || 0),
+      0,
+    );
+    if (totalLocked < releaseQuantity) {
+      throw new BusinessException(`SKU ${inventory.sku} 库位锁定库存不足，无法释放`);
+    }
+
+    let remaining = releaseQuantity;
+    for (const stock of locationStocks) {
+      if (remaining <= 0) break;
+      const lockedQty = Number(stock.lockedQuantity || 0);
+      if (lockedQty <= 0) continue;
+      const releaseQty = Math.min(lockedQty, remaining);
+      await manager.update(
+        InventoryLocation,
+        { id: stock.id },
+        { lockedQuantity: lockedQty - releaseQty },
+      );
+      remaining -= releaseQty;
+    }
+    return firstLocationId;
+  }
+
+  private async deductLocationStock(
+    manager: any,
+    inventory: Inventory,
+    quantity: number,
+  ): Promise<string | null> {
+    if (quantity === 0) return inventory.locationId || null;
+    const locationStocks = await manager.find(InventoryLocation, {
+      where: {
+        tenantId: inventory.tenantId,
+        sku: inventory.sku,
+      },
+      lock: { mode: 'pessimistic_write' },
+      order: { updatedAt: 'ASC' },
+    });
+    if (locationStocks.length === 0) {
+      throw new BusinessException(`SKU ${inventory.sku} 的库位库存记录不存在`);
+    }
+
+    const totalLocked = locationStocks.reduce((sum, stock) => sum + Number(stock.lockedQuantity || 0), 0);
+    const totalStock = locationStocks.reduce((sum, stock) => sum + Number(stock.quantity || 0), 0);
+    if (totalLocked < quantity) {
+      throw new BusinessException(`SKU ${inventory.sku} 库位锁定库存不足，无法完成`);
+    }
+    if (totalStock < quantity) {
+      throw new BusinessException(`SKU ${inventory.sku} 库位库存不足，无法扣减`);
+    }
+
+    const firstLocationId = locationStocks[0]?.locationId || inventory.locationId || null;
+    let remaining = quantity;
+    for (const stock of locationStocks) {
+      if (remaining <= 0) break;
+      const stockQty = Number(stock.quantity || 0);
+      const lockedQty = Number(stock.lockedQuantity || 0);
+      if (lockedQty <= 0) continue;
+      const deductQty = Math.min(lockedQty, remaining);
+      await manager.update(
+        InventoryLocation,
+        { id: stock.id },
+        {
+          quantity: stockQty - deductQty,
+          lockedQuantity: lockedQty - deductQty,
+        },
+      );
+      remaining -= deductQty;
+    }
+    return firstLocationId;
+  }
+
+  private async normalizeOrderItem(
+    manager: any,
+    tenantId: string,
+    item: CreateOrderDto['items'][number],
+  ) {
+    if (!item.sku && !item.productId) return item;
+
+    const where = item.productId
+      ? { id: item.productId, tenantId }
+      : { code: item.sku, tenantId };
+    const product = await manager.findOne(Product, {
+      where,
+      relations: ['inventoryUnit'],
+    });
+    if (!product) {
+      throw new BusinessException(`订单明细产品不存在：${item.sku || item.productId}`);
+    }
+    if (product.isActive !== 1) {
+      throw new BusinessException(`产品 ${product.name} 已禁用，不能下单`);
+    }
+    if (!product.unitId || !product.inventoryUnit) {
+      throw new BusinessException(`产品 ${product.name} 未维护库存主单位，不能下单`);
+    }
+    if (item.unitCode && item.unitCode !== product.inventoryUnit.code) {
+      throw new BusinessException(
+        `产品 ${product.name} 下单单位必须使用库存主单位：${product.inventoryUnit.name}(${product.inventoryUnit.code})`,
+      );
+    }
+
+    return {
+      ...item,
+      productId: product.id,
+      sku: product.code,
+      productName: item.productName || product.name,
+      unitCode: product.inventoryUnit.code,
+      unitName: product.inventoryUnit.symbol || product.inventoryUnit.name || product.inventoryUnit.code,
+      specs: product.specs || null,
+    };
+  }
+
   private async getSkuOrderUnit(tenantId: string, product: Product) {
     const productUnit = product.inventoryUnit;
     if (!product.unitId || !productUnit) {
@@ -223,6 +384,7 @@ export class OrderService {
           { id: inventory.id },
           { lockedQuantity: lockedQty + lockQty },
         );
+        const locationId = await this.updateLocationLockedQuantity(manager, inventory, lockQty);
         await this.createInventoryTransaction(manager, {
           tenantId: order.tenantId,
           sku: item.sku,
@@ -233,7 +395,7 @@ export class OrderService {
           beforeQty: availableQty,
           afterQty: availableQty - lockQty,
           orderNo: order.orderNumber,
-          locationId: inventory.locationId,
+          locationId,
           remark: remark || '订购单锁定库存',
         });
         remaining -= lockQty;
@@ -273,6 +435,7 @@ export class OrderService {
           { id: inventory.id },
           { lockedQuantity: lockedQty - releaseQty },
         );
+        const locationId = await this.updateLocationLockedQuantity(manager, inventory, -releaseQty);
         await this.createInventoryTransaction(manager, {
           tenantId: order.tenantId,
           sku: item.sku,
@@ -283,7 +446,7 @@ export class OrderService {
           beforeQty: beforeAvailable,
           afterQty: beforeAvailable + releaseQty,
           orderNo: order.orderNumber,
-          locationId: inventory.locationId,
+          locationId,
           remark: remark || '订购单释放库存',
         });
         remaining -= releaseQty;
@@ -325,6 +488,7 @@ export class OrderService {
             lockedQuantity: lockedQty - deductQty,
           },
         );
+        const locationId = await this.deductLocationStock(manager, inventory, deductQty);
         await this.createInventoryTransaction(manager, {
           tenantId: order.tenantId,
           sku: item.sku,
@@ -335,7 +499,7 @@ export class OrderService {
           beforeQty: stockQty,
           afterQty: stockQty - deductQty,
           orderNo: order.orderNumber,
-          locationId: inventory.locationId,
+          locationId,
           remark: remark || '订购单完成扣减库存',
         });
         remaining -= deductQty;
@@ -364,7 +528,12 @@ export class OrderService {
           : null,
       });
 
-      const orderItems = (createOrderDto.items || []).map((item) =>
+      const normalizedItems = [];
+      for (const item of createOrderDto.items || []) {
+        normalizedItems.push(await this.normalizeOrderItem(manager, tenantId, item));
+      }
+
+      const orderItems = normalizedItems.map((item) =>
         manager.create(OrderItem, {
           ...item,
           tenantId,
@@ -631,6 +800,9 @@ export class OrderService {
 
     if (!nextStatuses.includes(dto.status)) {
       throw new BusinessException('当前订单状态不允许该流转');
+    }
+    if (order.source === OrderSource.MINIAPP && dto.status === OrderStatus.OUT_OF_STOCK) {
+      throw new BusinessException('小程序订购单已预占库存，不能流转为库存不足');
     }
 
     const fromStatus = order.status;

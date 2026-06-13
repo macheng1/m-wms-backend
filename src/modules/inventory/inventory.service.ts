@@ -11,9 +11,8 @@ import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { UpdateInventoryDto } from './dto/update-inventory.dto';
 import { InboundDto, BatchInboundDto } from './dto/inbound.dto';
 import { OutboundDto, BatchOutboundDto } from './dto/outbound.dto';
-import { InventoryResult } from './dto/inventory-result.dto';
+import { InventoryResult, InventoryUnitResult } from './dto/inventory-result.dto';
 import { UnitService } from '../unit/unit.service';
-import { UnitConverter, Unit } from '../../common/utils/unit-converter.util';
 import {
   isInboundType,
   isOutboundType,
@@ -94,30 +93,62 @@ export class InventoryService {
     return (product as any).inventoryUnit;
   }
 
-  private async convertToInventoryUnit(
-    product: Product,
+  private ensureRequestUnitMatchesProductUnit(
+    unitCode: string | undefined,
+    inventoryUnit: any,
+    actionName: string,
+  ) {
+    if (!unitCode) return;
+    if (unitCode !== inventoryUnit.code) {
+      throw new BadRequestException(
+        `${actionName}单位必须使用产品库存单位：${inventoryUnit.name}(${inventoryUnit.code})`,
+      );
+    }
+  }
+
+  private async getConvertibleOperationUnit(
+    unitCode: string | undefined,
+    inventoryUnit: any,
+    tenantId: string,
+    actionName: string,
+  ) {
+    if (!unitCode || unitCode === inventoryUnit.code) {
+      return { unit: inventoryUnit, conversionRatio: 1 };
+    }
+
+    const unit = await this.unitService.findByCode(unitCode, tenantId);
+    if (!unit) {
+      throw new BadRequestException(`单位编码 ${unitCode} 不存在`);
+    }
+    if (unit.isActive !== 1) {
+      throw new BadRequestException('单位未启用');
+    }
+
+    const directConversion = await this.unitService.findConversion(unit.code, inventoryUnit.code, tenantId);
+    if (directConversion) {
+      return { unit, conversionRatio: Number(directConversion.ratio) };
+    }
+
+    throw new BadRequestException(
+      `${actionName}单位 ${unit.name} 未维护到产品库存单位 ${inventoryUnit.name} 的换算关系`,
+    );
+  }
+
+  private convertToInventoryUnit(
     quantity: number,
     fromUnit: any,
     inventoryUnit: any,
-    options: {
-      convertedQuantity?: number;
-    } = {},
+    conversionRatio?: number | null,
   ) {
-    if (fromUnit.id === inventoryUnit.id) return Number(quantity);
-
-    const fromUnitObj = this.toUnit(fromUnit);
-    const inventoryUnitObj = this.toUnit(inventoryUnit);
-    if (fromUnit.category === inventoryUnit.category) {
-      return UnitConverter.convert(quantity, fromUnitObj, inventoryUnitObj);
+    if (conversionRatio) {
+      return Math.round(Number(quantity) * conversionRatio * 100) / 100;
     }
-
-    const manualQty = Number(options.convertedQuantity);
-    if (!manualQty || manualQty <= 0) {
-      throw new BadRequestException(
-        `入库单位 ${fromUnit.name} 与产品库存主单位 ${inventoryUnit.name} 分类不同，请填写折合后的库存数量`,
-      );
+    if (fromUnit.code === inventoryUnit.code) {
+      return Number(quantity);
     }
-    return manualQty;
+    throw new BadRequestException(
+      `单位 ${fromUnit.name} 未维护到产品库存单位 ${inventoryUnit.name} 的换算关系`,
+    );
   }
 
   private async updateLocationOccupancy(
@@ -312,10 +343,6 @@ export class InventoryService {
     // 获取总数
     const total = await queryBuilder.getCount();
 
-    // 获取所有单位，用于多单位库存显示
-    const allUnits = await this.unitService.getAllUnits(tenantId);
-    const unitMap = new Map(allUnits.map(u => [u.code, u]));
-
     // 计算库存状态
     const calculateStockStatus = (quantity: number, safetyStock: number | null): string => {
       const safetyStockNum = safetyStock ? Number(safetyStock) : 0;
@@ -344,34 +371,6 @@ export class InventoryService {
       const safetyStock = raw.safetyStock ? Number(raw.safetyStock) : 0;
       const status = calculateStockStatus(availableQuantity, safetyStock);
 
-      // 实时计算多单位库存（确保数据正确，不依赖数据库中可能过期的 multiUnitQty）
-      const formattedMultiUnitQty: Record<string, any> = {};
-      if (entity.unitId) {
-        const inventoryUnit = allUnits.find(u => u.id === entity.unitId);
-        if (inventoryUnit) {
-          const inventoryUnitObj = this.toUnit(inventoryUnit);
-          const allUnitObjs = allUnits.map(u => this.toUnit(u));
-          const multiUnitQty = UnitConverter.convertToMultipleUnits(
-            numQuantity,
-            inventoryUnitObj,
-            allUnitObjs,
-          );
-
-          for (const [unitCode, qty] of Object.entries(multiUnitQty)) {
-            const unit = unitMap.get(unitCode);
-            if (unit) {
-              const numQty = Number(qty);
-              formattedMultiUnitQty[unitCode] = {
-                quantity: numQty,
-                name: unit.name,
-                symbol: unit.symbol,
-                display: `${formatNumber(numQty)} ${unit.symbol}`
-              };
-            }
-          }
-        }
-      }
-
       return {
         ...entity,
         // 将 decimal 类型转换为数字类型（整数返回整数，小数返回小数）
@@ -395,8 +394,6 @@ export class InventoryService {
         availableQuantityDisplay: raw.unitSymbol
           ? `${formatNumber(availableQuantity)} ${raw.unitSymbol}`
           : `${formatNumber(availableQuantity)}`,
-        // 多单位库存带单位信息（实时计算，整数不显示小数位）
-        multiUnitQty: formattedMultiUnitQty,
         // 安全库存
         safetyStock: Math.round(safetyStock * 100) / 100 === Math.floor(safetyStock) ? Math.floor(safetyStock) : Math.round(safetyStock * 100) / 100,
         safetyStockDisplay: safetyStock > 0 ? `${formatNumber(safetyStock)} ${raw.unitSymbol || ''}` : '未设置',
@@ -524,46 +521,43 @@ export class InventoryService {
       // 1. 验证产品并获取产品信息（SKU 即为产品 code）
       const product = await this.getProductBySku(dto.sku, tenantId);
 
-      // 2. 获取单位信息
-      const unit = await this.unitService.findByCode(dto.unitCode, tenantId);
-      if (!unit) {
-        // 检测是否传错了参数（SKU 被当作 unitCode）
-        if (dto.unitCode?.toUpperCase().startsWith('SKU-')) {
-          throw new BadRequestException(`参数错误：${dto.unitCode} 是产品编码(SKU)，不是单位编码。请检查请求参数中 sku 和 unitCode 是否正确填写。`);
-        }
-        throw new BadRequestException(`单位编码 ${dto.unitCode} 不存在`);
-      }
-      if (unit.isActive !== 1) {
+      const inventoryUnit = this.getProductInventoryUnit(product);
+      const operation = await this.getConvertibleOperationUnit(
+        dto.unitCode,
+        inventoryUnit,
+        tenantId,
+        '入库',
+      );
+      const operationUnit = operation.unit;
+      if (inventoryUnit.isActive !== 1) {
         throw new BadRequestException('单位未启用');
       }
 
-      // 3. 查找或创建库存记录
+      // 2. 查找或创建库存记录
       let inventory = await queryRunner.manager.findOne(Inventory, {
         where: { sku: dto.sku, tenantId },
       });
 
       const beforeQty = inventory ? Number(inventory.quantity) : 0;
-      let convertedQty: number;
+      const inputQty = Number(dto.quantity);
+      const stockQty = this.convertToInventoryUnit(
+        inputQty,
+        operationUnit,
+        inventoryUnit,
+        operation.conversionRatio,
+      );
 
-      const inventoryUnit = this.getProductInventoryUnit(product);
       if (inventory) {
         if (inventory.unitId && inventory.unitId !== inventoryUnit.id) {
           throw new BadRequestException('库存单位与产品库存主单位不一致，请先同步库存单位');
         }
-        convertedQty = await this.convertToInventoryUnit(
-          product,
-          dto.quantity,
-          unit,
-          inventoryUnit,
-          { convertedQuantity: dto.convertedQuantity },
-        );
 
-        // 4. 更新库存（同时更新产品名称，以防产品名称变更）
+        // 3. 更新库存（同时更新产品名称，以防产品名称变更）
         await queryRunner.manager.update(
           Inventory,
           { id: inventory.id },
           {
-            quantity: beforeQty + convertedQty,
+            quantity: beforeQty + stockQty,
             productName: product.name,
             unitId: inventoryUnit.id,
           },
@@ -574,40 +568,24 @@ export class InventoryService {
         });
       } else {
         // 库存记录不存在，按产品库存主单位创建
-        convertedQty = await this.convertToInventoryUnit(
-          product,
-          dto.quantity,
-          unit,
-          inventoryUnit,
-          { convertedQuantity: dto.convertedQuantity },
-        );
         inventory = queryRunner.manager.create(Inventory, {
           sku: dto.sku,
           productName: product.name, // 使用产品表中的名称
-          quantity: convertedQty,
+          quantity: stockQty,
           unitId: inventoryUnit.id,
           locationId: dto.locationId,
           tenantId,
-          multiUnitQty: null,
         });
         inventory = await queryRunner.manager.save(inventory);
       }
-
-      // 4. 更新多单位库存（使用库存主单位）
-      await this.updateMultiUnitQty(
-        queryRunner,
-        inventory!,
-        inventoryUnit,
-        tenantId,
-      );
 
       await this.changeLocationStock(queryRunner, {
         tenantId,
         sku: dto.sku,
         productName: product.name,
         locationId: dto.locationId || inventory!.locationId,
-        unitId: inventory!.unitId || unit.id,
-        quantityDelta: convertedQty,
+        unitId: inventoryUnit.id,
+        quantityDelta: stockQty,
       });
 
       const afterQty = Number(inventory!.quantity);
@@ -617,8 +595,8 @@ export class InventoryService {
         sku: dto.sku,
         productName: product.name,
         transactionType: dto.type,
-        quantity: dto.quantity,
-        unitId: unit.id,
+        quantity: inputQty,
+        unitId: operationUnit.id,
         beforeQty,
         afterQty,
         orderNo: dto.orderNo,
@@ -631,7 +609,8 @@ export class InventoryService {
 
       await queryRunner.commitTransaction();
 
-      const unitObj = this.toUnit(unit);
+      const unitObj = this.toUnit(inventoryUnit);
+      const operationUnitObj = this.toUnit(operationUnit);
 
       // 发送库存变更通知（异步，不阻塞返回）
       if (dto.notifyUserIds && dto.notifyUserIds.length > 0) {
@@ -642,10 +621,10 @@ export class InventoryService {
               dto.sku,
               product.name,
               dto.type,
-              dto.quantity,
+              inputQty,
               beforeQty,
               afterQty,
-              unitObj.symbol,
+              operationUnitObj.symbol,
               dto.notifyUserIds!,
             );
           } catch (error) {
@@ -654,22 +633,9 @@ export class InventoryService {
         });
       }
 
-      // beforeQty 和 afterQty 是库存主单位的数量，需要换算成用户选择的单位
-      let displayBeforeQty = beforeQty;
-      let displayAfterQty = afterQty;
-
-      // 如果库存记录存在且有单位，且与用户选择的单位不同，需要换算
-      if (inventory && inventory.unitId && inventory.unitId !== unit.id) {
-        const inventoryUnit = await this.unitService.findOne(inventory.unitId, tenantId);
-        if (inventoryUnit) {
-          displayBeforeQty = UnitConverter.convert(beforeQty, this.toUnit(inventoryUnit), unitObj);
-          displayAfterQty = UnitConverter.convert(afterQty, this.toUnit(inventoryUnit), unitObj);
-        }
-      }
-
       // 将 decimal 类型转换为数字类型（整数返回整数，小数返回小数）
-      const normalizedBeforeQty = Math.round(displayBeforeQty * 100) / 100 === Math.floor(displayBeforeQty) ? Math.floor(displayBeforeQty) : Math.round(displayBeforeQty * 100) / 100;
-      const normalizedAfterQty = Math.round(displayAfterQty * 100) / 100 === Math.floor(displayAfterQty) ? Math.floor(displayAfterQty) : Math.round(displayAfterQty * 100) / 100;
+      const normalizedBeforeQty = Math.round(beforeQty * 100) / 100 === Math.floor(beforeQty) ? Math.floor(beforeQty) : Math.round(beforeQty * 100) / 100;
+      const normalizedAfterQty = Math.round(afterQty * 100) / 100 === Math.floor(afterQty) ? Math.floor(afterQty) : Math.round(afterQty * 100) / 100;
 
       return {
         sku: dto.sku,
@@ -679,7 +645,7 @@ export class InventoryService {
         unit: unitObj,
         transactionId: savedTransaction.id,
         // 添加格式化显示字段
-        quantityDisplay: `+${formatNumber(dto.quantity)} ${unitObj.symbol}`,
+        quantityDisplay: `+${formatNumber(inputQty)} ${operationUnitObj.symbol}`,
         beforeQtyDisplay: `${formatNumber(normalizedBeforeQty)} ${unitObj.symbol}`,
         afterQtyDisplay: `${formatNumber(normalizedAfterQty)} ${unitObj.symbol}`,
       };
@@ -760,33 +726,14 @@ export class InventoryService {
         throw new BadRequestException('库存单位与产品库存主单位不一致，请先同步库存单位');
       }
 
-      // 4. 确定出库单位（优先使用传入的 unitCode，否则使用库存单位）
-      let unit: any;
-      if (dto.unitCode) {
-        unit = await this.unitService.findByCode(dto.unitCode, tenantId);
-        if (!unit) {
-          // 检测是否传错了参数（SKU 被当作 unitCode）
-          if (dto.unitCode?.toUpperCase().startsWith('SKU-')) {
-            throw new BadRequestException(`参数错误：${dto.unitCode} 是产品编码(SKU)，不是单位编码。请检查请求参数中 sku 和 unitCode 是否正确填写。`);
-          }
-          throw new BadRequestException(`单位编码 ${dto.unitCode} 不存在`);
-        }
-        if (unit.isActive !== 1) {
-          throw new BadRequestException('单位未启用');
-        }
-      } else {
-        // 未提供 unitCode 时，使用库存单位
-        unit = inventoryUnit;
+      this.ensureRequestUnitMatchesProductUnit(dto.unitCode, inventoryUnit, '出库');
+      if (inventoryUnit.isActive !== 1) {
+        throw new BadRequestException('单位未启用');
       }
 
-      // 5. 换算出库数量
-      const outboundQty = UnitConverter.convert(
-        dto.quantity,
-        unit,
-        this.toUnit(inventoryUnit),
-      );
+      const outboundQty = Number(dto.quantity);
 
-      // 6. 检查可用库存是否充足，不能扣减已锁定库存
+      // 4. 检查可用库存是否充足，不能扣减已锁定库存
       if (availableQty < outboundQty) {
         throw new BadRequestException(
           `可用库存不足: 当前可用${availableQty}${inventoryUnit.symbol}, 需要出库${outboundQty}${inventoryUnit.symbol}`,
@@ -800,11 +747,11 @@ export class InventoryService {
         sku: dto.sku,
         productName: product.name,
         locationId,
-        unitId: inventory.unitId,
+        unitId: inventoryUnit.id,
         quantityDelta: -outboundQty,
       });
 
-      // 7. 更新库存
+      // 5. 更新库存
       const afterQty = beforeQty - outboundQty;
       await queryRunner.manager.update(
         Inventory,
@@ -815,24 +762,13 @@ export class InventoryService {
           },
         );
 
-      // 7. 更新多单位库存
-      const updatedInventory = await queryRunner.manager.findOne(Inventory, {
-        where: { id: inventory.id },
-      });
-      await this.updateMultiUnitQty(
-        queryRunner,
-        updatedInventory!,
-        inventoryUnit,
-        tenantId,
-      );
-
-      // 8. 创建交易记录（出库数量为负数）
+      // 6. 创建交易记录（出库数量为负数）
       const transaction = queryRunner.manager.create(InventoryTransaction, {
         sku: dto.sku,
         productName: product.name,
         transactionType: dto.type,
-        quantity: -dto.quantity,
-        unitId: unit.id,
+        quantity: -outboundQty,
+        unitId: inventoryUnit.id,
         beforeQty,
         afterQty,
         orderNo: dto.orderNo,
@@ -845,23 +781,21 @@ export class InventoryService {
 
       await queryRunner.commitTransaction();
 
-      const inventoryUnitObj = this.toUnit(inventoryUnit);
+      const unitObj = this.toUnit(inventoryUnit);
 
       // 发送库存变更通知（异步，不阻塞返回）
       if (dto.notifyUserIds && dto.notifyUserIds.length > 0) {
         setImmediate(async () => {
           try {
-            // 使用用户选择的单位
-            const userUnit = this.toUnit(unit);
             await this.sendStockChangeNotification(
               tenantId,
               dto.sku,
               product.name,
               dto.type,
-              dto.quantity,
+              outboundQty,
               beforeQty,
               afterQty,
-              userUnit.symbol,
+              unitObj.symbol,
               dto.notifyUserIds!,
             );
           } catch (error) {
@@ -870,31 +804,21 @@ export class InventoryService {
         });
       }
 
-      // beforeQty 和 afterQty 是库存主单位的数量，需要换算成用户选择的单位
-      let displayBeforeQty = beforeQty;
-      let displayAfterQty = afterQty;
-
-      // 如果用户选择的单位不是库存主单位，需要换算
-      if (inventoryUnit.id !== unit.id) {
-        displayBeforeQty = UnitConverter.convert(beforeQty, inventoryUnitObj, this.toUnit(unit));
-        displayAfterQty = UnitConverter.convert(afterQty, inventoryUnitObj, this.toUnit(unit));
-      }
-
       // 将 decimal 类型转换为数字类型（整数返回整数，小数返回小数）
-      const normalizedBeforeQty = Math.round(displayBeforeQty * 100) / 100 === Math.floor(displayBeforeQty) ? Math.floor(displayBeforeQty) : Math.round(displayBeforeQty * 100) / 100;
-      const normalizedAfterQty = Math.round(displayAfterQty * 100) / 100 === Math.floor(displayAfterQty) ? Math.floor(displayAfterQty) : Math.round(displayAfterQty * 100) / 100;
+      const normalizedBeforeQty = Math.round(beforeQty * 100) / 100 === Math.floor(beforeQty) ? Math.floor(beforeQty) : Math.round(beforeQty * 100) / 100;
+      const normalizedAfterQty = Math.round(afterQty * 100) / 100 === Math.floor(afterQty) ? Math.floor(afterQty) : Math.round(afterQty * 100) / 100;
 
       return {
         sku: dto.sku,
         productName: inventory.productName,
         beforeQty: normalizedBeforeQty,
         afterQty: normalizedAfterQty,
-        unit: this.toUnit(unit),  // 返回用户选择的单位
+        unit: unitObj,
         transactionId: savedTransaction.id,
         // 添加格式化显示字段
-        quantityDisplay: `-${formatNumber(dto.quantity)} ${unit.symbol}`,
-        beforeQtyDisplay: `${formatNumber(normalizedBeforeQty)} ${unit.symbol}`,
-        afterQtyDisplay: `${formatNumber(normalizedAfterQty)} ${unit.symbol}`,
+        quantityDisplay: `-${formatNumber(outboundQty)} ${unitObj.symbol}`,
+        beforeQtyDisplay: `${formatNumber(normalizedBeforeQty)} ${unitObj.symbol}`,
+        afterQtyDisplay: `${formatNumber(normalizedAfterQty)} ${unitObj.symbol}`,
       };
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -1013,35 +937,14 @@ export class InventoryService {
     // 获取总数
     const total = await queryBuilder.getCount();
 
-    // 获取所有单位，用于单位换算
-    const allUnits = await this.unitService.getAllUnits(tenantId);
-
     // 合并数据和单位信息，并添加格式化显示字段
     const list = result.entities.map((entity, index) => {
       const raw = result.raw[index];
       const quantity = Math.abs(Number(entity.quantity));
 
-      // beforeQty 和 afterQty 在数据库中存储的是库存主单位的数量
-      // 需要换算成当前流水记录的单位（用户操作时选择的单位）
-      let beforeQty = Number(entity.beforeQty);
-      let afterQty = Number(entity.afterQty);
-
-      let stockQtyUnitSymbol = raw.unitSymbol;
-
-      // 如果流水记录的单位不是库存主单位，且单位分类一致，才换算成流水单位；跨分类时仍显示库存主单位。
-      if (raw.inventoryUnitId && entity.unitId && raw.inventoryUnitId !== entity.unitId) {
-        const inventoryUnit = allUnits.find(u => u.id === raw.inventoryUnitId);
-        const transactionUnit = allUnits.find(u => u.id === entity.unitId);
-
-        if (inventoryUnit && transactionUnit && inventoryUnit.category === transactionUnit.category) {
-          // 将库存主单位数量换算成流水单位数量
-          beforeQty = UnitConverter.convert(beforeQty, this.toUnit(inventoryUnit), this.toUnit(transactionUnit));
-          afterQty = UnitConverter.convert(afterQty, this.toUnit(inventoryUnit), this.toUnit(transactionUnit));
-          stockQtyUnitSymbol = raw.unitSymbol;
-        } else {
-          stockQtyUnitSymbol = raw.inventoryUnitSymbol || raw.inventoryUnitName || raw.inventoryUnitCode;
-        }
-      }
+      const beforeQty = Number(entity.beforeQty);
+      const afterQty = Number(entity.afterQty);
+      const stockQtyUnitSymbol = raw.inventoryUnitSymbol || raw.unitSymbol;
 
       // 获取类型显示信息
       const transactionType = entity.transactionType as TransactionType;
@@ -1139,35 +1042,14 @@ export class InventoryService {
     // 获取总数
     const total = await queryBuilder.getCount();
 
-    // 获取所有单位，用于单位换算
-    const allUnits = await this.unitService.getAllUnits(tenantId);
-
     // 合并数据和单位信息，并添加格式化显示字段
     const list = result.entities.map((entity, index) => {
       const raw = result.raw[index];
       const quantity = Math.abs(Number(entity.quantity));
 
-      // beforeQty 和 afterQty 在数据库中存储的是库存主单位的数量
-      // 需要换算成当前流水记录的单位（用户入库时选择的单位）
-      let beforeQty = Number(entity.beforeQty);
-      let afterQty = Number(entity.afterQty);
-
-      let stockQtyUnitSymbol = raw.unitSymbol;
-
-      // 如果流水记录的单位不是库存主单位，且单位分类一致，才换算成流水单位；跨分类时仍显示库存主单位。
-      if (raw.inventoryUnitId && entity.unitId && raw.inventoryUnitId !== entity.unitId) {
-        const inventoryUnit = allUnits.find(u => u.id === raw.inventoryUnitId);
-        const transactionUnit = allUnits.find(u => u.id === entity.unitId);
-
-        if (inventoryUnit && transactionUnit && inventoryUnit.category === transactionUnit.category) {
-          // 将库存主单位数量换算成流水单位数量
-          beforeQty = UnitConverter.convert(beforeQty, this.toUnit(inventoryUnit), this.toUnit(transactionUnit));
-          afterQty = UnitConverter.convert(afterQty, this.toUnit(inventoryUnit), this.toUnit(transactionUnit));
-          stockQtyUnitSymbol = raw.unitSymbol;
-        } else {
-          stockQtyUnitSymbol = raw.inventoryUnitSymbol || raw.inventoryUnitName || raw.inventoryUnitCode;
-        }
-      }
+      const beforeQty = Number(entity.beforeQty);
+      const afterQty = Number(entity.afterQty);
+      const stockQtyUnitSymbol = raw.inventoryUnitSymbol || raw.unitSymbol;
 
       // 获取类型显示信息
       const transactionType = entity.transactionType as TransactionType;
@@ -1265,35 +1147,14 @@ export class InventoryService {
     // 获取总数
     const total = await queryBuilder.getCount();
 
-    // 获取所有单位，用于单位换算
-    const allUnits = await this.unitService.getAllUnits(tenantId);
-
     // 合并数据和单位信息，并添加格式化显示字段
     const list = result.entities.map((entity, index) => {
       const raw = result.raw[index];
       const quantity = Math.abs(Number(entity.quantity));
 
-      // beforeQty 和 afterQty 在数据库中存储的是库存主单位的数量
-      // 需要换算成当前流水记录的单位（用户出库时选择的单位）
-      let beforeQty = Number(entity.beforeQty);
-      let afterQty = Number(entity.afterQty);
-
-      let stockQtyUnitSymbol = raw.unitSymbol;
-
-      // 如果流水记录的单位不是库存主单位，且单位分类一致，才换算成流水单位；跨分类时仍显示库存主单位。
-      if (raw.inventoryUnitId && entity.unitId && raw.inventoryUnitId !== entity.unitId) {
-        const inventoryUnit = allUnits.find(u => u.id === raw.inventoryUnitId);
-        const transactionUnit = allUnits.find(u => u.id === entity.unitId);
-
-        if (inventoryUnit && transactionUnit && inventoryUnit.category === transactionUnit.category) {
-          // 将库存主单位数量换算成流水单位数量
-          beforeQty = UnitConverter.convert(beforeQty, this.toUnit(inventoryUnit), this.toUnit(transactionUnit));
-          afterQty = UnitConverter.convert(afterQty, this.toUnit(inventoryUnit), this.toUnit(transactionUnit));
-          stockQtyUnitSymbol = raw.unitSymbol;
-        } else {
-          stockQtyUnitSymbol = raw.inventoryUnitSymbol || raw.inventoryUnitName || raw.inventoryUnitCode;
-        }
-      }
+      const beforeQty = Number(entity.beforeQty);
+      const afterQty = Number(entity.afterQty);
+      const stockQtyUnitSymbol = raw.inventoryUnitSymbol || raw.unitSymbol;
 
       // 获取类型显示信息
       const transactionType = entity.transactionType as TransactionType;
@@ -1386,10 +1247,6 @@ export class InventoryService {
       .map((id) => entityById.get(id))
       .filter(Boolean);
 
-    // 获取所有单位，用于多单位库存显示
-    const allUnits = await this.unitService.getAllUnits(tenantId);
-    const unitMap = new Map(allUnits.map(u => [u.code, u]));
-
     // 计算预警级别
     const calculateAlertLevel = (quantity: number, safetyStock: number | null): AlertLevel => {
       const safetyStockNum = safetyStock ? Number(safetyStock) : 0;
@@ -1428,34 +1285,6 @@ export class InventoryService {
       const alertLevel = calculateAlertLevel(availableQuantity, safetyStock);
       const alertInfo = AlertLevelInfo[alertLevel];
 
-      // 实时计算多单位库存（确保数据正确，不依赖数据库中可能过期的 multiUnitQty）
-      const formattedMultiUnitQty: Record<string, any> = {};
-      if (entity.unitId) {
-        const inventoryUnit = allUnits.find(u => u.id === entity.unitId);
-        if (inventoryUnit) {
-          const inventoryUnitObj = this.toUnit(inventoryUnit);
-          const allUnitObjs = allUnits.map(u => this.toUnit(u));
-          const multiUnitQty = UnitConverter.convertToMultipleUnits(
-            numQuantity,
-            inventoryUnitObj,
-            allUnitObjs,
-          );
-
-          for (const [unitCode, qty] of Object.entries(multiUnitQty)) {
-            const unit = unitMap.get(unitCode);
-            if (unit) {
-              const numQty = Number(qty);
-              formattedMultiUnitQty[unitCode] = {
-                quantity: numQty,
-                name: unit.name,
-                symbol: unit.symbol,
-                display: `${formatNumber(numQty)} ${unit.symbol}`
-              };
-            }
-          }
-        }
-      }
-
       return {
         ...entity,
         // 将 decimal 类型转换为数字类型（整数返回整数，小数返回小数）
@@ -1469,8 +1298,6 @@ export class InventoryService {
         lockedQuantityDisplay: raw.unitSymbol ? `${formatNumber(lockedQuantity)} ${raw.unitSymbol}` : formatNumber(lockedQuantity),
         availableQuantity: Math.round(availableQuantity * 100) / 100 === Math.floor(availableQuantity) ? Math.floor(availableQuantity) : Math.round(availableQuantity * 100) / 100,
         availableQuantityDisplay: raw.unitSymbol ? `${formatNumber(availableQuantity)} ${raw.unitSymbol}` : formatNumber(availableQuantity),
-        // 多单位库存带单位信息（实时计算，整数不显示小数位）
-        multiUnitQty: formattedMultiUnitQty,
         // 将 decimal 类型转换为数字类型（整数返回整数，小数返回小数）
         safetyStock: Math.round(safetyStock * 100) / 100 === Math.floor(safetyStock) ? Math.floor(safetyStock) : Math.round(safetyStock * 100) / 100,
         // 格式化显示字段
@@ -1489,40 +1316,14 @@ export class InventoryService {
   }
 
   /**
-   * 更新多单位库存
-   */
-  private async updateMultiUnitQty(
-    queryRunner: any,
-    inventory: Inventory,
-    unit: any,
-    tenantId: string,
-  ): Promise<void> {
-    const allUnits = await this.unitService.getAllUnits(tenantId);
-    const unitObj = this.toUnit(unit);
-    const multiUnitQty = UnitConverter.convertToMultipleUnits(
-      Number(inventory.quantity),
-      unitObj,
-      allUnits.map((u) => this.toUnit(u)),
-    );
-
-    await queryRunner.manager.update(
-      Inventory,
-      { id: inventory.id },
-      { multiUnitQty },
-    );
-  }
-
-  /**
    * 将 Unit 实体转换为 Unit 接口
    */
-  private toUnit(unit: any): Unit {
+  private toUnit(unit: any): InventoryUnitResult {
     return {
       id: unit.id,
       code: unit.code,
       name: unit.name,
       category: unit.category,
-      baseRatio: Number(unit.baseRatio),
-      baseUnitCode: unit.baseUnitCode,
       symbol: unit.symbol || unit.code,
     };
   }
@@ -1546,45 +1347,32 @@ export class InventoryService {
       // 1. 验证产品并获取产品信息
       const product = await this.getProductBySku(dto.sku, tenantId);
 
-      // 2. 获取单位信息
-      const unit = await this.unitService.findByCode(dto.unitCode, tenantId);
-      if (!unit) {
-        // 检测是否传错了参数（SKU 被当作 unitCode）
-        if (dto.unitCode?.toUpperCase().startsWith('SKU-')) {
-          throw new BadRequestException(`参数错误：${dto.unitCode} 是产品编码(SKU)，不是单位编码。请检查请求参数中 sku 和 unitCode 是否正确填写。`);
-        }
-        throw new BadRequestException(`单位编码 ${dto.unitCode} 不存在`);
-      }
-      if (unit.isActive !== 1) {
+      const inventoryUnit = this.getProductInventoryUnit(product);
+      this.ensureRequestUnitMatchesProductUnit(dto.unitCode, inventoryUnit, '调整');
+      if (inventoryUnit.isActive !== 1) {
         throw new BadRequestException('单位未启用');
       }
 
-      // 3. 查找或创建库存记录
+      // 2. 查找或创建库存记录
       let inventory = await queryRunner.manager.findOne(Inventory, {
         where: { sku: dto.sku, tenantId },
       });
 
       const beforeQty = inventory ? Number(inventory.quantity) : 0;
       const lockedQty = inventory ? Number(inventory.lockedQuantity || 0) : 0;
-      let adjustedQty: number;
 
-      // 4. 判断调整类型并计算调整后的数量
+      // 3. 判断调整类型并计算调整后的数量
       const adjustType =
         dto.quantity >= 0
           ? TransactionType.ADJUSTMENT_IN
           : TransactionType.ADJUSTMENT_OUT;
       const absQuantity = Math.abs(dto.quantity);
+      const adjustedQty = absQuantity;
 
-      const inventoryUnit = this.getProductInventoryUnit(product);
       if (inventory) {
         if (inventory.unitId && inventory.unitId !== inventoryUnit.id) {
           throw new BadRequestException('库存单位与产品库存主单位不一致，请先同步库存单位');
         }
-        adjustedQty = UnitConverter.convert(
-          absQuantity,
-          unit,
-          this.toUnit(inventoryUnit),
-        );
 
         // 如果是减少库存，检查是否充足
         if (adjustType === TransactionType.ADJUSTMENT_OUT && beforeQty < adjustedQty) {
@@ -1622,11 +1410,6 @@ export class InventoryService {
         if (adjustType === TransactionType.ADJUSTMENT_OUT) {
           throw new BadRequestException('库存记录不存在，无法减少库存');
         }
-        adjustedQty = UnitConverter.convert(
-          absQuantity,
-          unit,
-          this.toUnit(inventoryUnit),
-        );
         inventory = queryRunner.manager.create(Inventory, {
           sku: dto.sku,
           productName: product.name,
@@ -1634,25 +1417,16 @@ export class InventoryService {
           unitId: inventoryUnit.id,
           locationId: dto.locationId,
           tenantId,
-          multiUnitQty: null,
         });
         inventory = await queryRunner.manager.save(inventory);
       }
-
-      // 5. 更新多单位库存（使用库存主单位）
-      await this.updateMultiUnitQty(
-        queryRunner,
-        inventory!,
-        inventoryUnit,
-        tenantId,
-      );
 
       await this.changeLocationStock(queryRunner, {
         tenantId,
         sku: dto.sku,
         productName: product.name,
         locationId: dto.locationId || inventory!.locationId,
-        unitId: inventory!.unitId || unit.id,
+        unitId: inventoryUnit.id,
         quantityDelta:
           adjustType === TransactionType.ADJUSTMENT_IN
             ? adjustedQty
@@ -1667,7 +1441,7 @@ export class InventoryService {
         productName: product.name,
         transactionType: adjustType,
         quantity: adjustType === TransactionType.ADJUSTMENT_IN ? absQuantity : -absQuantity,
-        unitId: unit.id,
+        unitId: inventoryUnit.id,
         beforeQty,
         afterQty,
         orderNo: null,
@@ -1679,7 +1453,7 @@ export class InventoryService {
 
       await queryRunner.commitTransaction();
 
-      const unitObj = this.toUnit(unit);
+      const unitObj = this.toUnit(inventoryUnit);
 
       // 发送库存变更通知（异步，不阻塞返回）
       if (dto.notifyUserIds && dto.notifyUserIds.length > 0) {
@@ -1702,22 +1476,9 @@ export class InventoryService {
         });
       }
 
-      // beforeQty 和 afterQty 是库存主单位的数量，需要换算成用户选择的单位
-      let displayBeforeQty = beforeQty;
-      let displayAfterQty = afterQty;
-
-      // 如果库存记录存在且有单位，且与用户选择的单位不同，需要换算
-      if (inventory && inventory.unitId && inventory.unitId !== unit.id) {
-        const inventoryUnit = await this.unitService.findOne(inventory.unitId, tenantId);
-        if (inventoryUnit) {
-          displayBeforeQty = UnitConverter.convert(beforeQty, this.toUnit(inventoryUnit), unitObj);
-          displayAfterQty = UnitConverter.convert(afterQty, this.toUnit(inventoryUnit), unitObj);
-        }
-      }
-
       // 将 decimal 类型转换为数字类型（整数返回整数，小数返回小数）
-      const normalizedBeforeQty = Math.round(displayBeforeQty * 100) / 100 === Math.floor(displayBeforeQty) ? Math.floor(displayBeforeQty) : Math.round(displayBeforeQty * 100) / 100;
-      const normalizedAfterQty = Math.round(displayAfterQty * 100) / 100 === Math.floor(displayAfterQty) ? Math.floor(displayAfterQty) : Math.round(displayAfterQty * 100) / 100;
+      const normalizedBeforeQty = Math.round(beforeQty * 100) / 100 === Math.floor(beforeQty) ? Math.floor(beforeQty) : Math.round(beforeQty * 100) / 100;
+      const normalizedAfterQty = Math.round(afterQty * 100) / 100 === Math.floor(afterQty) ? Math.floor(afterQty) : Math.round(afterQty * 100) / 100;
       const displayQuantity = adjustType === TransactionType.ADJUSTMENT_IN ? `+${formatNumber(absQuantity)}` : `-${formatNumber(absQuantity)}`;
 
       return {

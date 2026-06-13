@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
 import { Unit } from './entities/unit.entity';
+import { UnitConversion } from './entities/unit-conversion.entity';
 import { CreateUnitDto, UpdateUnitDto, QueryUnitDto } from './dto';
 import { BusinessException } from '@/common/filters/business.exception';
 
@@ -10,6 +11,8 @@ export class UnitService {
   constructor(
     @InjectRepository(Unit)
     private unitRepository: Repository<Unit>,
+    @InjectRepository(UnitConversion)
+    private unitConversionRepository: Repository<UnitConversion>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -54,10 +57,11 @@ export class UnitService {
    * 创建单位
    */
   async create(createUnitDto: CreateUnitDto, tenantId: string | null): Promise<Unit> {
+    const category = createUnitDto.category || 'COUNT';
     // 如果没有提供 code，自动生成
     let code = createUnitDto.code;
     if (!code) {
-      code = await this.generateUnitCode(createUnitDto.category, tenantId);
+      code = await this.generateUnitCode(category, tenantId);
     }
     const exists = await this.unitRepository.findOne({
       where: this.readableScopeWhere(tenantId).map((scope) => ({ code, ...scope })),
@@ -67,6 +71,7 @@ export class UnitService {
     const unit = this.unitRepository.create({
       ...createUnitDto,
       code,
+      category: category as any,
       tenantId,
     });
     return this.unitRepository.save(unit);
@@ -155,7 +160,54 @@ export class UnitService {
       .take(pageSize)
       .getManyAndCount();
 
-    return { list: list || [], total, page, pageSize };
+    const pageList = list || [];
+    const unitCodes = pageList.map((unit) => unit.code);
+    const conversions =
+      unitCodes.length > 0
+        ? await this.unitConversionRepository.find({
+            where: {
+              ...this.scopeWhere(tenantId),
+              toUnitCode: In(unitCodes),
+            },
+            order: { createdAt: 'ASC' },
+          })
+        : [];
+    const fromUnitCodes = [...new Set(conversions.map((item) => item.fromUnitCode))];
+    const fromUnits =
+      fromUnitCodes.length > 0
+        ? await this.unitRepository.find({
+            where: this.readableScopeWhere(tenantId).map((scope) => ({
+              ...scope,
+              code: In(fromUnitCodes),
+            })),
+          })
+        : [];
+    const fromUnitMap = new Map(fromUnits.map((unit) => [unit.code, unit]));
+    const conversionMap = new Map<string, any[]>();
+    for (const conversion of conversions) {
+      const fromUnit = fromUnitMap.get(conversion.fromUnitCode);
+      const rule = {
+        id: conversion.id,
+        fromUnitCode: conversion.fromUnitCode,
+        toUnitCode: conversion.toUnitCode,
+        ratio: Number(conversion.ratio),
+        fromUnitName: fromUnit?.name || conversion.fromUnitCode,
+        fromUnitSymbol: fromUnit?.symbol || fromUnit?.name || conversion.fromUnitCode,
+      };
+      const rules = conversionMap.get(conversion.toUnitCode) || [];
+      rules.push(rule);
+      conversionMap.set(conversion.toUnitCode, rules);
+    }
+
+    return {
+      list: pageList.map((unit) => ({
+        ...unit,
+        conversionRules: conversionMap.get(unit.code) || [],
+      })),
+      total,
+      page,
+      pageSize,
+    };
   }
 
   /**
@@ -167,7 +219,7 @@ export class UnitService {
         ...scope,
         category: category as any,
       })),
-      order: { sortOrder: 'ASC', baseRatio: 'ASC' },
+      order: { sortOrder: 'ASC', createdAt: 'DESC' },
     });
     return units || [];
   }
@@ -287,7 +339,7 @@ export class UnitService {
   }
 
   /**
-   * 获取所有单位（用于多单位换算）
+   * 获取所有单位
    */
   async getAllUnits(tenantId: string): Promise<Unit[]> {
     const units = await this.unitRepository.find({
@@ -295,4 +347,99 @@ export class UnitService {
     });
     return units || [];
   }
+
+  async getConversions(toUnitCode: string, tenantId: string | null) {
+    const conversions = await this.unitConversionRepository.find({
+      where: {
+        toUnitCode,
+        ...this.scopeWhere(tenantId),
+      },
+      order: { createdAt: 'ASC' },
+    });
+
+    const fromUnitCodes = conversions.map((item) => item.fromUnitCode);
+    const fromUnits =
+      fromUnitCodes.length > 0
+        ? await this.unitRepository.find({
+            where: this.readableScopeWhere(tenantId).map((scope) => ({
+              ...scope,
+              code: In(fromUnitCodes),
+            })),
+          })
+        : [];
+    const unitMap = new Map(fromUnits.map((unit) => [unit.code, unit]));
+
+    return conversions.map((item) => ({
+      id: item.id,
+      fromUnitCode: item.fromUnitCode,
+      toUnitCode: item.toUnitCode,
+      ratio: Number(item.ratio),
+      fromUnit: unitMap.get(item.fromUnitCode) || null,
+    }));
+  }
+
+  async saveConversions(
+    toUnitCode: string,
+    items: Array<{ fromUnitCode: string; ratio: number }>,
+    tenantId: string | null,
+  ) {
+    const toUnit = await this.findByCode(toUnitCode, tenantId);
+    const normalized = items
+      .filter((item) => item.fromUnitCode && item.fromUnitCode !== toUnitCode)
+      .map((item) => ({
+        fromUnitCode: item.fromUnitCode,
+        ratio: Number(item.ratio),
+      }));
+
+    const duplicated = new Set<string>();
+    for (const item of normalized) {
+      if (duplicated.has(item.fromUnitCode)) {
+        throw new BusinessException(`来源单位 ${item.fromUnitCode} 重复`);
+      }
+      duplicated.add(item.fromUnitCode);
+      if (!item.ratio || item.ratio <= 0) {
+        throw new BusinessException('换算比例必须大于0');
+      }
+
+      const fromUnit = await this.findByCode(item.fromUnitCode, tenantId);
+      if (fromUnit.code === toUnit.code) {
+        throw new BusinessException('来源单位不能等于当前单位');
+      }
+    }
+
+    await this.unitConversionRepository.delete({
+      toUnitCode,
+      ...this.scopeWhere(tenantId),
+    });
+
+    if (normalized.length === 0) return [];
+
+    const entities = normalized.map((item) =>
+      this.unitConversionRepository.create({
+        tenantId,
+        toUnitCode,
+        fromUnitCode: item.fromUnitCode,
+        ratio: item.ratio,
+      }),
+    );
+    await this.unitConversionRepository.save(entities);
+    return this.getConversions(toUnitCode, tenantId);
+  }
+
+  async findConversion(fromUnitCode: string, toUnitCode: string, tenantId: string | null) {
+    const conversion = await this.unitConversionRepository.findOne({
+      where: {
+        fromUnitCode,
+        toUnitCode,
+        ...this.scopeWhere(tenantId),
+      },
+    });
+    return conversion
+      ? {
+          ...conversion,
+          ratio: Number(conversion.ratio),
+        }
+      : null;
+  }
+
 }

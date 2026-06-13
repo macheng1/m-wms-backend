@@ -8,6 +8,7 @@ import { OrderFlowLog } from './entities/order-flow-log.entity';
 import { Product } from '../product/product.entity';
 import { Inventory } from '../inventory/entities/inventory.entity';
 import { InventoryTransaction } from '../inventory/entities/inventory-transaction.entity';
+import { InventoryLocation } from '../location/entities/inventory-location.entity';
 import { MiniappMember } from '../miniapp/entities/miniapp-member.entity';
 
 @Module({
@@ -18,6 +19,7 @@ import { MiniappMember } from '../miniapp/entities/miniapp-member.entity';
       OrderFlowLog,
       Product,
       Inventory,
+      InventoryLocation,
       InventoryTransaction,
       MiniappMember,
     ]),

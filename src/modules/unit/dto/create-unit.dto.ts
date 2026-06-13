@@ -1,4 +1,4 @@
-import { IsString, IsEnum, IsNumber, IsOptional, Min } from 'class-validator';
+import { IsString, IsEnum, IsNumber, IsOptional } from 'class-validator';
 import { UnitCategory } from '../../../common/constants/unit.constant';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -11,18 +11,10 @@ export class CreateUnitDto {
   @IsOptional()
   code?: string;
 
-  @ApiProperty({ description: '单位分类', enum: UnitCategory })
+  @ApiPropertyOptional({ description: '单位分类，前端不传时默认为 COUNT', enum: UnitCategory })
+  @IsOptional()
   @IsEnum(UnitCategory)
-  category: UnitCategory;
-
-  @ApiProperty({ description: '与基础单位的换算比例', example: 1 })
-  @IsNumber()
-  @Min(0.01)
-  baseRatio: number;
-
-  @ApiProperty({ description: '基础单位编码', example: 'PIECE' })
-  @IsString()
-  baseUnitCode: string;
+  category?: UnitCategory;
 
   @ApiPropertyOptional({ description: '单位符号', example: 'pcs' })
   @IsOptional()

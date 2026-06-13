@@ -55,4 +55,19 @@ export class UnitController {
   remove(@Body() dto: DeleteUnitDto, @TenantId() tenantId: string) {
     return this.unitService.remove(dto.id, tenantId);
   }
+
+  @Get('conversions')
+  @ApiOperation({ summary: '获取单位换算关系列表' })
+  getConversions(@Query('toUnitCode') toUnitCode: string, @TenantId() tenantId: string) {
+    return this.unitService.getConversions(toUnitCode, tenantId);
+  }
+
+  @Post('conversions/save')
+  @ApiOperation({ summary: '保存单位换算关系' })
+  saveConversions(
+    @Body() dto: { toUnitCode: string; items: Array<{ fromUnitCode: string; ratio: number }> },
+    @TenantId() tenantId: string,
+  ) {
+    return this.unitService.saveConversions(dto.toUnitCode, dto.items || [], tenantId);
+  }
 }

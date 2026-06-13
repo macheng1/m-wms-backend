@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, IsNull, Not } from 'typeorm';
+import { Repository, DataSource, IsNull, Not, In } from 'typeorm';
 
 import { BusinessException } from '@/common/filters/business.exception';
 import { Category } from './entities/category.entity';
@@ -8,6 +8,9 @@ import { QueryProductDto } from './entities/dto/query-product.dto';
 import { SaveProductDto } from './entities/dto/save-product.dto';
 import { Product } from './product.entity';
 import { Unit } from '../unit/entities/unit.entity';
+import { UnitConversion } from '../unit/entities/unit-conversion.entity';
+import { Inventory } from '../inventory/entities/inventory.entity';
+import { InventoryTransaction } from '../inventory/entities/inventory-transaction.entity';
 
 @Injectable()
 export class ProductsService {
@@ -15,6 +18,9 @@ export class ProductsService {
     @InjectRepository(Product) private readonly productRepo: Repository<Product>,
     @InjectRepository(Category) private readonly categoryRepo: Repository<Category>,
     @InjectRepository(Unit) private readonly unitRepo: Repository<Unit>,
+    @InjectRepository(UnitConversion) private readonly unitConversionRepo: Repository<UnitConversion>,
+    @InjectRepository(Inventory) private readonly inventoryRepo: Repository<Inventory>,
+    @InjectRepository(InventoryTransaction) private readonly inventoryTransactionRepo: Repository<InventoryTransaction>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -142,6 +148,13 @@ export class ProductsService {
     // 2. 构建对称返回结构
     // 显式提取字段，确保 categoryId 以字符串形式存在于顶层
     const { category, inventoryUnit, ...baseInfo } = product;
+    const [stockSummary, transactionCount, conversionRules] = await Promise.all([
+      this.getProductStockSummary(product.code, tenantId),
+      this.inventoryTransactionRepo.count({ where: { tenantId, sku: product.code } }),
+      this.getUnitConversionRules(inventoryUnit?.code, tenantId),
+    ]);
+
+    const canChangeUnit = stockSummary.inventoryRows === 0 && transactionCount === 0;
 
     return {
       ...baseInfo,
@@ -159,6 +172,18 @@ export class ProductsService {
       unitName: inventoryUnit?.name,
       unitSymbol: inventoryUnit?.symbol || inventoryUnit?.name || inventoryUnit?.code,
       inventoryUnit,
+      stockSummary: {
+        ...stockSummary,
+        transactionRows: transactionCount,
+        availableQuantity: stockSummary.quantity - stockSummary.lockedQuantity,
+        unitId: product.unitId,
+        unitCode: inventoryUnit?.code || null,
+        unitName: inventoryUnit?.name || null,
+        unitSymbol: inventoryUnit?.symbol || inventoryUnit?.name || inventoryUnit?.code || null,
+      },
+      canChangeUnit,
+      unitChangeLockedReason: canChangeUnit ? null : '该产品已有库存或库存流水，不能修改库存主单位',
+      conversionRules,
     };
   }
 
@@ -257,6 +282,58 @@ export class ProductsService {
     }
   }
 
+  private async getProductStockSummary(sku: string, tenantId: string) {
+    const row = await this.inventoryRepo
+      .createQueryBuilder('inventory')
+      .where('inventory.tenantId = :tenantId', { tenantId })
+      .andWhere('inventory.sku = :sku', { sku })
+      .select('COUNT(inventory.id)', 'inventoryRows')
+      .addSelect('COALESCE(SUM(inventory.quantity), 0)', 'quantity')
+      .addSelect('COALESCE(SUM(inventory.lockedQuantity), 0)', 'lockedQuantity')
+      .getRawOne<{
+        inventoryRows: string;
+        quantity: string;
+        lockedQuantity: string;
+      }>();
+
+    return {
+      inventoryRows: Number(row?.inventoryRows || 0),
+      quantity: Number(row?.quantity || 0),
+      lockedQuantity: Number(row?.lockedQuantity || 0),
+    };
+  }
+
+  private async getUnitConversionRules(unitCode: string | undefined, tenantId: string) {
+    if (!unitCode) return [];
+
+    const rules = await this.unitConversionRepo.find({
+      where: { tenantId, toUnitCode: unitCode },
+      order: { createdAt: 'ASC' },
+    });
+    if (rules.length === 0) return [];
+
+    const fromUnitCodes = rules.map((rule) => rule.fromUnitCode);
+    const fromUnits = await this.unitRepo.find({
+      where: [
+        { tenantId, code: In(fromUnitCodes) },
+        { tenantId: IsNull(), code: In(fromUnitCodes) },
+      ],
+    });
+    const fromUnitMap = new Map(fromUnits.map((unit) => [unit.code, unit]));
+
+    return rules.map((rule) => {
+      const fromUnit = fromUnitMap.get(rule.fromUnitCode);
+      return {
+        id: rule.id,
+        fromUnitCode: rule.fromUnitCode,
+        fromUnitName: fromUnit?.name || rule.fromUnitCode,
+        fromUnitSymbol: fromUnit?.symbol || fromUnit?.name || rule.fromUnitCode,
+        toUnitCode: rule.toUnitCode,
+        ratio: Number(rule.ratio),
+      };
+    });
+  }
+
   private normalizeAndValidateSpecs(category: Category, specs: Record<string, any>) {
     const attributes = category.attributes || [];
     if (attributes.length === 0) return specs || {};
@@ -321,6 +398,7 @@ export class ProductsService {
   async selectList(tenantId: string, keyword?: string) {
     const query = this.productRepo
       .createQueryBuilder('p')
+      .leftJoinAndSelect('p.inventoryUnit', 'inventoryUnit')
       .where('p.tenantId = :tenantId', { tenantId })
       .andWhere('p.isActive = :isActive', { isActive: 1 });
 
@@ -338,6 +416,10 @@ export class ProductsService {
       code: p.code,
       barcode: p.barcode || p.code,
       unitId: p.unitId,
+      unitCode: p.inventoryUnit?.code || null,
+      unitName: p.inventoryUnit?.name || null,
+      unitSymbol: p.inventoryUnit?.symbol || p.inventoryUnit?.name || p.inventoryUnit?.code || null,
+      unitCategory: p.inventoryUnit?.category || null,
     }));
   }
 }

@@ -21,12 +21,24 @@ import { ProductsController } from './product.controller';
 import { ProductsService } from './product.service';
 import { OssModule } from '../aliyun/oss/oos.module';
 import { Unit } from '../unit/entities/unit.entity';
+import { UnitConversion } from '../unit/entities/unit-conversion.entity';
+import { Inventory } from '../inventory/entities/inventory.entity';
+import { InventoryTransaction } from '../inventory/entities/inventory-transaction.entity';
 import { OpenApiSignatureGuard } from '@/common/guards/open-api-signature.guard';
 
 @Module({
   imports: [
     // 1. 在 TypeOrmModule 中注册 Category 实体
-    TypeOrmModule.forFeature([AttributeOption, Attribute, Category, Product, Unit]),
+    TypeOrmModule.forFeature([
+      AttributeOption,
+      Attribute,
+      Category,
+      Product,
+      Unit,
+      UnitConversion,
+      Inventory,
+      InventoryTransaction,
+    ]),
     OssModule,
   ],
   controllers: [
