@@ -86,6 +86,19 @@ export class InventoryController {
     return this.inventoryService.getAvailableForOutbound(tenantId, { keyword });
   }
 
+  @Get('locations')
+  @ApiOperation({ summary: '按 SKU 查询库位分布' })
+  getLocationsBySku(
+    @TenantId() tenantId: string,
+    @Query('sku') sku: string,
+    @Query('onlyAvailable') onlyAvailable?: string,
+  ) {
+    return this.inventoryService.findLocationsBySku(tenantId, {
+      sku,
+      onlyAvailable: onlyAvailable === 'true' || onlyAvailable === '1',
+    });
+  }
+
   // ============ 入库操作 ============
 
   @Get('inbound')

@@ -1,7 +1,14 @@
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { appConfig, databaseConfig, jwtConfig, openApiConfig, redisConfig } from '@config/index';
+import {
+  appConfig,
+  databaseConfig,
+  jwtConfig,
+  openApiConfig,
+  redisConfig,
+  ptlConfig,
+} from '@config/index';
 import { TenantModule } from '@modules/tenant/tenant.module';
 import { AuthModule } from '@modules/auth/auth.module';
 import { InventoryModule } from '@modules/inventory/inventory.module';
@@ -34,6 +41,7 @@ import { OpenApiModule } from './modules/open/open-api.module';
 import { SystemModule } from './modules/system/system.module';
 import { AuditModule } from './common/audit/audit.module';
 import { RateLimitGuard } from './common/guards/rate-limit.guard';
+import { PtlModule } from './modules/ptl/ptl.module';
 console.log('当前运行环境:', process.env.NODE_ENV);
 console.log('当前工作目录:', process.cwd());
 @Module({
@@ -42,7 +50,7 @@ console.log('当前工作目录:', process.cwd());
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: resolve(process.cwd(), 'envs', `.env.${process.env.NODE_ENV || 'development'}`),
-      load: [appConfig, databaseConfig, jwtConfig, openApiConfig, redisConfig],
+      load: [appConfig, databaseConfig, jwtConfig, openApiConfig, redisConfig, ptlConfig],
     }),
 
     // Database configuration
@@ -105,6 +113,7 @@ console.log('当前工作目录:', process.cwd());
     OpenApiModule,
     NotificationsModule,
     SystemModule,
+    PtlModule,
   ],
   providers: [
     {

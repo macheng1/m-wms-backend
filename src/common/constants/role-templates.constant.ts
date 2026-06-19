@@ -19,6 +19,10 @@ export const ROLE_TEMPLATES = {
     menuCodes: [
       'tenant:warehouse',
       'tenant:location:list',
+      'tenant:ptl',
+      'tenant:ptl:controller',
+      'tenant:ptl:binding',
+      'tenant:ptl:task',
       'tenant:inventory',
       'tenant:inventory:list',
       'tenant:inventory:inbound',

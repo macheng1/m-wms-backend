@@ -2,8 +2,10 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Location, LocationType, LocationStatus } from './entities/location.entity';
+import { Device } from './entities/device.entity';
 import { InventoryLocation } from './entities/inventory-location.entity';
 import { Inventory } from '../inventory/entities/inventory.entity';
+import { PtlLocationBinding } from '../ptl/entities/ptl-location-binding.entity';
 import {
   LightTaskAction,
   LightTaskStatus,
@@ -24,6 +26,8 @@ export class LocationService {
     private inventoryRepository: Repository<Inventory>,
     @InjectRepository(LocationLightTask)
     private lightTaskRepository: Repository<LocationLightTask>,
+    @InjectRepository(PtlLocationBinding)
+    private ptlBindingRepository: Repository<PtlLocationBinding>,
   ) {}
 
   private async sendLightCommand(options: {
@@ -215,6 +219,16 @@ export class LocationService {
         totalQuantity: number;
         hasStock: boolean;
         matched: boolean;
+        ptl: {
+          bound: boolean;
+          bindingId?: string;
+          controllerId?: string;
+          controllerCode?: string;
+          controllerName?: string;
+          controllerStatus?: string;
+          ledIndex?: number;
+          defaultColor?: string;
+        };
       }
     >;
     summary: {
@@ -249,6 +263,7 @@ export class LocationService {
     const locations = await locationQuery.getMany();
     const locationIds = locations.map((location) => location.id);
     const stockByLocation = new Map<string, any[]>();
+    const ptlByLocation = new Map<string, any>();
 
     const addStockItem = (locationId: string, item: any) => {
       if (!stockByLocation.has(locationId)) {
@@ -343,6 +358,45 @@ export class LocationService {
           unitSymbol: row.unitSymbol,
         });
       });
+
+      const ptlRows = await this.ptlBindingRepository
+        .createQueryBuilder('binding')
+        .leftJoin(
+          Device,
+          'device',
+          'device.id = binding.deviceId AND device.tenantId = :tenantId',
+          {
+            tenantId,
+          },
+        )
+        .select([
+          'binding.id as bindingId',
+          'binding.locationId as locationId',
+          'binding.deviceId as controllerId',
+          'binding.ledIndex as ledIndex',
+          'binding.defaultColor as defaultColor',
+          'device.code as controllerCode',
+          'device.name as controllerName',
+          'device.status as controllerStatus',
+        ])
+        .where('binding.tenantId = :tenantId', { tenantId })
+        .andWhere('binding.locationId IN (:...locationIds)', { locationIds })
+        .andWhere('binding.enabled = 1')
+        .getRawMany();
+
+      ptlRows.forEach((row) => {
+        ptlByLocation.set(row.locationId, {
+          bound: true,
+          bindingId: row.bindingId,
+          controllerId: row.controllerId,
+          controllerCode: row.controllerCode,
+          controllerName: row.controllerName,
+          controllerStatus: row.controllerStatus,
+          ledIndex:
+            row.ledIndex === null || row.ledIndex === undefined ? undefined : Number(row.ledIndex),
+          defaultColor: row.defaultColor,
+        });
+      });
     }
 
     const enrichedLocations = locations
@@ -358,6 +412,7 @@ export class LocationService {
           totalQuantity,
           hasStock: totalQuantity > 0,
           matched,
+          ptl: ptlByLocation.get(location.id) || { bound: false },
         };
       })
       .filter((location) => !keyword || location.matched);

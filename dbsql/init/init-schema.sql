@@ -211,7 +211,8 @@ CREATE TABLE IF NOT EXISTS `devices` (
   `tenantId` char(36) NOT NULL,
   `code` varchar(50) NOT NULL,
   `name` varchar(100) NOT NULL,
-  `type` enum('SCANNER','RFID_READER','RFID_TAG','AGV','ESL','SENSOR','PRINTER','GATE','CAMERA','PDA') NOT NULL,
+  `deviceUid` varchar(100) DEFAULT NULL,
+  `type` enum('SCANNER','RFID_READER','RFID_TAG','AGV','ESL','SENSOR','PRINTER','GATE','CAMERA','PDA','PTL_CONTROLLER') NOT NULL,
   `status` enum('ONLINE','OFFLINE','ERROR','MAINTENANCE','DISABLED') NOT NULL DEFAULT 'OFFLINE',
   `locationId` char(36) DEFAULT NULL,
   `config` json DEFAULT NULL,
@@ -222,7 +223,31 @@ CREATE TABLE IF NOT EXISTS `devices` (
   `updatedAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
   PRIMARY KEY (`id`),
   UNIQUE KEY `UQ_devices_tenant_code` (`tenantId`,`code`),
+  UNIQUE KEY `UQ_devices_device_uid` (`deviceUid`),
   KEY `device_tenant_code_idx` (`tenantId`,`code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `ptl_location_bindings` (
+  `id` char(36) NOT NULL,
+  `tenantId` char(36) NOT NULL,
+  `locationId` char(36) NOT NULL,
+  `deviceId` char(36) NOT NULL,
+  `ledIndex` int NOT NULL,
+  `defaultColor` varchar(30) NOT NULL DEFAULT 'blue',
+  `enabled` tinyint(1) NOT NULL DEFAULT 1,
+  `remark` text DEFAULT NULL,
+  `createdAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `updatedAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `UQ_ptl_binding_tenant_location` (`tenantId`, `locationId`),
+  UNIQUE KEY `UQ_ptl_binding_tenant_device_led` (`tenantId`, `deviceId`, `ledIndex`),
+  KEY `IDX_ptl_binding_tenant_device` (`tenantId`, `deviceId`),
+  CONSTRAINT `FK_ptl_binding_location`
+    FOREIGN KEY (`locationId`) REFERENCES `locations` (`id`)
+    ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT `FK_ptl_binding_device`
+    FOREIGN KEY (`deviceId`) REFERENCES `devices` (`id`)
+    ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `inventory` (
@@ -265,6 +290,70 @@ CREATE TABLE IF NOT EXISTS `inventory_locations` (
   KEY `inv_loc_tenant_location_idx` (`tenantId`,`locationId`),
   KEY `inv_loc_location_id_idx` (`locationId`),
   CONSTRAINT `FK_inventory_locations_location` FOREIGN KEY (`locationId`) REFERENCES `locations` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `ptl_pick_tasks` (
+  `id` char(36) NOT NULL,
+  `tenantId` char(36) NOT NULL,
+  `taskNo` varchar(50) DEFAULT NULL,
+  `sku` varchar(100) NOT NULL,
+  `productName` varchar(200) DEFAULT NULL,
+  `status` enum('CREATED','LIGHTING','ACTIVE','PARTIAL_CONFIRMED','COMPLETED','CANCELLED','EXPIRED','FAILED') NOT NULL DEFAULT 'CREATED',
+  `source` varchar(30) NOT NULL DEFAULT 'APP',
+  `requestedBy` char(36) DEFAULT NULL,
+  `totalLocations` int NOT NULL DEFAULT 0,
+  `confirmedLocations` int NOT NULL DEFAULT 0,
+  `ttlSeconds` int NOT NULL DEFAULT 600,
+  `expiresAt` datetime NOT NULL,
+  `closedAt` datetime DEFAULT NULL,
+  `errorMessage` text DEFAULT NULL,
+  `metadata` json DEFAULT NULL,
+  `createdAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `updatedAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `UQ_ptl_pick_tasks_task_no` (`tenantId`, `taskNo`),
+  KEY `IDX_ptl_pick_tasks_status_expire` (`tenantId`, `status`, `expiresAt`),
+  KEY `IDX_ptl_pick_tasks_user_status` (`tenantId`, `requestedBy`, `status`),
+  KEY `IDX_ptl_pick_tasks_sku` (`tenantId`, `sku`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `ptl_pick_task_items` (
+  `id` char(36) NOT NULL,
+  `tenantId` char(36) NOT NULL,
+  `taskId` char(36) NOT NULL,
+  `locationId` char(36) NOT NULL,
+  `locationCode` varchar(50) NOT NULL,
+  `inventoryLocationId` char(36) DEFAULT NULL,
+  `deviceId` char(36) DEFAULT NULL,
+  `ledIndex` int DEFAULT NULL,
+  `status` enum('PENDING','LIGHTING','ACTIVE','CONFIRMED','CANCELLED','EXPIRED','FAILED','SKIPPED') NOT NULL DEFAULT 'PENDING',
+  `quantity` decimal(15,2) DEFAULT NULL,
+  `availableQuantity` decimal(15,2) DEFAULT NULL,
+  `batchNo` varchar(50) DEFAULT NULL,
+  `expiryDate` date DEFAULT NULL,
+  `requestId` varchar(64) DEFAULT NULL,
+  `ackAt` datetime DEFAULT NULL,
+  `confirmedAt` datetime DEFAULT NULL,
+  `confirmedBy` char(36) DEFAULT NULL,
+  `errorMessage` text DEFAULT NULL,
+  `createdAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `updatedAt` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`id`),
+  KEY `IDX_ptl_task_items_task` (`taskId`),
+  KEY `IDX_ptl_task_items_location_status` (`tenantId`, `locationId`, `status`),
+  KEY `IDX_ptl_task_items_request` (`tenantId`, `requestId`),
+  CONSTRAINT `FK_ptl_task_items_task`
+    FOREIGN KEY (`taskId`) REFERENCES `ptl_pick_tasks` (`id`)
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `FK_ptl_task_items_location`
+    FOREIGN KEY (`locationId`) REFERENCES `locations` (`id`)
+    ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT `FK_ptl_task_items_inventory_location`
+    FOREIGN KEY (`inventoryLocationId`) REFERENCES `inventory_locations` (`id`)
+    ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `FK_ptl_task_items_device`
+    FOREIGN KEY (`deviceId`) REFERENCES `devices` (`id`)
+    ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `inventory_transactions` (

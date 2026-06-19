@@ -9,6 +9,8 @@ import { Product } from '../product/product.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { InventoryLocation } from '../location/entities/inventory-location.entity';
 import { Location } from '../location/entities/location.entity';
+import { Device } from '../location/entities/device.entity';
+import { PtlLocationBinding } from '../ptl/entities/ptl-location-binding.entity';
 
 @Module({
   imports: [
@@ -18,6 +20,8 @@ import { Location } from '../location/entities/location.entity';
       Product,
       InventoryLocation,
       Location,
+      Device,
+      PtlLocationBinding,
     ]),
     UnitModule,
     NotificationsModule,

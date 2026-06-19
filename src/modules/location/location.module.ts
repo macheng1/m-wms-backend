@@ -8,6 +8,7 @@ import { DeviceEvent } from './entities/device-event.entity';
 import { InventoryLocation } from './entities/inventory-location.entity';
 import { Inventory } from '../inventory/entities/inventory.entity';
 import { LocationLightTask } from './entities/location-light-task.entity';
+import { PtlLocationBinding } from '../ptl/entities/ptl-location-binding.entity';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { LocationLightTask } from './entities/location-light-task.entity';
       InventoryLocation,
       Inventory,
       LocationLightTask,
+      PtlLocationBinding,
     ]),
   ],
   controllers: [LocationController],

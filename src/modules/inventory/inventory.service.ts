@@ -22,6 +22,8 @@ import {
 import { Product } from '../product/product.entity';
 import { InventoryLocation } from '../location/entities/inventory-location.entity';
 import { Location, LocationStatus } from '../location/entities/location.entity';
+import { Device } from '../location/entities/device.entity';
+import { PtlLocationBinding } from '../ptl/entities/ptl-location-binding.entity';
 import { AlertLevel, AlertLevelInfo } from '../../common/constants/alert-level.constant';
 import { NotificationsService } from '../notifications/services/notifications.service';
 import { NotificationType, NotificationCategory, NotificationPriority } from '../notifications/interfaces/notification-type.enum';
@@ -273,6 +275,129 @@ export class InventoryService {
       where: { tenantId },
       order: { createdAt: 'DESC' },
     });
+  }
+
+  async findLocationsBySku(
+    tenantId: string,
+    options: { sku: string; onlyAvailable?: boolean },
+  ): Promise<{
+    sku: string;
+    productName: string;
+    unitId?: string;
+    unitName?: string;
+    unitSymbol?: string;
+    totalQuantity: number;
+    totalLockedQuantity: number;
+    totalAvailableQuantity: number;
+    locations: any[];
+  }> {
+    if (!options.sku) {
+      throw new BadRequestException('sku 不能为空');
+    }
+
+    const query = this.inventoryLocationRepository
+      .createQueryBuilder('inventoryLocation')
+      .innerJoin(Location, 'location', 'location.id = inventoryLocation.locationId')
+      .leftJoin('units', 'unit', 'unit.id = inventoryLocation.unitId')
+      .leftJoin(
+        PtlLocationBinding,
+        'binding',
+        'binding.locationId = location.id AND binding.tenantId = :tenantId AND binding.enabled = 1',
+        { tenantId },
+      )
+      .leftJoin(Device, 'device', 'device.id = binding.deviceId AND device.tenantId = :tenantId', {
+        tenantId,
+      })
+      .select([
+        'inventoryLocation.id as inventoryLocationId',
+        'inventoryLocation.sku as sku',
+        'inventoryLocation.productName as productName',
+        'inventoryLocation.quantity as quantity',
+        'inventoryLocation.lockedQuantity as lockedQuantity',
+        'inventoryLocation.unitId as unitId',
+        'inventoryLocation.batchNo as batchNo',
+        'inventoryLocation.productionDate as productionDate',
+        'inventoryLocation.expiryDate as expiryDate',
+        'location.id as locationId',
+        'location.code as locationCode',
+        'location.name as locationName',
+        'location.type as locationType',
+        'location.status as locationStatus',
+        'unit.name as unitName',
+        'unit.symbol as unitSymbol',
+        'binding.id as ptlBindingId',
+        'binding.ledIndex as ledIndex',
+        'binding.defaultColor as defaultColor',
+        'device.id as ptlControllerId',
+        'device.code as ptlControllerCode',
+        'device.name as ptlControllerName',
+        'device.status as ptlControllerStatus',
+      ])
+      .where('inventoryLocation.tenantId = :tenantId', { tenantId })
+      .andWhere('inventoryLocation.sku = :sku', { sku: options.sku });
+
+    if (options.onlyAvailable) {
+      query.andWhere('(inventoryLocation.quantity - inventoryLocation.lockedQuantity) > 0');
+    }
+
+    query
+      .orderBy('(inventoryLocation.quantity - inventoryLocation.lockedQuantity)', 'DESC')
+      .addOrderBy('inventoryLocation.expiryDate', 'ASC');
+
+    const rows = await query.getRawMany();
+    const locations = rows.map((row) => {
+      const quantity = Number(row.quantity || 0);
+      const lockedQuantity = Number(row.lockedQuantity || 0);
+      const availableQuantity = quantity - lockedQuantity;
+
+      return {
+        inventoryLocationId: row.inventoryLocationId,
+        locationId: row.locationId,
+        locationCode: row.locationCode,
+        locationName: row.locationName,
+        locationType: row.locationType,
+        locationStatus: row.locationStatus,
+        quantity,
+        lockedQuantity,
+        availableQuantity,
+        unitId: row.unitId,
+        unitName: row.unitName,
+        unitSymbol: row.unitSymbol,
+        batchNo: row.batchNo,
+        productionDate: row.productionDate,
+        expiryDate: row.expiryDate,
+        ptl: {
+          bound: Boolean(row.ptlBindingId),
+          bindingId: row.ptlBindingId,
+          controllerId: row.ptlControllerId,
+          controllerCode: row.ptlControllerCode,
+          controllerName: row.ptlControllerName,
+          controllerStatus: row.ptlControllerStatus,
+          ledIndex: row.ledIndex === null || row.ledIndex === undefined ? null : Number(row.ledIndex),
+          defaultColor: row.defaultColor,
+        },
+      };
+    });
+
+    const totals = locations.reduce(
+      (acc, item) => {
+        acc.totalQuantity += item.quantity;
+        acc.totalLockedQuantity += item.lockedQuantity;
+        acc.totalAvailableQuantity += item.availableQuantity;
+        return acc;
+      },
+      { totalQuantity: 0, totalLockedQuantity: 0, totalAvailableQuantity: 0 },
+    );
+
+    return {
+      sku: options.sku,
+      productName: rows[0]?.productName || '',
+      unitId: rows[0]?.unitId,
+      unitName: rows[0]?.unitName,
+      unitSymbol: rows[0]?.unitSymbol,
+      ...totals,
+      locations,
+    };
   }
 
   /**
