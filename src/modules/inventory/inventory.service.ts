@@ -300,6 +300,8 @@ export class InventoryService {
     totalQuantity: number;
     totalLockedQuantity: number;
     totalAvailableQuantity: number;
+    // SKU 库存健康（全仓总量 vs 安全库存）：green 正常 / yellow 告急 / red 归零
+    stockStatus: 'green' | 'yellow' | 'red';
     locations: any[];
   }> {
     if (!options.sku) {
@@ -400,6 +402,10 @@ export class InventoryService {
       { totalQuantity: 0, totalLockedQuantity: 0, totalAvailableQuantity: 0 },
     );
 
+    // 复用 PTL 同一套规则算该 SKU 的库存健康色（与货位灯底色、大屏一致）
+    const stockColorMap = await this.ptlService.getSkuStockColors(tenantId, [options.sku]);
+    const stockStatus = stockColorMap.get(options.sku) || 'green';
+
     return {
       sku: options.sku,
       productName: rows[0]?.productName || '',
@@ -407,6 +413,7 @@ export class InventoryService {
       unitName: rows[0]?.unitName,
       unitSymbol: rows[0]?.unitSymbol,
       ...totals,
+      stockStatus,
       locations,
     };
   }

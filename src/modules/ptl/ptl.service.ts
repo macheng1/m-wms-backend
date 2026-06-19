@@ -814,6 +814,17 @@ export class PtlService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * 供其它模块（如 App 找货）复用：按 SKU 全仓总量 vs 安全库存算健康色。
+   * green 正常 / yellow 告急 / red 归零，与物理灯、大屏同一套规则。
+   */
+  async getSkuStockColors(
+    tenantId: string,
+    skus: string[],
+  ): Promise<Map<string, StockColor>> {
+    return this.resolveStockColors(tenantId, skus);
+  }
+
+  /**
    * 计算一批库位的"常驻库存底色"。
    * 库位存了多个 SKU 时取最告急的颜色（红>黄>绿）；空库位返回 null（灯灭）。
    */
