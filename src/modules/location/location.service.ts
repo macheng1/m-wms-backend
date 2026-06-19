@@ -6,11 +6,7 @@ import { Device } from './entities/device.entity';
 import { InventoryLocation } from './entities/inventory-location.entity';
 import { Inventory } from '../inventory/entities/inventory.entity';
 import { PtlLocationBinding } from '../ptl/entities/ptl-location-binding.entity';
-import {
-  LightTaskAction,
-  LightTaskStatus,
-  LocationLightTask,
-} from './entities/location-light-task.entity';
+import { PtlService } from '../ptl/ptl.service';
 import { CreateLocationDto } from './dto/create-location.dto';
 import { UpdateLocationDto } from './dto/update-location.dto';
 import { QueryLocationDto } from './dto/query-location.dto';
@@ -24,44 +20,10 @@ export class LocationService {
     private inventoryLocationRepository: Repository<InventoryLocation>,
     @InjectRepository(Inventory)
     private inventoryRepository: Repository<Inventory>,
-    @InjectRepository(LocationLightTask)
-    private lightTaskRepository: Repository<LocationLightTask>,
     @InjectRepository(PtlLocationBinding)
     private ptlBindingRepository: Repository<PtlLocationBinding>,
+    private ptlService: PtlService,
   ) {}
-
-  private async sendLightCommand(options: {
-    deviceUrl?: string;
-    action: LightTaskAction;
-    locationCode: string;
-    ledIndex?: number;
-    duration: number;
-    color: string;
-  }): Promise<void> {
-    const { deviceUrl, action, locationCode, ledIndex, duration, color } = options;
-
-    if (!deviceUrl) {
-      throw new Error('库位未配置灯控设备地址');
-    }
-
-    const endpoint = deviceUrl.replace(/\/$/, '');
-    const response = await fetch(`${endpoint}/light/${action.toLowerCase()}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        locationCode,
-        ledIndex,
-        duration,
-        color,
-      }),
-      signal: AbortSignal.timeout(3000),
-    });
-
-    if (!response.ok) {
-      const message = await response.text();
-      throw new Error(message || `灯控设备响应异常: ${response.status}`);
-    }
-  }
 
   /**
    * 生成库位编码
@@ -219,6 +181,8 @@ export class LocationService {
         totalQuantity: number;
         hasStock: boolean;
         matched: boolean;
+        // 库存健康色：与物理货位灯底色同规则（green 正常 / yellow 告急 / red 归零 / null 空库位）
+        stockColor: 'green' | 'yellow' | 'red' | null;
         ptl: {
           bound: boolean;
           bindingId?: string;
@@ -399,119 +363,79 @@ export class LocationService {
       });
     }
 
-    const enrichedLocations = locations
-      .map((location) => {
-        const stockItems = stockByLocation.get(location.id) || [];
-        const totalQuantity = stockItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
-        const matched = Boolean(keyword) && stockItems.length > 0;
+    // 每个库位的库存健康色（按 SKU 全仓总量 vs 安全库存，与物理灯底色同规则）
+    const stockColorByLocation =
+      locationIds.length > 0
+        ? await this.ptlService.getLocationStockColors(tenantId, locationIds)
+        : new Map<string, 'green' | 'yellow' | 'red' | null>();
 
-        return {
-          ...location,
-          stockItems,
-          skuCount: stockItems.length,
-          totalQuantity,
-          hasStock: totalQuantity > 0,
-          matched,
-          ptl: ptlByLocation.get(location.id) || { bound: false },
-        };
-      })
-      .filter((location) => !keyword || location.matched);
+    // 当前 warehouse/area 范围内的全部库位（不受 keyword 影响），统计卡基于此集合
+    const enrichedScoped = locations.map((location) => {
+      const stockItems = stockByLocation.get(location.id) || [];
+      const totalQuantity = stockItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+      const matched = Boolean(keyword) && stockItems.length > 0;
+
+      return {
+        ...location,
+        stockItems,
+        skuCount: stockItems.length,
+        totalQuantity,
+        hasStock: totalQuantity > 0,
+        matched,
+        stockColor: stockColorByLocation.get(location.id) ?? null,
+        ptl: ptlByLocation.get(location.id) || { bound: false },
+      };
+    });
+
+    // 搜索时只把命中库位返回给 3D 渲染；统计卡仍用全量 enrichedScoped
+    const visibleLocations = keyword
+      ? enrichedScoped.filter((location) => location.matched)
+      : enrichedScoped;
+
+    // 仓库/库区下拉项：取全租户全量，不受当前 warehouse/area 过滤影响，否则选了就切不回去
+    const filterRows = await this.locationRepository
+      .createQueryBuilder('location')
+      .select('location.warehouse', 'warehouse')
+      .addSelect('location.area', 'area')
+      .where('location.tenantId = :tenantId', { tenantId })
+      .distinct(true)
+      .getRawMany();
 
     const warehouses = Array.from(
-      new Set(locations.map((location) => location.warehouse).filter(Boolean)),
+      new Set(filterRows.map((row) => row.warehouse).filter(Boolean)),
     ).map((value) => ({ value, label: value }));
 
     const areas = Array.from(
       new Map(
-        locations
-          .filter((location) => location.area)
-          .map((location) => [
-            `${location.warehouse}:${location.area}`,
+        filterRows
+          .filter((row) => row.area)
+          .map((row) => [
+            `${row.warehouse}:${row.area}`,
             {
-              value: location.area,
-              label: `${location.warehouse}-${location.area}`,
-              warehouse: location.warehouse,
+              value: row.area,
+              label: `${row.warehouse}-${row.area}`,
+              warehouse: row.warehouse,
             },
           ]),
       ).values(),
     );
 
-    const occupiedLocations = enrichedLocations.filter((location) => location.hasStock).length;
-
     return {
       warehouses,
       areas,
-      locations: enrichedLocations,
+      locations: visibleLocations,
       summary: {
-        totalLocations: enrichedLocations.length,
-        occupiedLocations,
-        emptyLocations: enrichedLocations.filter(
+        totalLocations: enrichedScoped.length,
+        occupiedLocations: enrichedScoped.filter((location) => location.hasStock).length,
+        emptyLocations: enrichedScoped.filter(
           (location) => !location.hasStock && location.status !== LocationStatus.DISABLED,
         ).length,
-        disabledLocations: enrichedLocations.filter(
+        disabledLocations: enrichedScoped.filter(
           (location) => location.status === LocationStatus.DISABLED,
         ).length,
-        matchedLocations: enrichedLocations.filter((location) => location.matched).length,
+        matchedLocations: enrichedScoped.filter((location) => location.matched).length,
       },
     };
-  }
-
-  async triggerLight(
-    id: string,
-    tenantId: string,
-    action: LightTaskAction,
-    options: {
-      duration?: number;
-      color?: string;
-    } = {},
-  ): Promise<LocationLightTask> {
-    const location = await this.findOne(id, tenantId);
-    const metadata = location.metadata || {};
-    const duration = Number(options.duration || metadata.duration || 60);
-    const color = options.color || metadata.color || 'yellow';
-    const task = this.lightTaskRepository.create({
-      tenantId,
-      locationId: location.id,
-      locationCode: location.code,
-      deviceCode: metadata.deviceCode,
-      deviceUrl: metadata.deviceUrl,
-      ledIndex:
-        typeof metadata.ledIndex === 'number'
-          ? metadata.ledIndex
-          : metadata.ledIndex
-            ? Number(metadata.ledIndex)
-            : null,
-      action,
-      duration,
-      color,
-      payload: {
-        locationCode: location.code,
-        ledIndex: metadata.ledIndex,
-        duration,
-        color,
-      },
-    });
-
-    const savedTask = await this.lightTaskRepository.save(task);
-
-    try {
-      await this.sendLightCommand({
-        deviceUrl: metadata.deviceUrl,
-        action,
-        locationCode: location.code,
-        ledIndex: savedTask.ledIndex,
-        duration,
-        color,
-      });
-
-      savedTask.status = LightTaskStatus.SUCCESS;
-      savedTask.executedAt = new Date();
-    } catch (error: any) {
-      savedTask.status = LightTaskStatus.FAILED;
-      savedTask.errorMessage = error?.message || '灯控设备调用失败';
-    }
-
-    return this.lightTaskRepository.save(savedTask);
   }
 
   /**

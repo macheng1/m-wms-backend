@@ -11,6 +11,7 @@ import { InventoryLocation } from '../location/entities/inventory-location.entit
 import { Location } from '../location/entities/location.entity';
 import { Device } from '../location/entities/device.entity';
 import { PtlLocationBinding } from '../ptl/entities/ptl-location-binding.entity';
+import { PtlModule } from '../ptl/ptl.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { PtlLocationBinding } from '../ptl/entities/ptl-location-binding.entity'
     ]),
     UnitModule,
     NotificationsModule,
+    PtlModule,
   ],
   controllers: [InventoryController],
   providers: [InventoryService],

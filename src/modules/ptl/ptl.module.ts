@@ -4,6 +4,7 @@ import { Device } from '@/modules/location/entities/device.entity';
 import { InventoryLocation } from '@/modules/location/entities/inventory-location.entity';
 import { Location } from '@/modules/location/entities/location.entity';
 import { NotificationsModule } from '@/modules/notifications/notifications.module';
+import { Product } from '@/modules/product/product.entity';
 import { PtlLocationBinding } from './entities/ptl-location-binding.entity';
 import { PtlPickTask } from './entities/ptl-pick-task.entity';
 import { PtlPickTaskItem } from './entities/ptl-pick-task-item.entity';
@@ -17,6 +18,7 @@ import { PtlService } from './ptl.service';
       Device,
       Location,
       InventoryLocation,
+      Product,
       PtlLocationBinding,
       PtlPickTask,
       PtlPickTaskItem,

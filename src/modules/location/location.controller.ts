@@ -5,7 +5,6 @@ import { CreateLocationDto } from './dto/create-location.dto';
 import { UpdateLocationDto } from './dto/update-location.dto';
 import { QueryLocationDto } from './dto/query-location.dto';
 import { TenantId } from '../../common/decorators/tenant-id.decorator';
-import { LightTaskAction } from './entities/location-light-task.entity';
 
 @ApiTags('库位管理')
 @Controller('locations')
@@ -150,25 +149,6 @@ export class LocationController {
   @ApiOperation({ summary: '删除库位' })
   remove(@Param('id') id: string, @TenantId() tenantId: string) {
     return this.locationService.remove(id, tenantId);
-  }
-
-  @Post(':id/light-on')
-  @ApiOperation({ summary: '库位亮灯找货' })
-  lightOn(
-    @Param('id') id: string,
-    @TenantId() tenantId: string,
-    @Body() body: { duration?: number; color?: string },
-  ) {
-    return this.locationService.triggerLight(id, tenantId, LightTaskAction.ON, {
-      duration: body?.duration,
-      color: body?.color,
-    });
-  }
-
-  @Post(':id/light-off')
-  @ApiOperation({ summary: '库位熄灯' })
-  lightOff(@Param('id') id: string, @TenantId() tenantId: string) {
-    return this.locationService.triggerLight(id, tenantId, LightTaskAction.OFF);
   }
 
   // ==================== 硬件预留接口（暂不实现）====================

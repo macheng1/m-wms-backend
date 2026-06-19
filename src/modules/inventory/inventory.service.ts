@@ -27,6 +27,7 @@ import { PtlLocationBinding } from '../ptl/entities/ptl-location-binding.entity'
 import { AlertLevel, AlertLevelInfo } from '../../common/constants/alert-level.constant';
 import { NotificationsService } from '../notifications/services/notifications.service';
 import { NotificationType, NotificationCategory, NotificationPriority } from '../notifications/interfaces/notification-type.enum';
+import { PtlService } from '../ptl/ptl.service';
 
 /**
  * 格式化数字：整数不显示小数位，小数保留必要的位数
@@ -72,7 +73,17 @@ export class InventoryService {
     private unitService: UnitService,
     private dataSource: DataSource,
     private notificationsService: NotificationsService,
+    private ptlService: PtlService,
   ) {}
+
+  /** 库存变化后异步刷新该 SKU 相关货位的 PTL 常驻底色（fire-and-forget，失败不影响库存主流程） */
+  private notifyPtlStockChange(tenantId: string, sku: string, locationId?: string) {
+    setImmediate(() => {
+      this.ptlService
+        .refreshBaseColorsForStockChange(tenantId, sku, locationId)
+        .catch((e) => console.error('PTL 底色刷新失败:', e?.message || e));
+    });
+  }
 
   /**
    * 根据 SKU（产品code）获取产品信息
@@ -734,6 +745,9 @@ export class InventoryService {
 
       await queryRunner.commitTransaction();
 
+      // 入库后刷新该货位 PTL 底色
+      this.notifyPtlStockChange(tenantId, dto.sku, dto.locationId || inventory!.locationId);
+
       const unitObj = this.toUnit(inventoryUnit);
       const operationUnitObj = this.toUnit(operationUnit);
 
@@ -905,6 +919,9 @@ export class InventoryService {
         await queryRunner.manager.save(transaction);
 
       await queryRunner.commitTransaction();
+
+      // 出库后刷新该货位 PTL 底色
+      this.notifyPtlStockChange(tenantId, dto.sku, locationId);
 
       const unitObj = this.toUnit(inventoryUnit);
 
@@ -1577,6 +1594,9 @@ export class InventoryService {
       await queryRunner.manager.save(transaction);
 
       await queryRunner.commitTransaction();
+
+      // 调整后刷新该货位 PTL 底色
+      this.notifyPtlStockChange(tenantId, dto.sku, dto.locationId || inventory?.locationId);
 
       const unitObj = this.toUnit(inventoryUnit);
 

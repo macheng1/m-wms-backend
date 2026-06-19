@@ -73,6 +73,12 @@ export class PtlController {
     return this.ptlService.getControllerStatus(tenantId);
   }
 
+  @Post('controllers/refresh-base-colors')
+  @ApiOperation({ summary: '刷新常驻库存底色（不传 deviceId 则刷新全部在线控制器）' })
+  refreshBaseColors(@TenantId() tenantId: string, @Body('deviceId') deviceId?: string) {
+    return this.ptlService.refreshBaseColors(tenantId, deviceId);
+  }
+
   @Post('controllers/:id/calibrate')
   @ApiOperation({ summary: '校准点亮控制器单颗灯' })
   calibrate(
