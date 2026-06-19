@@ -34,7 +34,7 @@ export class MiniappBannerService {
 
     const [list, total] = await qb
       .orderBy('banner.sortOrder', 'ASC')
-      .addOrderBy('banner.createdAt', 'DESC')
+      .addOrderBy('banner.createdAt', 'ASC')
       .skip((page - 1) * pageSize)
       .take(pageSize)
       .getManyAndCount();
@@ -45,7 +45,7 @@ export class MiniappBannerService {
   async findActiveList() {
     return this.bannerRepo.find({
       where: { isActive: 1 },
-      order: { sortOrder: 'ASC', createdAt: 'DESC' },
+      order: { sortOrder: 'ASC', createdAt: 'ASC' },
     });
   }
 

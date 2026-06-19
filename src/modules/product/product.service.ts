@@ -122,7 +122,7 @@ export class ProductsService {
     }
 
     const [list, total] = await qb
-      .orderBy('p.createdAt', 'DESC') // 遵循时间排序规范
+      .orderBy('p.createdAt', 'ASC') // 遵循时间排序规范
       .skip((page - 1) * pageSize)
       .take(pageSize)
       .getManyAndCount();

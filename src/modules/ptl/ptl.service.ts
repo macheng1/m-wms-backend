@@ -113,7 +113,7 @@ export class PtlService implements OnModuleInit, OnModuleDestroy {
   async findControllers(tenantId: string) {
     return this.deviceRepository.find({
       where: { tenantId, type: DeviceType.PTL_CONTROLLER },
-      order: { createdAt: 'DESC' },
+      order: { createdAt: 'ASC' },
     });
   }
 
@@ -192,7 +192,7 @@ export class PtlService implements OnModuleInit, OnModuleDestroy {
         ...(options.deviceId ? { deviceId: options.deviceId } : {}),
       },
       relations: ['location', 'device'],
-      order: { createdAt: 'DESC' },
+      order: { createdAt: 'ASC' },
     });
   }
 
@@ -317,7 +317,7 @@ export class PtlService implements OnModuleInit, OnModuleDestroy {
           status: In(ACTIVE_TASK_STATUSES),
         },
         relations: ['items'],
-        order: { createdAt: 'DESC' },
+        order: { createdAt: 'ASC' },
       });
       if (existing) {
         return {
@@ -675,7 +675,7 @@ export class PtlService implements OnModuleInit, OnModuleDestroy {
   private async handleButton(tenantId: string, deviceId: string, ledIndex: number) {
     const item = await this.taskItemRepository.findOne({
       where: { tenantId, deviceId, ledIndex, status: In(ACTIVE_ITEM_STATUSES) },
-      order: { createdAt: 'DESC' },
+      order: { createdAt: 'ASC' },
     });
     if (!item) {
       this.logger.debug(`按钮事件无匹配活跃任务: device=${deviceId} led=${ledIndex}`);
@@ -1099,7 +1099,7 @@ export class PtlService implements OnModuleInit, OnModuleDestroy {
 
     const activeItem = await this.taskItemRepository.findOne({
       where: { tenantId, locationId, status: In(ACTIVE_ITEM_STATUSES) },
-      order: { createdAt: 'DESC' },
+      order: { createdAt: 'ASC' },
     });
     return activeItem?.taskId;
   }

@@ -24,7 +24,7 @@ export class DictionariesService {
             { type, isActive: 1, scope: 'tenant', tenantId },
           ]
         : { type, isActive: 1, scope: 'platform', tenantId: IsNull() },
-      order: { sort: 'ASC' },
+      order: { sort: 'ASC', createdAt: 'ASC' },
     });
 
     // 映射为前端组件直接可用的结构
@@ -96,7 +96,7 @@ export class DictionariesService {
       where,
       skip: (page - 1) * pageSize,
       take: pageSize,
-      order: { sort: 'ASC', createdAt: 'DESC' },
+      order: { sort: 'ASC', createdAt: 'ASC' },
     });
 
     return {

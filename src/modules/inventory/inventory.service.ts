@@ -284,7 +284,7 @@ export class InventoryService {
   async findAll(tenantId: string): Promise<Inventory[]> {
     return this.inventoryRepository.find({
       where: { tenantId },
-      order: { createdAt: 'DESC' },
+      order: { createdAt: 'ASC' },
     });
   }
 
@@ -469,7 +469,7 @@ export class InventoryService {
       queryBuilder.andWhere('product.safetyStock IS NOT NULL');
     }
 
-    queryBuilder.orderBy('inventory.createdAt', 'DESC');
+    queryBuilder.orderBy('inventory.createdAt', 'ASC');
 
     const result = await queryBuilder
       .skip((page - 1) * pageSize)
@@ -1006,7 +1006,7 @@ export class InventoryService {
   ): Promise<InventoryTransaction[]> {
     return this.transactionRepository.find({
       where: { sku, tenantId },
-      order: { createdAt: 'DESC' },
+      order: { createdAt: 'ASC' },
     });
   }
 
@@ -1069,7 +1069,7 @@ export class InventoryService {
       queryBuilder.andWhere('transaction.transactionType = :type', { type });
     }
 
-    queryBuilder.orderBy('transaction.createdAt', 'DESC');
+    queryBuilder.orderBy('transaction.createdAt', 'ASC');
 
     const result = await queryBuilder
       .skip((page - 1) * pageSize)
@@ -1174,7 +1174,7 @@ export class InventoryService {
       queryBuilder.andWhere('transaction.sku = :sku', { sku });
     }
 
-    queryBuilder.orderBy('transaction.createdAt', 'DESC');
+    queryBuilder.orderBy('transaction.createdAt', 'ASC');
 
     const result = await queryBuilder
       .skip((page - 1) * pageSize)
@@ -1279,7 +1279,7 @@ export class InventoryService {
       queryBuilder.andWhere('transaction.sku = :sku', { sku });
     }
 
-    queryBuilder.orderBy('transaction.createdAt', 'DESC');
+    queryBuilder.orderBy('transaction.createdAt', 'ASC');
 
     const result = await queryBuilder
       .skip((page - 1) * pageSize)
@@ -1360,7 +1360,7 @@ export class InventoryService {
       .select('inventory.id', 'id')
       .addSelect('(inventory.quantity - COALESCE(inventory.lockedQuantity, 0))', 'availableQuantitySort')
       .orderBy('availableQuantitySort', 'ASC')
-      .addOrderBy('inventory.createdAt', 'DESC')
+      .addOrderBy('inventory.createdAt', 'ASC')
       .offset((page - 1) * pageSize)
       .limit(pageSize)
       .getRawMany();

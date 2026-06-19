@@ -42,7 +42,7 @@ export class MiniappYellowPageService {
 
     const [list, total] = await qb
       .orderBy('tenant.approvedAt', 'DESC')
-      .addOrderBy('tenant.createdAt', 'DESC')
+      .addOrderBy('tenant.createdAt', 'ASC')
       .skip((page - 1) * pageSize)
       .take(pageSize)
       .getManyAndCount();
@@ -65,13 +65,13 @@ export class MiniappYellowPageService {
     const [products, jobs, config, productCount, jobCount] = await Promise.all([
       this.productRepo.find({
         where: { tenantId: id, isActive: 1 },
-        order: { createdAt: 'DESC' },
+        order: { createdAt: 'ASC' },
         take: 20,
         relations: ['category', 'category.attributes', 'inventoryUnit'],
       }),
       this.jobRepo.find({
         where: { tenantId: id, isActive: 1 },
-        order: { sortOrder: 'ASC', createdAt: 'DESC' },
+        order: { sortOrder: 'ASC', createdAt: 'ASC' },
         take: 20,
       }),
       this.portalConfigRepo.findOne({ where: { tenantId: id, isActive: 1 } }),
@@ -175,7 +175,7 @@ export class MiniappYellowPageService {
         .getRawMany<{ tenantId: string; count: string }>(),
       this.productRepo.find({
         where: tenantIds.map((tenantId) => ({ tenantId, isActive: 1 })),
-        order: { createdAt: 'DESC' },
+        order: { createdAt: 'ASC' },
         take: tenantIds.length * 3,
       }),
     ]);

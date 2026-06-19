@@ -100,7 +100,7 @@ export class AdminPlatformService {
         where,
         skip: (page - 1) * pageSize,
         take: pageSize,
-        order: { createdAt: 'DESC' },
+        order: { createdAt: 'ASC' },
       })
       .then(([list, total]) => ({ list, total, page, pageSize }));
   }
@@ -137,14 +137,14 @@ export class AdminPlatformService {
   findAllMenus() {
     return this.menuRepo.find({
       where: { scope: 'platform' },
-      order: { id: 'ASC' },
+      order: { createdAt: 'ASC', id: 'ASC' },
     });
   }
 
   findMenus() {
     return this.menuRepo.find({
       where: { scope: 'platform', type: In(['DIRECTORY', 'MENU', 'BUTTON']) },
-      order: { sortOrder: 'ASC', id: 'ASC' },
+      order: { sortOrder: 'ASC', createdAt: 'ASC', id: 'ASC' },
     });
   }
 
@@ -169,7 +169,7 @@ export class AdminPlatformService {
       where,
       skip: (page - 1) * pageSize,
       take: pageSize,
-      order: { sortOrder: 'ASC', id: 'ASC' },
+      order: { sortOrder: 'ASC', createdAt: 'ASC', id: 'ASC' },
     });
 
     return { list, total, page, pageSize };
@@ -196,7 +196,7 @@ export class AdminPlatformService {
     return this.menuRepo
       .find({
         where: { scope: 'tenant', type: In(['DIRECTORY', 'MENU', 'BUTTON']) },
-        order: { sortOrder: 'ASC', id: 'ASC' },
+        order: { sortOrder: 'ASC', createdAt: 'ASC', id: 'ASC' },
       })
       .then((menus) => this.buildMenuTree(menus));
   }

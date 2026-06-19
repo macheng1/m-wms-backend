@@ -67,7 +67,7 @@ export class PortalService {
       }),
       this.jobRepo.find({
         where: { tenantId: tenant.id, isActive: 1 },
-        order: { sortOrder: 'ASC', createdAt: 'DESC' },
+        order: { sortOrder: 'ASC', createdAt: 'ASC' },
       }),
     ]);
 
@@ -329,7 +329,7 @@ export class PortalService {
       qb.andWhere('inquiry.status = :status', { status: filters.status });
     }
 
-    qb.orderBy('inquiry.createdAt', 'DESC')
+    qb.orderBy('inquiry.createdAt', 'ASC')
       .skip((page - 1) * pageSize)
       .take(pageSize);
 
@@ -374,7 +374,7 @@ export class PortalService {
       where,
       skip: (page - 1) * pageSize,
       take: pageSize,
-      order: { sortOrder: 'ASC', createdAt: 'DESC' },
+      order: { sortOrder: 'ASC', createdAt: 'ASC' },
     });
 
     return { list, total, page, pageSize };

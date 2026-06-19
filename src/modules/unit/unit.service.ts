@@ -155,7 +155,7 @@ export class UnitService {
     const [list, total] = await queryBuilder
       .orderBy('unit.category', 'ASC')
       .addOrderBy('unit.sortOrder', 'ASC')
-      .addOrderBy('unit.createdAt', 'DESC')
+      .addOrderBy('unit.createdAt', 'ASC')
       .skip((page - 1) * pageSize)
       .take(pageSize)
       .getManyAndCount();
@@ -219,7 +219,7 @@ export class UnitService {
         ...scope,
         category: category as any,
       })),
-      order: { sortOrder: 'ASC', createdAt: 'DESC' },
+      order: { sortOrder: 'ASC', createdAt: 'ASC' },
     });
     return units || [];
   }
@@ -234,7 +234,7 @@ export class UnitService {
         isActive: 1,
         ...(category ? { category: category as any } : {}),
       })),
-      order: { category: 'ASC', sortOrder: 'ASC' },
+      order: { category: 'ASC', sortOrder: 'ASC', createdAt: 'ASC' },
     });
     return units || [];
   }

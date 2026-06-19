@@ -286,7 +286,7 @@ export class NotificationsService {
     );
 
     // 按创建时间倒序
-    queryBuilder.orderBy('notification.createdAt', 'DESC');
+    queryBuilder.orderBy('notification.createdAt', 'ASC');
 
     // 分页
     queryBuilder.skip((page - 1) * pageSize).take(pageSize);

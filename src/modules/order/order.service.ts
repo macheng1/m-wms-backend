@@ -686,7 +686,7 @@ export class OrderService {
     }
 
     const [list, total] = await qb
-      .orderBy('order.createdAt', 'DESC')
+      .orderBy('order.createdAt', 'ASC')
       .skip((page - 1) * pageSize)
       .take(pageSize)
       .getManyAndCount();
@@ -706,7 +706,7 @@ export class OrderService {
     if (query.status) qb.andWhere('order.status = :status', { status: query.status });
 
     const [list, total] = await qb
-      .orderBy('order.createdAt', 'DESC')
+      .orderBy('order.createdAt', 'ASC')
       .skip((page - 1) * pageSize)
       .take(pageSize)
       .getManyAndCount();
@@ -770,7 +770,7 @@ export class OrderService {
   }
 
   async findAll(tenantId: string): Promise<Order[]> {
-    return this.orderRepository.find({ where: { tenantId }, order: { createdAt: 'DESC' } });
+    return this.orderRepository.find({ where: { tenantId }, order: { createdAt: 'ASC' } });
   }
 
   async findOne(id: string, tenantId: string): Promise<Order> {

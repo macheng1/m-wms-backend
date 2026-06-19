@@ -150,7 +150,7 @@ export class TenantsService {
       where,
       skip: (page - 1) * pageSize,
       take: pageSize,
-      order: { createdAt: 'DESC' },
+      order: { createdAt: 'ASC' },
     });
     const industryNameMap = await this.getIndustryNameMap();
     return {
@@ -640,7 +640,7 @@ export class TenantsService {
       : this.dataSource.getRepository(Dictionary);
     const list = await repo.find({
       where: { type: 'INDUSTRY', isActive: 1, scope: 'platform', tenantId: IsNull() },
-      order: { sort: 'ASC' },
+      order: { sort: 'ASC', createdAt: 'ASC' },
     });
     return new Map(list.map((item) => [item.value, item.label]));
   }

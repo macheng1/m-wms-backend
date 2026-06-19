@@ -152,7 +152,8 @@ export class RolesService {
 
       qb.skip((page - 1) * pageSize)
         .take(pageSize)
-        .orderBy('role.id', 'DESC');
+        .orderBy('role.createdAt', 'ASC')
+        .addOrderBy('role.id', 'ASC');
 
       const [list, total] = await qb.getManyAndCount();
       return {

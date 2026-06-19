@@ -136,7 +136,7 @@ export class LocationService {
       });
     }
 
-    queryBuilder.orderBy('location.createdAt', 'DESC');
+    queryBuilder.orderBy('location.createdAt', 'ASC');
 
     const [list, total] = await queryBuilder
       .skip((page - 1) * pageSize)
@@ -240,6 +240,7 @@ export class LocationService {
       const detailQuery = this.inventoryLocationRepository
         .createQueryBuilder('inventoryLocation')
         .leftJoin('units', 'unit', 'inventoryLocation.unitId = unit.id')
+        .leftJoin('products', 'product', 'inventoryLocation.sku = product.code AND product.tenantId = :tenantId')
         .select([
           'inventoryLocation.locationId as locationId',
           'inventoryLocation.sku as sku',
@@ -258,7 +259,7 @@ export class LocationService {
 
       if (keyword) {
         detailQuery.andWhere(
-          '(inventoryLocation.sku LIKE :keyword OR inventoryLocation.productName LIKE :keyword)',
+          '(inventoryLocation.sku LIKE :keyword OR inventoryLocation.productName LIKE :keyword OR product.barcode LIKE :keyword)',
           { keyword: `%${keyword}%` },
         );
       }
@@ -285,6 +286,7 @@ export class LocationService {
       const fallbackQuery = this.inventoryRepository
         .createQueryBuilder('inventory')
         .leftJoin('units', 'unit', 'inventory.unitId = unit.id')
+        .leftJoin('products', 'product', 'inventory.sku = product.code AND product.tenantId = :tenantId')
         .select([
           'inventory.locationId as locationId',
           'inventory.sku as sku',
@@ -300,7 +302,7 @@ export class LocationService {
 
       if (keyword) {
         fallbackQuery.andWhere(
-          '(inventory.sku LIKE :keyword OR inventory.productName LIKE :keyword)',
+          '(inventory.sku LIKE :keyword OR inventory.productName LIKE :keyword OR product.barcode LIKE :keyword)',
           { keyword: `%${keyword}%` },
         );
       }
@@ -387,7 +389,7 @@ export class LocationService {
       };
     });
 
-    // 搜索时只把命中库位返回给 3D 渲染；统计卡仍用全量 enrichedScoped
+    // 搜索时只把命中库位返回给可视化看板；统计卡仍用全量 enrichedScoped
     const visibleLocations = keyword
       ? enrichedScoped.filter((location) => location.matched)
       : enrichedScoped;
