@@ -43,6 +43,16 @@ export class Inventory {
   @Column({ type: 'char', length: 36, nullable: true })
   locationId: string;
 
+  // 最后一次操作的来源 / 操作人（库存列表直接展示，避免再回查流水）
+  @Column({ length: 32, nullable: true })
+  lastSource: string;
+
+  @Column({ type: 'char', length: 36, nullable: true })
+  lastOperatorId: string;
+
+  @Column({ length: 100, nullable: true })
+  lastOperatorName: string;
+
   @CreateDateColumn()
   createdAt: Date;
 

@@ -28,6 +28,7 @@ import { AlertLevel, AlertLevelInfo } from '../../common/constants/alert-level.c
 import { NotificationsService } from '../notifications/services/notifications.service';
 import { NotificationType, NotificationCategory, NotificationPriority } from '../notifications/interfaces/notification-type.enum';
 import { PtlService } from '../ptl/ptl.service';
+import { ActorContext } from '../../common/decorators';
 import * as ExcelJS from 'exceljs';
 // 数字格式化 / 数量规范化纯函数已抽到 common/utils，供本 service 各处复用
 import { formatNumber, normalizeQuantity } from '../../common/utils/number-format.util';
@@ -50,6 +51,35 @@ export class InventoryService {
     private notificationsService: NotificationsService,
     private ptlService: PtlService,
   ) {}
+
+  /** 操作来源 -> 中文展示文案（与各端 x-source-type 头一致） */
+  private sourceLabel(source?: string): string {
+    if (!source) return '';
+    const map: Record<string, string> = {
+      'admin-web': '后台',
+      miniapp: '小程序',
+      app: '手机',
+    };
+    return map[source] || source;
+  }
+
+  /** 流水落库用的来源/操作人字段 */
+  private actorFields(actor?: ActorContext) {
+    return {
+      source: actor?.source ?? null,
+      operatorId: actor?.operatorId ?? null,
+      operatorName: actor?.operatorName ?? null,
+    };
+  }
+
+  /** 库存行「最后一次操作」冗余字段 */
+  private lastActorFields(actor?: ActorContext) {
+    return {
+      lastSource: actor?.source ?? null,
+      lastOperatorId: actor?.operatorId ?? null,
+      lastOperatorName: actor?.operatorName ?? null,
+    };
+  }
 
   /** 库存变化后异步刷新该 SKU 相关货位的 PTL 常驻底色（fire-and-forget，失败不影响库存主流程） */
   private notifyPtlStockChange(tenantId: string, sku: string, locationId?: string) {
@@ -518,6 +548,8 @@ export class InventoryService {
         // 库存状态
         stockStatus: status,
         stockStatusInfo: stockStatusMap[status],
+        // 最后一次操作来源中文文案（lastSource/lastOperatorName 已随 ...entity 带出）
+        lastSourceLabel: this.sourceLabel(entity.lastSource),
       };
     });
 
@@ -623,6 +655,7 @@ export class InventoryService {
   async inbound(
     dto: InboundDto,
     tenantId: string,
+    actor?: ActorContext,
   ): Promise<InventoryResult> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -679,6 +712,7 @@ export class InventoryService {
             quantity: beforeQty + stockQty,
             productName: product.name,
             unitId: inventoryUnit.id,
+            ...this.lastActorFields(actor),
           },
         );
 
@@ -694,6 +728,7 @@ export class InventoryService {
           unitId: inventoryUnit.id,
           locationId: dto.locationId,
           tenantId,
+          ...this.lastActorFields(actor),
         });
         inventory = await queryRunner.manager.save(inventory);
       }
@@ -722,6 +757,7 @@ export class InventoryService {
         locationId: dto.locationId,
         remark: dto.remark,
         tenantId,
+        ...this.actorFields(actor),
       });
       const savedTransaction =
         await queryRunner.manager.save(transaction);
@@ -785,6 +821,7 @@ export class InventoryService {
   async batchInbound(
     dto: BatchInboundDto,
     tenantId: string,
+    actor?: ActorContext,
   ): Promise<InventoryResult[]> {
     const results: InventoryResult[] = [];
 
@@ -799,6 +836,7 @@ export class InventoryService {
           notifyUserIds: dto.notifyUserIds,
         },
         tenantId,
+        actor,
       );
       results.push(result);
     }
@@ -812,6 +850,7 @@ export class InventoryService {
   async outbound(
     dto: OutboundDto,
     tenantId: string,
+    actor?: ActorContext,
   ): Promise<InventoryResult> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -881,6 +920,7 @@ export class InventoryService {
           {
             quantity: afterQty,
             unitId: inventoryUnit.id,
+            ...this.lastActorFields(actor),
           },
         );
 
@@ -897,6 +937,7 @@ export class InventoryService {
         locationId,
         remark: dto.remark,
         tenantId,
+        ...this.actorFields(actor),
       });
       const savedTransaction =
         await queryRunner.manager.save(transaction);
@@ -961,6 +1002,7 @@ export class InventoryService {
   async batchOutbound(
     dto: BatchOutboundDto,
     tenantId: string,
+    actor?: ActorContext,
   ): Promise<InventoryResult[]> {
     const results: InventoryResult[] = [];
 
@@ -975,6 +1017,7 @@ export class InventoryService {
           notifyUserIds: dto.notifyUserIds,
         },
         tenantId,
+        actor,
       );
       results.push(result);
     }
@@ -1106,6 +1149,8 @@ export class InventoryService {
       // 类型显示信息
       typeName: typeDisplayName,
       typeDirection, // INBOUND/OUTBOUND/OTHER
+      // 来源中文文案（source/operatorName 已随 ...entity 带出）
+      sourceLabel: this.sourceLabel(entity.source),
       // 格式化显示字段（旧字段保持不变，兼容其它流水页）
       quantityDisplay,
       beforeQtyDisplay,
@@ -1137,15 +1182,19 @@ export class InventoryService {
       orderNo?: string;
       startDate?: string;
       endDate?: string;
+      source?: string;
     },
   ): SelectQueryBuilder<InventoryTransaction> {
-    const { sku, type, orderNo, startDate, endDate } = filters;
+    const { sku, type, orderNo, startDate, endDate, source } = filters;
 
     if (sku) {
       queryBuilder.andWhere('transaction.sku = :sku', { sku });
     }
     if (type) {
       queryBuilder.andWhere('transaction.transactionType = :type', { type });
+    }
+    if (source) {
+      queryBuilder.andWhere('transaction.source = :source', { source });
     }
     if (orderNo) {
       queryBuilder.andWhere('transaction.orderNo LIKE :orderNo', { orderNo: `%${orderNo}%` });
@@ -1189,13 +1238,14 @@ export class InventoryService {
       orderNo?: string;
       startDate?: string;
       endDate?: string;
+      source?: string;
     } = {},
   ): Promise<Buffer> {
-    const { sku, type, orderNo, startDate, endDate } = options;
+    const { sku, type, orderNo, startDate, endDate, source } = options;
 
     // 与列表同一套查询基座 + 筛选，保证「导出的就是看到的」；不加分页，导出全部
     const queryBuilder = this.buildTransactionListQuery(tenantId);
-    this.applyTransactionListFilters(queryBuilder, { sku, type, orderNo, startDate, endDate });
+    this.applyTransactionListFilters(queryBuilder, { sku, type, orderNo, startDate, endDate, source });
     queryBuilder.orderBy('transaction.createdAt', 'DESC');
 
     const result = await queryBuilder.getRawAndEntities();
@@ -1218,6 +1268,8 @@ export class InventoryService {
       { header: '单据号', key: 'orderNo', width: 18 },
       { header: '库位', key: 'locationName', width: 18 },
       { header: '备注', key: 'remark', width: 24 },
+      { header: '来源', key: 'source', width: 10 },
+      { header: '操作人', key: 'operator', width: 14 },
       { header: '变动时间', key: 'createdAt', width: 20 },
     ];
     // 表头加粗
@@ -1237,6 +1289,8 @@ export class InventoryService {
         orderNo: row.orderNo || '',
         locationName: row.locationName || '',
         remark: row.remark || '',
+        source: row.sourceLabel || '',
+        operator: row.operatorName || '',
         createdAt: this.formatDateTime(row.createdAt),
       });
     }
@@ -1258,6 +1312,7 @@ export class InventoryService {
       orderNo?: string;
       startDate?: string;
       endDate?: string;
+      source?: string;
     } = {},
   ): Promise<{
     list: any[];
@@ -1265,11 +1320,11 @@ export class InventoryService {
     page: number;
     pageSize: number;
   }> {
-    const { page = 1, pageSize = 10, sku, type, orderNo, startDate, endDate } = options;
+    const { page = 1, pageSize = 10, sku, type, orderNo, startDate, endDate, source } = options;
 
     // 复用流水查询基座 + 通用流水筛选（与导出口径一致）
     const queryBuilder = this.buildTransactionListQuery(tenantId);
-    this.applyTransactionListFilters(queryBuilder, { sku, type, orderNo, startDate, endDate });
+    this.applyTransactionListFilters(queryBuilder, { sku, type, orderNo, startDate, endDate, source });
 
     // 流水按时间倒序：最新记录排在最前
     queryBuilder.orderBy('transaction.createdAt', 'DESC');
@@ -1303,6 +1358,7 @@ export class InventoryService {
       orderNo?: string;
       startDate?: string;
       endDate?: string;
+      source?: string;
     } = {},
   ): Promise<{
     list: any[];
@@ -1310,7 +1366,7 @@ export class InventoryService {
     page: number;
     pageSize: number;
   }> {
-    const { page = 1, pageSize = 10, sku, transactionType, orderNo, startDate, endDate } = options;
+    const { page = 1, pageSize = 10, sku, transactionType, orderNo, startDate, endDate, source } = options;
 
     // 复用流水查询基座，再追加入库特有的过滤条件
     const queryBuilder = this.buildTransactionListQuery(tenantId);
@@ -1328,6 +1384,10 @@ export class InventoryService {
 
     if (sku) {
       queryBuilder.andWhere('transaction.sku = :sku', { sku });
+    }
+
+    if (source) {
+      queryBuilder.andWhere('transaction.source = :source', { source });
     }
 
     if (orderNo) {
@@ -1374,6 +1434,7 @@ export class InventoryService {
       orderNo?: string;
       startDate?: string;
       endDate?: string;
+      source?: string;
     } = {},
   ): Promise<{
     list: any[];
@@ -1381,7 +1442,7 @@ export class InventoryService {
     page: number;
     pageSize: number;
   }> {
-    const { page = 1, pageSize = 10, sku, transactionType, orderNo, startDate, endDate } = options;
+    const { page = 1, pageSize = 10, sku, transactionType, orderNo, startDate, endDate, source } = options;
 
     // 复用流水查询基座，再追加出库特有的过滤条件
     const queryBuilder = this.buildTransactionListQuery(tenantId);
@@ -1399,6 +1460,10 @@ export class InventoryService {
 
     if (sku) {
       queryBuilder.andWhere('transaction.sku = :sku', { sku });
+    }
+
+    if (source) {
+      queryBuilder.andWhere('transaction.source = :source', { source });
     }
 
     if (orderNo) {
@@ -1554,6 +1619,7 @@ export class InventoryService {
   async adjust(
     dto: import('./dto/adjust.dto').AdjustInventoryDto,
     tenantId: string,
+    actor?: ActorContext,
   ): Promise<InventoryResult> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -1620,6 +1686,7 @@ export class InventoryService {
             quantity: newQty,
             productName: product.name,
             unitId: inventoryUnit.id,
+            ...this.lastActorFields(actor),
           },
         );
 
@@ -1638,6 +1705,7 @@ export class InventoryService {
           unitId: inventoryUnit.id,
           locationId: dto.locationId,
           tenantId,
+          ...this.lastActorFields(actor),
         });
         inventory = await queryRunner.manager.save(inventory);
       }
@@ -1669,6 +1737,7 @@ export class InventoryService {
         locationId: dto.locationId || inventory?.locationId,
         remark: `${dto.reason}${dto.remark ? ': ' + dto.remark : ''}`,
         tenantId,
+        ...this.actorFields(actor),
       });
       await queryRunner.manager.save(transaction);
 

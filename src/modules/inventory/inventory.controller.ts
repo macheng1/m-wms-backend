@@ -18,7 +18,7 @@ import { InboundDto, BatchInboundDto } from './dto/inbound.dto';
 import { OutboundDto, BatchOutboundDto } from './dto/outbound.dto';
 import { AdjustInventoryDto } from './dto/adjust.dto';
 import { InventoryResult } from './dto/inventory-result.dto';
-import { TenantId } from '@common/decorators';
+import { TenantId, Actor, ActorContext } from '@common/decorators';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 
 @ApiTags('库存管理')
@@ -74,6 +74,7 @@ export class InventoryController {
     @Query('orderNo') orderNo?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('source') source?: string,
   ) {
     return this.inventoryService.getTransactionsPage(tenantId, {
       page,
@@ -83,6 +84,7 @@ export class InventoryController {
       orderNo,
       startDate,
       endDate,
+      source,
     });
   }
 
@@ -98,6 +100,7 @@ export class InventoryController {
     @Query('orderNo') orderNo?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('source') source?: string,
   ) {
     const buffer = await this.inventoryService.exportTransactions(tenantId, {
       sku,
@@ -105,6 +108,7 @@ export class InventoryController {
       orderNo,
       startDate,
       endDate,
+      source,
     });
     // 文件名：库存流水_当前年月日（本地时区，避免 UTC 跨零点差一天），中文用 encodeURIComponent
     const now = new Date();
@@ -150,6 +154,7 @@ export class InventoryController {
     @Query('orderNo') orderNo?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('source') source?: string,
   ) {
     return this.inventoryService.getInboundTransactionsPage(tenantId, {
       page,
@@ -159,27 +164,28 @@ export class InventoryController {
       orderNo,
       startDate,
       endDate,
+      source,
     });
   }
 
   @Post('inbound')
   @ApiOperation({ summary: '入库操作' })
-  inbound(@Body() dto: InboundDto, @TenantId() tenantId: string) {
-    return this.inventoryService.inbound(dto, tenantId);
+  inbound(@Body() dto: InboundDto, @TenantId() tenantId: string, @Actor() actor: ActorContext) {
+    return this.inventoryService.inbound(dto, tenantId, actor);
   }
 
   @Post('inbound/batch')
   @ApiOperation({ summary: '批量入库' })
-  batchInbound(@Body() dto: BatchInboundDto, @TenantId() tenantId: string) {
-    return this.inventoryService.batchInbound(dto, tenantId);
+  batchInbound(@Body() dto: BatchInboundDto, @TenantId() tenantId: string, @Actor() actor: ActorContext) {
+    return this.inventoryService.batchInbound(dto, tenantId, actor);
   }
 
   // ============ 库存调整 ============
 
   @Post('adjust')
   @ApiOperation({ summary: '库存调整' })
-  adjust(@Body() dto: AdjustInventoryDto, @TenantId() tenantId: string) {
-    return this.inventoryService.adjust(dto, tenantId);
+  adjust(@Body() dto: AdjustInventoryDto, @TenantId() tenantId: string, @Actor() actor: ActorContext) {
+    return this.inventoryService.adjust(dto, tenantId, actor);
   }
 
   // ============ 出库操作 ============
@@ -195,6 +201,7 @@ export class InventoryController {
     @Query('orderNo') orderNo?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('source') source?: string,
   ) {
     return this.inventoryService.getOutboundTransactionsPage(tenantId, {
       page,
@@ -204,19 +211,20 @@ export class InventoryController {
       orderNo,
       startDate,
       endDate,
+      source,
     });
   }
 
   @Post('outbound')
   @ApiOperation({ summary: '出库操作' })
-  outbound(@Body() dto: OutboundDto, @TenantId() tenantId: string) {
-    return this.inventoryService.outbound(dto, tenantId);
+  outbound(@Body() dto: OutboundDto, @TenantId() tenantId: string, @Actor() actor: ActorContext) {
+    return this.inventoryService.outbound(dto, tenantId, actor);
   }
 
   @Post('outbound/batch')
   @ApiOperation({ summary: '批量出库' })
-  batchOutbound(@Body() dto: BatchOutboundDto, @TenantId() tenantId: string) {
-    return this.inventoryService.batchOutbound(dto, tenantId);
+  batchOutbound(@Body() dto: BatchOutboundDto, @TenantId() tenantId: string, @Actor() actor: ActorContext) {
+    return this.inventoryService.batchOutbound(dto, tenantId, actor);
   }
 
   // ============ 动态路由（放在最后）=============
