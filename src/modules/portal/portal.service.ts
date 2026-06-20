@@ -329,7 +329,7 @@ export class PortalService {
       qb.andWhere('inquiry.status = :status', { status: filters.status });
     }
 
-    qb.orderBy('inquiry.createdAt', 'ASC')
+    qb.orderBy('inquiry.createdAt', 'DESC')
       .skip((page - 1) * pageSize)
       .take(pageSize);
 

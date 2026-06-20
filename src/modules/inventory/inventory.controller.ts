@@ -7,7 +7,10 @@ import {
   Param,
   Delete,
   Query,
+  Header,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { InventoryService } from './inventory.service';
 import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { UpdateInventoryDto } from './dto/update-inventory.dto';
@@ -68,13 +71,48 @@ export class InventoryController {
     @Query('sku') sku?: string,
     @Query('type') type?: string,
     @Query('transactionType') transactionType?: string,
+    @Query('orderNo') orderNo?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
     return this.inventoryService.getTransactionsPage(tenantId, {
       page,
       pageSize,
       sku,
       type: type || transactionType,
+      orderNo,
+      startDate,
+      endDate,
     });
+  }
+
+  @Get('transactions/export')
+  @ApiOperation({ summary: '导出库存流水 Excel' })
+  @Header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+  async exportTransactions(
+    @TenantId() tenantId: string,
+    @Res() res: Response,
+    @Query('sku') sku?: string,
+    @Query('type') type?: string,
+    @Query('transactionType') transactionType?: string,
+    @Query('orderNo') orderNo?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    const buffer = await this.inventoryService.exportTransactions(tenantId, {
+      sku,
+      type: type || transactionType,
+      orderNo,
+      startDate,
+      endDate,
+    });
+    // 文件名：库存流水_当前年月日（本地时区，避免 UTC 跨零点差一天），中文用 encodeURIComponent
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const filename = encodeURIComponent(`库存流水_${dateStr}.xlsx`);
+    res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+    res.end(buffer);
   }
 
   @Get('available-for-outbound')
@@ -109,12 +147,18 @@ export class InventoryController {
     @Query('pageSize') pageSize?: number,
     @Query('sku') sku?: string,
     @Query('transactionType') transactionType?: string,
+    @Query('orderNo') orderNo?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
     return this.inventoryService.getInboundTransactionsPage(tenantId, {
       page,
       pageSize,
       sku,
       transactionType,
+      orderNo,
+      startDate,
+      endDate,
     });
   }
 
@@ -148,12 +192,18 @@ export class InventoryController {
     @Query('pageSize') pageSize?: number,
     @Query('sku') sku?: string,
     @Query('transactionType') transactionType?: string,
+    @Query('orderNo') orderNo?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
     return this.inventoryService.getOutboundTransactionsPage(tenantId, {
       page,
       pageSize,
       sku,
       transactionType,
+      orderNo,
+      startDate,
+      endDate,
     });
   }
 

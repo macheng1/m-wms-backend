@@ -113,7 +113,7 @@ export class PtlService implements OnModuleInit, OnModuleDestroy {
   async findControllers(tenantId: string) {
     return this.deviceRepository.find({
       where: { tenantId, type: DeviceType.PTL_CONTROLLER },
-      order: { createdAt: 'ASC' },
+      order: { createdAt: 'DESC' },
     });
   }
 
@@ -192,7 +192,7 @@ export class PtlService implements OnModuleInit, OnModuleDestroy {
         ...(options.deviceId ? { deviceId: options.deviceId } : {}),
       },
       relations: ['location', 'device'],
-      order: { createdAt: 'ASC' },
+      order: { createdAt: 'DESC' },
     });
   }
 

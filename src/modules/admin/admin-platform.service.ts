@@ -100,7 +100,7 @@ export class AdminPlatformService {
         where,
         skip: (page - 1) * pageSize,
         take: pageSize,
-        order: { createdAt: 'ASC' },
+        order: { createdAt: 'DESC' },
       })
       .then(([list, total]) => ({ list, total, page, pageSize }));
   }
@@ -281,7 +281,7 @@ export class AdminPlatformService {
       .find({
         where: { scope: 'platform', tenantId: IsNull() },
         relations: ['menus', 'departments'],
-        order: { createdAt: 'ASC' },
+        order: { createdAt: 'DESC' },
       })
       .then((roles) =>
         roles.map((role) => ({
@@ -394,7 +394,7 @@ export class AdminPlatformService {
       relations: ['roles', 'department', 'post'],
       skip: (page - 1) * pageSize,
       take: pageSize,
-      order: { createdAt: 'ASC' },
+      order: { createdAt: 'DESC' },
     });
 
     return {

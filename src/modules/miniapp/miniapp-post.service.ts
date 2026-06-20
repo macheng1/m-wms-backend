@@ -120,7 +120,7 @@ export class MiniappPostService {
     }
 
     const [list, total] = await qb
-      .orderBy('post.createdAt', 'ASC')
+      .orderBy('post.createdAt', 'DESC')
       .skip((page - 1) * pageSize)
       .take(pageSize)
       .getManyAndCount();
@@ -318,7 +318,7 @@ export class MiniappPostService {
       .andWhere('post.status = :status', { status: 'published' });
 
     const [rows, total] = await qb
-      .orderBy('collection.createdAt', 'ASC')
+      .orderBy('collection.createdAt', 'DESC')
       .skip((page - 1) * pageSize)
       .take(pageSize)
       .getManyAndCount();

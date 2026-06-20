@@ -11,7 +11,7 @@ import {
 import { Unit } from '../../unit/entities/unit.entity';
 
 @Entity('inventory')
-@Index('inventory_tenant_sku_idx', ['tenantId', 'sku'])
+@Index('inventory_tenant_sku_idx', ['tenantId', 'sku'], { unique: true })
 export class Inventory {
   @PrimaryGeneratedColumn('uuid')
   id: string;

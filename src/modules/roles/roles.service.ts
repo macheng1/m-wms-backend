@@ -152,7 +152,7 @@ export class RolesService {
 
       qb.skip((page - 1) * pageSize)
         .take(pageSize)
-        .orderBy('role.createdAt', 'ASC')
+        .orderBy('role.createdAt', 'DESC')
         .addOrderBy('role.id', 'ASC');
 
       const [list, total] = await qb.getManyAndCount();
@@ -271,7 +271,7 @@ export class RolesService {
   async selectRoleList(tenantId: string) {
     const list = await this.roleRepository.find({
       where: { tenantId, scope: 'tenant', isActive: 1 },
-      order: { createdAt: 'ASC' },
+      order: { createdAt: 'DESC' },
       relations: ['menus'],
     });
     // 增加 menuNames 字段

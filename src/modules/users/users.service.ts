@@ -217,7 +217,7 @@ export class UsersService {
       where,
       skip: (page - 1) * pageSize,
       take: pageSize,
-      order: { createdAt: 'ASC' },
+      order: { createdAt: 'DESC' },
       relations: ['roles', 'department', 'post'],
     });
 

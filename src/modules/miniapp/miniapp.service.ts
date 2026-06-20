@@ -132,7 +132,7 @@ export class MiniappService {
     }
 
     const [list, total] = await qb
-      .orderBy('member.createdAt', 'ASC')
+      .orderBy('member.createdAt', 'DESC')
       .skip((page - 1) * pageSize)
       .take(pageSize)
       .getManyAndCount();

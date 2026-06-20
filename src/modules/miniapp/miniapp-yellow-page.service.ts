@@ -65,7 +65,7 @@ export class MiniappYellowPageService {
     const [products, jobs, config, productCount, jobCount] = await Promise.all([
       this.productRepo.find({
         where: { tenantId: id, isActive: 1 },
-        order: { createdAt: 'ASC' },
+        order: { createdAt: 'DESC' },
         take: 20,
         relations: ['category', 'category.attributes', 'inventoryUnit'],
       }),
@@ -175,7 +175,7 @@ export class MiniappYellowPageService {
         .getRawMany<{ tenantId: string; count: string }>(),
       this.productRepo.find({
         where: tenantIds.map((tenantId) => ({ tenantId, isActive: 1 })),
-        order: { createdAt: 'ASC' },
+        order: { createdAt: 'DESC' },
         take: tenantIds.length * 3,
       }),
     ]);

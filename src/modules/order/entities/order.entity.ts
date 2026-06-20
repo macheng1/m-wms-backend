@@ -60,6 +60,11 @@ export class Order {
   @Column({ type: 'enum', enum: OrderStatus, default: OrderStatus.PENDING_CONFIRM })
   status: OrderStatus;
 
+  // 是否当前持有锁定库存：1=已锁待扣/待释放，0=未锁/已扣/已释放。
+  // 用于库存动作幂等：扣减只在持锁时发生一次，取消/驳回只释放持锁的单。
+  @Column({ type: 'tinyint', default: 0 })
+  stockLocked: number;
+
   @Column({ nullable: true, length: 80 })
   customerName: string | null;
 

@@ -136,7 +136,7 @@ export class LocationService {
       });
     }
 
-    queryBuilder.orderBy('location.createdAt', 'ASC');
+    queryBuilder.orderBy('location.createdAt', 'DESC');
 
     const [list, total] = await queryBuilder
       .skip((page - 1) * pageSize)

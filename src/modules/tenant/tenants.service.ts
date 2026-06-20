@@ -160,7 +160,7 @@ export class TenantsService {
       where,
       skip: (page - 1) * pageSize,
       take: pageSize,
-      order: { createdAt: 'ASC' },
+      order: { createdAt: 'DESC' },
     });
     const industryNameMap = await this.getIndustryNameMap();
     return {

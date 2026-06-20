@@ -614,6 +614,7 @@ export class OrderService {
         miniappMemberId: member.id,
         totalAmount: 0,
         remark: dto.remark || null,
+        stockLocked: 1, // 小程序下单即锁库（下方 lockOrderItemsStock 在同一事务内执行）
       });
 
       const orderItems = [
@@ -686,7 +687,7 @@ export class OrderService {
     }
 
     const [list, total] = await qb
-      .orderBy('order.createdAt', 'ASC')
+      .orderBy('order.createdAt', 'DESC')
       .skip((page - 1) * pageSize)
       .take(pageSize)
       .getManyAndCount();
@@ -706,7 +707,7 @@ export class OrderService {
     if (query.status) qb.andWhere('order.status = :status', { status: query.status });
 
     const [list, total] = await qb
-      .orderBy('order.createdAt', 'ASC')
+      .orderBy('order.createdAt', 'DESC')
       .skip((page - 1) * pageSize)
       .take(pageSize)
       .getManyAndCount();
@@ -747,7 +748,10 @@ export class OrderService {
     order.cancelledAt = new Date();
 
     return this.dataSource.transaction(async (manager) => {
-      await this.releaseOrderItemsStock(manager, order, '用户取消订购单');
+      if (order.stockLocked === 1) {
+        await this.releaseOrderItemsStock(manager, order, '用户取消订购单');
+        order.stockLocked = 0;
+      }
       const saved = await manager.save(order);
       await manager.save(
         manager.create(OrderFlowLog, {
@@ -770,7 +774,7 @@ export class OrderService {
   }
 
   async findAll(tenantId: string): Promise<Order[]> {
-    return this.orderRepository.find({ where: { tenantId }, order: { createdAt: 'ASC' } });
+    return this.orderRepository.find({ where: { tenantId }, order: { createdAt: 'DESC' } });
   }
 
   async findOne(id: string, tenantId: string): Promise<Order> {
@@ -816,12 +820,35 @@ export class OrderService {
     this.applyStatusTime(order, dto.status, dto);
 
     return this.dataSource.transaction(async (manager) => {
-      if (order.source === OrderSource.MINIAPP && [OrderStatus.CANCELLED, OrderStatus.REJECTED].includes(dto.status)) {
+      // 1) 进入「已确认」：admin/website 标准订单在此锁库（小程序单创建时已锁，靠 stockLocked 去重）
+      if (
+        dto.status === OrderStatus.CONFIRMED &&
+        order.source !== OrderSource.MINIAPP &&
+        order.stockLocked !== 1
+      ) {
+        await this.lockOrderItemsStock(manager, order, dto.remark || '订单确认锁定库存');
+        order.stockLocked = 1;
+      }
+
+      // 2) 取消 / 驳回：释放仍持有的锁定库存（未锁的单跳过，避免误释放）
+      if (
+        [OrderStatus.CANCELLED, OrderStatus.REJECTED].includes(dto.status) &&
+        order.stockLocked === 1
+      ) {
         await this.releaseOrderItemsStock(manager, order, dto.remark || null);
+        order.stockLocked = 0;
       }
-      if (order.source === OrderSource.MINIAPP && dto.status === OrderStatus.COMPLETED) {
+
+      // 3) 发货 / 完成：锁定库存转为实际出库扣减（只在持锁时执行一次；先到 SHIPPED 则在发货扣，
+      //    若走 PROCESSING→COMPLETED 未发货路径则在完成时扣，stockLocked 保证不重复）
+      if (
+        [OrderStatus.SHIPPED, OrderStatus.COMPLETED].includes(dto.status) &&
+        order.stockLocked === 1
+      ) {
         await this.deductOrderItemsStock(manager, order, dto.remark || null);
+        order.stockLocked = 0;
       }
+
       const saved = await manager.save(order);
       await manager.save(
         manager.create(OrderFlowLog, {

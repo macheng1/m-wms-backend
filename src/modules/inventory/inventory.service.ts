@@ -4,7 +4,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, SelectQueryBuilder } from 'typeorm';
 import { Inventory } from './entities/inventory.entity';
 import { InventoryTransaction } from './entities/inventory-transaction.entity';
 import { CreateInventoryDto } from './dto/create-inventory.dto';
@@ -28,34 +28,9 @@ import { AlertLevel, AlertLevelInfo } from '../../common/constants/alert-level.c
 import { NotificationsService } from '../notifications/services/notifications.service';
 import { NotificationType, NotificationCategory, NotificationPriority } from '../notifications/interfaces/notification-type.enum';
 import { PtlService } from '../ptl/ptl.service';
-
-/**
- * 格式化数字：整数不显示小数位，小数保留必要的位数
- * @param num 数字
- * @returns 格式化后的字符串
- */
-const formatNumber = (num: number | string): string => {
-  const numberValue = typeof num === 'string' ? parseFloat(num) : num;
-  if (isNaN(numberValue)) return '0';
-
-  // 处理小数精度问题，确保 1.00 这种情况被识别为整数
-  const rounded = Math.round(numberValue * 100) / 100;
-
-  // 如果是整数（或四舍五入后是整数），直接返回整数形式
-  if (Number.isInteger(rounded)) {
-    return rounded.toString();
-  }
-
-  // 如果不是整数，保留2位小数并移除尾部的0
-  let formatted = rounded.toFixed(2);
-  if (formatted.endsWith('.00')) {
-    formatted = formatted.slice(0, -3);
-  } else if (formatted.endsWith('0')) {
-    formatted = formatted.slice(0, -1);
-  }
-
-  return formatted;
-};
+import * as ExcelJS from 'exceljs';
+// 数字格式化 / 数量规范化纯函数已抽到 common/utils，供本 service 各处复用
+import { formatNumber, normalizeQuantity } from '../../common/utils/number-format.util';
 
 @Injectable()
 export class InventoryService {
@@ -284,7 +259,7 @@ export class InventoryService {
   async findAll(tenantId: string): Promise<Inventory[]> {
     return this.inventoryRepository.find({
       where: { tenantId },
-      order: { createdAt: 'ASC' },
+      order: { createdAt: 'DESC' },
     });
   }
 
@@ -476,7 +451,7 @@ export class InventoryService {
       queryBuilder.andWhere('product.safetyStock IS NOT NULL');
     }
 
-    queryBuilder.orderBy('inventory.createdAt', 'ASC');
+    queryBuilder.orderBy('inventory.createdAt', 'DESC');
 
     const result = await queryBuilder
       .skip((page - 1) * pageSize)
@@ -517,7 +492,7 @@ export class InventoryService {
       return {
         ...entity,
         // 将 decimal 类型转换为数字类型（整数返回整数，小数返回小数）
-        quantity: Math.round(numQuantity * 100) / 100 === Math.floor(numQuantity) ? Math.floor(numQuantity) : Math.round(numQuantity * 100) / 100,
+        quantity: normalizeQuantity(numQuantity),
         unitName: raw.unitName,
         unitCode: raw.unitCode,
         unitCategory: raw.unitCategory,
@@ -529,16 +504,16 @@ export class InventoryService {
         quantityDisplay: raw.unitSymbol
           ? `${formatNumber(numQuantity)} ${raw.unitSymbol}`
           : `${formatNumber(numQuantity)}`,
-        lockedQuantity: Math.round(lockedQuantity * 100) / 100 === Math.floor(lockedQuantity) ? Math.floor(lockedQuantity) : Math.round(lockedQuantity * 100) / 100,
+        lockedQuantity: normalizeQuantity(lockedQuantity),
         lockedQuantityDisplay: raw.unitSymbol
           ? `${formatNumber(lockedQuantity)} ${raw.unitSymbol}`
           : `${formatNumber(lockedQuantity)}`,
-        availableQuantity: Math.round(availableQuantity * 100) / 100 === Math.floor(availableQuantity) ? Math.floor(availableQuantity) : Math.round(availableQuantity * 100) / 100,
+        availableQuantity: normalizeQuantity(availableQuantity),
         availableQuantityDisplay: raw.unitSymbol
           ? `${formatNumber(availableQuantity)} ${raw.unitSymbol}`
           : `${formatNumber(availableQuantity)}`,
         // 安全库存
-        safetyStock: Math.round(safetyStock * 100) / 100 === Math.floor(safetyStock) ? Math.floor(safetyStock) : Math.round(safetyStock * 100) / 100,
+        safetyStock: normalizeQuantity(safetyStock),
         safetyStockDisplay: safetyStock > 0 ? `${formatNumber(safetyStock)} ${raw.unitSymbol || ''}` : '未设置',
         // 库存状态
         stockStatus: status,
@@ -676,9 +651,10 @@ export class InventoryService {
         throw new BadRequestException('单位未启用');
       }
 
-      // 2. 查找或创建库存记录
+      // 2. 查找或创建库存记录（加行锁，与出库对称，避免并发入库读改写丢更新）
       let inventory = await queryRunner.manager.findOne(Inventory, {
         where: { sku: dto.sku, tenantId },
+        lock: { mode: 'pessimistic_write' },
       });
 
       const beforeQty = inventory ? Number(inventory.quantity) : 0;
@@ -780,8 +756,8 @@ export class InventoryService {
       }
 
       // 将 decimal 类型转换为数字类型（整数返回整数，小数返回小数）
-      const normalizedBeforeQty = Math.round(beforeQty * 100) / 100 === Math.floor(beforeQty) ? Math.floor(beforeQty) : Math.round(beforeQty * 100) / 100;
-      const normalizedAfterQty = Math.round(afterQty * 100) / 100 === Math.floor(afterQty) ? Math.floor(afterQty) : Math.round(afterQty * 100) / 100;
+      const normalizedBeforeQty = normalizeQuantity(beforeQty);
+      const normalizedAfterQty = normalizeQuantity(afterQty);
 
       return {
         sku: dto.sku,
@@ -947,15 +923,17 @@ export class InventoryService {
               unitObj.symbol,
               dto.notifyUserIds!,
             );
+            // 出库后库存下降，检查是否跌破安全库存并推送预警（口径=可用库存）
+            await this.checkAndSendStockWarning(tenantId, dto.sku, dto.notifyUserIds!);
           } catch (error) {
-            console.error('发送库存变更通知失败:', error);
+            console.error('发送库存变更/预警通知失败:', error);
           }
         });
       }
 
       // 将 decimal 类型转换为数字类型（整数返回整数，小数返回小数）
-      const normalizedBeforeQty = Math.round(beforeQty * 100) / 100 === Math.floor(beforeQty) ? Math.floor(beforeQty) : Math.round(beforeQty * 100) / 100;
-      const normalizedAfterQty = Math.round(afterQty * 100) / 100 === Math.floor(afterQty) ? Math.floor(afterQty) : Math.round(afterQty * 100) / 100;
+      const normalizedBeforeQty = normalizeQuantity(beforeQty);
+      const normalizedAfterQty = normalizeQuantity(afterQty);
 
       return {
         sku: dto.sku,
@@ -1013,7 +991,7 @@ export class InventoryService {
   ): Promise<InventoryTransaction[]> {
     return this.transactionRepository.find({
       where: { sku, tenantId },
-      order: { createdAt: 'ASC' },
+      order: { createdAt: 'DESC' },
     });
   }
 
@@ -1028,26 +1006,20 @@ export class InventoryService {
   }
 
   /**
-   * 分页获取库存流水列表
+   * 构建库存流水列表查询的公共基座。
+   *
+   * getTransactionsPage / getInboundTransactionsPage / getOutboundTransactionsPage
+   * 三个方法的 join、select、租户过滤完全一致，统一在此构建；
+   * 各调用方只需在返回的 QueryBuilder 上追加自己的过滤条件与分页。
+   *
+   * @param tenantId 租户ID
+   * @returns 已应用 join / select / 租户 where 的 QueryBuilder
    */
-  async getTransactionsPage(
+  private buildTransactionListQuery(
     tenantId: string,
-    options: {
-      page?: number;
-      pageSize?: number;
-      sku?: string;
-      type?: string;
-    } = {},
-  ): Promise<{
-    list: any[];
-    total: number;
-    page: number;
-    pageSize: number;
-  }> {
-    const { page = 1, pageSize = 10, sku, type } = options;
-
-    const queryBuilder = this.transactionRepository.createQueryBuilder('transaction');
-    queryBuilder
+  ): SelectQueryBuilder<InventoryTransaction> {
+    return this.transactionRepository
+      .createQueryBuilder('transaction')
       .leftJoin('units', 'unit', 'transaction.unitId = unit.id')
       .leftJoin('locations', 'location', 'transaction.locationId = location.id AND location.tenantId = :tenantId')
       .leftJoin('products', 'product', 'transaction.sku = product.code AND transaction.tenantId = product.tenantId')
@@ -1067,16 +1039,240 @@ export class InventoryService {
         'inventoryUnit.symbol as inventoryUnitSymbol',
       ])
       .where('transaction.tenantId = :tenantId', { tenantId });
+  }
+
+  /**
+   * 把单条库存流水（entity + 关联 raw）格式化为列表返回项。
+   *
+   * 三个流水分页方法的行映射逻辑完全一致，统一抽到这里：
+   * 数量取绝对值并规范化、计算类型名称与出入库方向、拼接带单位的展示字段。
+   *
+   * @param entity 流水实体（getRawAndEntities 的 entities 项）
+   * @param raw    同一行的原始 join 数据（getRawAndEntities 的 raw 项）
+   * @returns 含展示字段的列表项
+   */
+  private formatTransactionListItem(entity: any, raw: any) {
+    const quantity = Math.abs(Number(entity.quantity));
+    const beforeQty = Number(entity.beforeQty);
+    const afterQty = Number(entity.afterQty);
+
+    // 操作单位（用户录入时所选单位，如 个/kg/箱）符号
+    const operationUnitSymbol = raw.unitSymbol;
+    // 库存前后数量用的产品库存主单位（如 支/箱）符号，缺失时回退到操作单位
+    const stockQtyUnitSymbol = raw.inventoryUnitSymbol || raw.unitSymbol;
+
+    // 操作单位与库存主单位是否不同（仅入库可换算单位时会出现，如「12 个」记入「24 支」）
+    const unitsDiffer =
+      !!entity.unitId && !!raw.inventoryUnitId && entity.unitId !== raw.inventoryUnitId;
+    // 本次变动折算到库存主单位后的数量（= |变动后 - 变动前|），用于让两列单位能对上账
+    const stockQuantity = normalizeQuantity(Math.abs(afterQty - beforeQty));
+
+    // 获取类型显示信息
+    const transactionType = entity.transactionType as TransactionType;
+    const typeDisplayName = TransactionTypeNames[transactionType] || transactionType;
+    const typeDirection = this.getTransactionDirection(transactionType);
+
+    // 数量展示（操作单位）：如「12 个」
+    const quantityDisplay = operationUnitSymbol
+      ? `${formatNumber(quantity)} ${operationUnitSymbol}`
+      : formatNumber(quantity);
+    // 折算量展示（库存主单位）：如「12 支」
+    const stockQuantityDisplay = stockQtyUnitSymbol
+      ? `${formatNumber(stockQuantity)} ${stockQtyUnitSymbol}`
+      : formatNumber(stockQuantity);
+    // 变动前 / 变动后展示（库存主单位）
+    const beforeQtyDisplay = stockQtyUnitSymbol
+      ? `${formatNumber(beforeQty)} ${stockQtyUnitSymbol}`
+      : formatNumber(beforeQty);
+    const afterQtyDisplay = stockQtyUnitSymbol
+      ? `${formatNumber(afterQty)} ${stockQtyUnitSymbol}`
+      : formatNumber(afterQty);
+
+    return {
+      ...entity,
+      // 将 decimal 类型转换为数字类型（整数返回整数，小数返回小数）
+      quantity: normalizeQuantity(quantity),
+      beforeQty: normalizeQuantity(beforeQty),
+      afterQty: normalizeQuantity(afterQty),
+      unitName: raw.unitName,
+      unitCode: raw.unitCode,
+      unitSymbol: raw.unitSymbol,
+      // 折算到库存主单位的本次变动量（数字 + 符号），便于前端自行拼接
+      stockQuantity,
+      stockUnitSymbol: stockQtyUnitSymbol,
+      // 库位信息
+      locationName: raw.locationName,
+      locationCode: raw.locationCode,
+      // 类型显示信息
+      typeName: typeDisplayName,
+      typeDirection, // INBOUND/OUTBOUND/OTHER
+      // 格式化显示字段（旧字段保持不变，兼容其它流水页）
+      quantityDisplay,
+      beforeQtyDisplay,
+      afterQtyDisplay,
+      // 折算量展示（库存主单位）：如「12 支」
+      stockQuantityDisplay,
+      // 入库数量带折算展示：操作单位与库存单位不同时补括号，如「12 个 (12 支)」；相同则只显示「12 个」
+      quantityWithStockDisplay: unitsDiffer
+        ? `${quantityDisplay} (${stockQuantityDisplay})`
+        : quantityDisplay,
+      // 库存变化展示（变动前 → 变动后，统一库存主单位）：如「12 支 → 24 支」
+      stockChangeDisplay: `${beforeQtyDisplay} → ${afterQtyDisplay}`,
+    };
+  }
+
+  /**
+   * 给流水查询追加「库存流水」页的筛选条件：
+   * 精确交易类型 / SKU / 单据号模糊 / 创建时间范围。
+   * 列表（getTransactionsPage）与导出（exportTransactions）共用，保证两者口径完全一致。
+   *
+   * @param queryBuilder 已应用基座的流水 QueryBuilder
+   * @param filters 各项筛选条件（均可选）
+   */
+  private applyTransactionListFilters(
+    queryBuilder: SelectQueryBuilder<InventoryTransaction>,
+    filters: {
+      sku?: string;
+      type?: string;
+      orderNo?: string;
+      startDate?: string;
+      endDate?: string;
+    },
+  ): SelectQueryBuilder<InventoryTransaction> {
+    const { sku, type, orderNo, startDate, endDate } = filters;
 
     if (sku) {
       queryBuilder.andWhere('transaction.sku = :sku', { sku });
     }
-
     if (type) {
       queryBuilder.andWhere('transaction.transactionType = :type', { type });
     }
+    if (orderNo) {
+      queryBuilder.andWhere('transaction.orderNo LIKE :orderNo', { orderNo: `%${orderNo}%` });
+    }
+    if (startDate) {
+      queryBuilder.andWhere('transaction.createdAt >= :startDate', { startDate });
+    }
+    if (endDate) {
+      queryBuilder.andWhere('transaction.createdAt <= :endDate', { endDate });
+    }
 
-    queryBuilder.orderBy('transaction.createdAt', 'ASC');
+    return queryBuilder;
+  }
+
+  /**
+   * 把日期格式化为 `YYYY-MM-DD HH:mm:ss`（导出 Excel 用，避免引入额外日期库）
+   */
+  private formatDateTime(value: Date | string | null | undefined): string {
+    if (!value) return '';
+    const d = value instanceof Date ? value : new Date(value);
+    if (isNaN(d.getTime())) return '';
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  }
+
+  /**
+   * 导出库存流水为 Excel，返回文件 Buffer。
+   *
+   * 复用与列表页完全相同的查询基座与筛选条件（不分页，导出全部命中记录），
+   * 列与「库存流水」表格保持一致：变动数量带折算、变动前/后用库存主单位。
+   *
+   * @param tenantId 租户ID
+   * @param options 与列表页一致的筛选条件
+   * @returns xlsx 文件 Buffer
+   */
+  async exportTransactions(
+    tenantId: string,
+    options: {
+      sku?: string;
+      type?: string;
+      orderNo?: string;
+      startDate?: string;
+      endDate?: string;
+    } = {},
+  ): Promise<Buffer> {
+    const { sku, type, orderNo, startDate, endDate } = options;
+
+    // 与列表同一套查询基座 + 筛选，保证「导出的就是看到的」；不加分页，导出全部
+    const queryBuilder = this.buildTransactionListQuery(tenantId);
+    this.applyTransactionListFilters(queryBuilder, { sku, type, orderNo, startDate, endDate });
+    queryBuilder.orderBy('transaction.createdAt', 'DESC');
+
+    const result = await queryBuilder.getRawAndEntities();
+    const rows = result.entities.map((entity, index) =>
+      this.formatTransactionListItem(entity, result.raw[index]),
+    );
+
+    // 构建工作簿
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('库存流水');
+
+    // 表头（与页面列保持一致）
+    worksheet.columns = [
+      { header: '交易类型', key: 'typeName', width: 14 },
+      { header: 'SKU', key: 'sku', width: 18 },
+      { header: '产品名称', key: 'productName', width: 24 },
+      { header: '变动数量', key: 'quantity', width: 18 },
+      { header: '变动前', key: 'beforeQty', width: 14 },
+      { header: '变动后', key: 'afterQty', width: 14 },
+      { header: '单据号', key: 'orderNo', width: 18 },
+      { header: '库位', key: 'locationName', width: 18 },
+      { header: '备注', key: 'remark', width: 24 },
+      { header: '变动时间', key: 'createdAt', width: 20 },
+    ];
+    // 表头加粗
+    worksheet.getRow(1).font = { bold: true };
+
+    for (const row of rows as any[]) {
+      // 变动数量带方向符号（入库 +，出库 -，其它不加），文本与页面一致并补折算量
+      const sign =
+        row.typeDirection === 'INBOUND' ? '+' : row.typeDirection === 'OUTBOUND' ? '-' : '';
+      worksheet.addRow({
+        typeName: row.typeName,
+        sku: row.sku,
+        productName: row.productName,
+        quantity: `${sign}${row.quantityWithStockDisplay || row.quantityDisplay || ''}`,
+        beforeQty: row.beforeQtyDisplay,
+        afterQty: row.afterQtyDisplay,
+        orderNo: row.orderNo || '',
+        locationName: row.locationName || '',
+        remark: row.remark || '',
+        createdAt: this.formatDateTime(row.createdAt),
+      });
+    }
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    return Buffer.from(buffer);
+  }
+
+  /**
+   * 分页获取库存流水列表
+   */
+  async getTransactionsPage(
+    tenantId: string,
+    options: {
+      page?: number;
+      pageSize?: number;
+      sku?: string;
+      type?: string;
+      orderNo?: string;
+      startDate?: string;
+      endDate?: string;
+    } = {},
+  ): Promise<{
+    list: any[];
+    total: number;
+    page: number;
+    pageSize: number;
+  }> {
+    const { page = 1, pageSize = 10, sku, type, orderNo, startDate, endDate } = options;
+
+    // 复用流水查询基座 + 通用流水筛选（与导出口径一致）
+    const queryBuilder = this.buildTransactionListQuery(tenantId);
+    this.applyTransactionListFilters(queryBuilder, { sku, type, orderNo, startDate, endDate });
+
+    // 流水按时间倒序：最新记录排在最前
+    queryBuilder.orderBy('transaction.createdAt', 'DESC');
 
     const result = await queryBuilder
       .skip((page - 1) * pageSize)
@@ -1086,41 +1282,10 @@ export class InventoryService {
     // 获取总数
     const total = await queryBuilder.getCount();
 
-    // 合并数据和单位信息，并添加格式化显示字段
-    const list = result.entities.map((entity, index) => {
-      const raw = result.raw[index];
-      const quantity = Math.abs(Number(entity.quantity));
-
-      const beforeQty = Number(entity.beforeQty);
-      const afterQty = Number(entity.afterQty);
-      const stockQtyUnitSymbol = raw.inventoryUnitSymbol || raw.unitSymbol;
-
-      // 获取类型显示信息
-      const transactionType = entity.transactionType as TransactionType;
-      const typeDisplayName = TransactionTypeNames[transactionType] || transactionType;
-      const typeDirection = this.getTransactionDirection(transactionType);
-
-      return {
-        ...entity,
-        // 将 decimal 类型转换为数字类型（整数返回整数，小数返回小数）
-        quantity: Math.round(quantity * 100) / 100 === Math.floor(quantity) ? Math.floor(quantity) : Math.round(quantity * 100) / 100,
-        beforeQty: Math.round(beforeQty * 100) / 100 === Math.floor(beforeQty) ? Math.floor(beforeQty) : Math.round(beforeQty * 100) / 100,
-        afterQty: Math.round(afterQty * 100) / 100 === Math.floor(afterQty) ? Math.floor(afterQty) : Math.round(afterQty * 100) / 100,
-        unitName: raw.unitName,
-        unitCode: raw.unitCode,
-        unitSymbol: raw.unitSymbol,
-        // 库位信息
-        locationName: raw.locationName,
-        locationCode: raw.locationCode,
-        // 类型显示信息
-        typeName: typeDisplayName,
-        typeDirection: typeDirection, // INBOUND/OUTBOUND/OTHER
-        // 格式化显示字段
-        quantityDisplay: raw.unitSymbol ? `${formatNumber(quantity)} ${raw.unitSymbol}` : formatNumber(quantity),
-        beforeQtyDisplay: stockQtyUnitSymbol ? `${formatNumber(beforeQty)} ${stockQtyUnitSymbol}` : formatNumber(beforeQty),
-        afterQtyDisplay: stockQtyUnitSymbol ? `${formatNumber(afterQty)} ${stockQtyUnitSymbol}` : formatNumber(afterQty),
-      };
-    });
+    // 合并数据和单位信息，并添加格式化显示字段（复用统一的行映射）
+    const list = result.entities.map((entity, index) =>
+      this.formatTransactionListItem(entity, result.raw[index]),
+    );
 
     return { list, total, page, pageSize };
   }
@@ -1135,6 +1300,9 @@ export class InventoryService {
       pageSize?: number;
       sku?: string;
       transactionType?: string;
+      orderNo?: string;
+      startDate?: string;
+      endDate?: string;
     } = {},
   ): Promise<{
     list: any[];
@@ -1142,29 +1310,10 @@ export class InventoryService {
     page: number;
     pageSize: number;
   }> {
-    const { page = 1, pageSize = 10, sku, transactionType } = options;
+    const { page = 1, pageSize = 10, sku, transactionType, orderNo, startDate, endDate } = options;
 
-    const queryBuilder = this.transactionRepository.createQueryBuilder('transaction');
-    queryBuilder
-      .leftJoin('units', 'unit', 'transaction.unitId = unit.id')
-      .leftJoin('locations', 'location', 'transaction.locationId = location.id AND location.tenantId = :tenantId')
-      .leftJoin('products', 'product', 'transaction.sku = product.code AND transaction.tenantId = product.tenantId')
-      .leftJoin('units', 'inventoryUnit', 'product.unitId = inventoryUnit.id')
-      .select([
-        'transaction',
-        'unit.name as unitName',
-        'unit.code as unitCode',
-        'unit.category as unitCategory',
-        'unit.symbol as unitSymbol',
-        'location.name as locationName',
-        'location.code as locationCode',
-        'product.unitId as inventoryUnitId',
-        'inventoryUnit.name as inventoryUnitName',
-        'inventoryUnit.code as inventoryUnitCode',
-        'inventoryUnit.category as inventoryUnitCategory',
-        'inventoryUnit.symbol as inventoryUnitSymbol',
-      ])
-      .where('transaction.tenantId = :tenantId', { tenantId });
+    // 复用流水查询基座，再追加入库特有的过滤条件
+    const queryBuilder = this.buildTransactionListQuery(tenantId);
 
     if (transactionType) {
       // 指定交易类型时，精确匹配
@@ -1181,7 +1330,20 @@ export class InventoryService {
       queryBuilder.andWhere('transaction.sku = :sku', { sku });
     }
 
-    queryBuilder.orderBy('transaction.createdAt', 'ASC');
+    if (orderNo) {
+      queryBuilder.andWhere('transaction.orderNo LIKE :orderNo', { orderNo: `%${orderNo}%` });
+    }
+
+    if (startDate) {
+      queryBuilder.andWhere('transaction.createdAt >= :startDate', { startDate });
+    }
+
+    if (endDate) {
+      queryBuilder.andWhere('transaction.createdAt <= :endDate', { endDate });
+    }
+
+    // 流水按时间倒序：最新的入库记录排在最前
+    queryBuilder.orderBy('transaction.createdAt', 'DESC');
 
     const result = await queryBuilder
       .skip((page - 1) * pageSize)
@@ -1191,41 +1353,10 @@ export class InventoryService {
     // 获取总数
     const total = await queryBuilder.getCount();
 
-    // 合并数据和单位信息，并添加格式化显示字段
-    const list = result.entities.map((entity, index) => {
-      const raw = result.raw[index];
-      const quantity = Math.abs(Number(entity.quantity));
-
-      const beforeQty = Number(entity.beforeQty);
-      const afterQty = Number(entity.afterQty);
-      const stockQtyUnitSymbol = raw.inventoryUnitSymbol || raw.unitSymbol;
-
-      // 获取类型显示信息
-      const transactionType = entity.transactionType as TransactionType;
-      const typeDisplayName = TransactionTypeNames[transactionType] || transactionType;
-      const typeDirection = this.getTransactionDirection(transactionType);
-
-      return {
-        ...entity,
-        // 将 decimal 类型转换为数字类型（整数返回整数，小数返回小数）
-        quantity: Math.round(quantity * 100) / 100 === Math.floor(quantity) ? Math.floor(quantity) : Math.round(quantity * 100) / 100,
-        beforeQty: Math.round(beforeQty * 100) / 100 === Math.floor(beforeQty) ? Math.floor(beforeQty) : Math.round(beforeQty * 100) / 100,
-        afterQty: Math.round(afterQty * 100) / 100 === Math.floor(afterQty) ? Math.floor(afterQty) : Math.round(afterQty * 100) / 100,
-        unitName: raw.unitName,
-        unitCode: raw.unitCode,
-        unitSymbol: raw.unitSymbol,
-        // 库位信息
-        locationName: raw.locationName,
-        locationCode: raw.locationCode,
-        // 类型显示信息
-        typeName: typeDisplayName,
-        typeDirection,
-        // 格式化显示字段
-        quantityDisplay: raw.unitSymbol ? `${formatNumber(quantity)} ${raw.unitSymbol}` : formatNumber(quantity),
-        beforeQtyDisplay: stockQtyUnitSymbol ? `${formatNumber(beforeQty)} ${stockQtyUnitSymbol}` : formatNumber(beforeQty),
-        afterQtyDisplay: stockQtyUnitSymbol ? `${formatNumber(afterQty)} ${stockQtyUnitSymbol}` : formatNumber(afterQty),
-      };
-    });
+    // 合并数据和单位信息，并添加格式化显示字段（复用统一的行映射）
+    const list = result.entities.map((entity, index) =>
+      this.formatTransactionListItem(entity, result.raw[index]),
+    );
 
     return { list, total, page, pageSize };
   }
@@ -1240,6 +1371,9 @@ export class InventoryService {
       pageSize?: number;
       sku?: string;
       transactionType?: string;
+      orderNo?: string;
+      startDate?: string;
+      endDate?: string;
     } = {},
   ): Promise<{
     list: any[];
@@ -1247,29 +1381,10 @@ export class InventoryService {
     page: number;
     pageSize: number;
   }> {
-    const { page = 1, pageSize = 10, sku, transactionType } = options;
+    const { page = 1, pageSize = 10, sku, transactionType, orderNo, startDate, endDate } = options;
 
-    const queryBuilder = this.transactionRepository.createQueryBuilder('transaction');
-    queryBuilder
-      .leftJoin('units', 'unit', 'transaction.unitId = unit.id')
-      .leftJoin('locations', 'location', 'transaction.locationId = location.id AND location.tenantId = :tenantId')
-      .leftJoin('products', 'product', 'transaction.sku = product.code AND transaction.tenantId = product.tenantId')
-      .leftJoin('units', 'inventoryUnit', 'product.unitId = inventoryUnit.id')
-      .select([
-        'transaction',
-        'unit.name as unitName',
-        'unit.code as unitCode',
-        'unit.category as unitCategory',
-        'unit.symbol as unitSymbol',
-        'location.name as locationName',
-        'location.code as locationCode',
-        'product.unitId as inventoryUnitId',
-        'inventoryUnit.name as inventoryUnitName',
-        'inventoryUnit.code as inventoryUnitCode',
-        'inventoryUnit.category as inventoryUnitCategory',
-        'inventoryUnit.symbol as inventoryUnitSymbol',
-      ])
-      .where('transaction.tenantId = :tenantId', { tenantId });
+    // 复用流水查询基座，再追加出库特有的过滤条件
+    const queryBuilder = this.buildTransactionListQuery(tenantId);
 
     if (transactionType) {
       // 指定交易类型时，精确匹配
@@ -1286,7 +1401,20 @@ export class InventoryService {
       queryBuilder.andWhere('transaction.sku = :sku', { sku });
     }
 
-    queryBuilder.orderBy('transaction.createdAt', 'ASC');
+    if (orderNo) {
+      queryBuilder.andWhere('transaction.orderNo LIKE :orderNo', { orderNo: `%${orderNo}%` });
+    }
+
+    if (startDate) {
+      queryBuilder.andWhere('transaction.createdAt >= :startDate', { startDate });
+    }
+
+    if (endDate) {
+      queryBuilder.andWhere('transaction.createdAt <= :endDate', { endDate });
+    }
+
+    // 流水按时间倒序：最新的出库记录排在最前
+    queryBuilder.orderBy('transaction.createdAt', 'DESC');
 
     const result = await queryBuilder
       .skip((page - 1) * pageSize)
@@ -1296,41 +1424,10 @@ export class InventoryService {
     // 获取总数
     const total = await queryBuilder.getCount();
 
-    // 合并数据和单位信息，并添加格式化显示字段
-    const list = result.entities.map((entity, index) => {
-      const raw = result.raw[index];
-      const quantity = Math.abs(Number(entity.quantity));
-
-      const beforeQty = Number(entity.beforeQty);
-      const afterQty = Number(entity.afterQty);
-      const stockQtyUnitSymbol = raw.inventoryUnitSymbol || raw.unitSymbol;
-
-      // 获取类型显示信息
-      const transactionType = entity.transactionType as TransactionType;
-      const typeDisplayName = TransactionTypeNames[transactionType] || transactionType;
-      const typeDirection = this.getTransactionDirection(transactionType);
-
-      return {
-        ...entity,
-        // 将 decimal 类型转换为数字类型（整数返回整数，小数返回小数）
-        quantity: Math.round(quantity * 100) / 100 === Math.floor(quantity) ? Math.floor(quantity) : Math.round(quantity * 100) / 100,
-        beforeQty: Math.round(beforeQty * 100) / 100 === Math.floor(beforeQty) ? Math.floor(beforeQty) : Math.round(beforeQty * 100) / 100,
-        afterQty: Math.round(afterQty * 100) / 100 === Math.floor(afterQty) ? Math.floor(afterQty) : Math.round(afterQty * 100) / 100,
-        unitName: raw.unitName,
-        unitCode: raw.unitCode,
-        unitSymbol: raw.unitSymbol,
-        // 库位信息
-        locationName: raw.locationName,
-        locationCode: raw.locationCode,
-        // 类型显示信息
-        typeName: typeDisplayName,
-        typeDirection,
-        // 格式化显示字段
-        quantityDisplay: raw.unitSymbol ? `${formatNumber(quantity)} ${raw.unitSymbol}` : formatNumber(quantity),
-        beforeQtyDisplay: stockQtyUnitSymbol ? `${formatNumber(beforeQty)} ${stockQtyUnitSymbol}` : formatNumber(beforeQty),
-        afterQtyDisplay: stockQtyUnitSymbol ? `${formatNumber(afterQty)} ${stockQtyUnitSymbol}` : formatNumber(afterQty),
-      };
-    });
+    // 合并数据和单位信息，并添加格式化显示字段（复用统一的行映射）
+    const list = result.entities.map((entity, index) =>
+      this.formatTransactionListItem(entity, result.raw[index]),
+    );
 
     return { list, total, page, pageSize };
   }
@@ -1396,33 +1493,7 @@ export class InventoryService {
       .map((id) => entityById.get(id))
       .filter(Boolean);
 
-    // 计算预警级别
-    const calculateAlertLevel = (quantity: number, safetyStock: number | null): AlertLevel => {
-      const safetyStockNum = safetyStock ? Number(safetyStock) : 0;
-
-      // 严重：零库存或库存<=0
-      if (quantity <= 0) {
-        return AlertLevel.CRITICAL;
-      }
-
-      // 如果没有设置安全库存，默认为 MEDIUM
-      if (safetyStockNum === 0) {
-        return AlertLevel.MEDIUM;
-      }
-
-      // 高：库存 < 安全库存*20%
-      if (quantity < safetyStockNum * 0.2) {
-        return AlertLevel.HIGH;
-      }
-
-      // 中：库存 < 安全库存*50%
-      if (quantity < safetyStockNum * 0.5) {
-        return AlertLevel.MEDIUM;
-      }
-
-      // 其他情况不属于预警范围（但这个方法只会在查询结果中被调用，查询条件已经是 quantity < safetyStock）
-      return AlertLevel.MEDIUM;
-    };
+    // 预警级别统一用共享方法 calculateAlertLevel（与预警推送口径一致）
 
     // 格式化返回数据
     const list = orderedEntities.map((entity: any) => {
@@ -1431,24 +1502,24 @@ export class InventoryService {
       const lockedQuantity = Number(entity.lockedQuantity || 0);
       const availableQuantity = Math.max(numQuantity - lockedQuantity, 0);
       const safetyStock = raw.safetyStock ? Number(raw.safetyStock) : 0;
-      const alertLevel = calculateAlertLevel(availableQuantity, safetyStock);
+      const alertLevel = this.calculateAlertLevel(availableQuantity, safetyStock);
       const alertInfo = AlertLevelInfo[alertLevel];
 
       return {
         ...entity,
         // 将 decimal 类型转换为数字类型（整数返回整数，小数返回小数）
-        quantity: Math.round(numQuantity * 100) / 100 === Math.floor(numQuantity) ? Math.floor(numQuantity) : Math.round(numQuantity * 100) / 100,
+        quantity: normalizeQuantity(numQuantity),
         unitName: raw.unitName,
         unitCode: raw.unitCode,
         unitSymbol: raw.unitSymbol,
         // quantity 带单位显示（整数不显示小数位）
         quantityDisplay: raw.unitSymbol ? `${formatNumber(numQuantity)} ${raw.unitSymbol}` : formatNumber(numQuantity),
-        lockedQuantity: Math.round(lockedQuantity * 100) / 100 === Math.floor(lockedQuantity) ? Math.floor(lockedQuantity) : Math.round(lockedQuantity * 100) / 100,
+        lockedQuantity: normalizeQuantity(lockedQuantity),
         lockedQuantityDisplay: raw.unitSymbol ? `${formatNumber(lockedQuantity)} ${raw.unitSymbol}` : formatNumber(lockedQuantity),
-        availableQuantity: Math.round(availableQuantity * 100) / 100 === Math.floor(availableQuantity) ? Math.floor(availableQuantity) : Math.round(availableQuantity * 100) / 100,
+        availableQuantity: normalizeQuantity(availableQuantity),
         availableQuantityDisplay: raw.unitSymbol ? `${formatNumber(availableQuantity)} ${raw.unitSymbol}` : formatNumber(availableQuantity),
         // 将 decimal 类型转换为数字类型（整数返回整数，小数返回小数）
-        safetyStock: Math.round(safetyStock * 100) / 100 === Math.floor(safetyStock) ? Math.floor(safetyStock) : Math.round(safetyStock * 100) / 100,
+        safetyStock: normalizeQuantity(safetyStock),
         // 格式化显示字段
         safetyStockDisplay: safetyStock > 0 ? `${formatNumber(safetyStock)} ${raw.unitSymbol || ''}` : '未设置',
         // 预警级别
@@ -1502,9 +1573,10 @@ export class InventoryService {
         throw new BadRequestException('单位未启用');
       }
 
-      // 2. 查找或创建库存记录
+      // 2. 查找或创建库存记录（加行锁，避免并发调整读改写丢更新）
       let inventory = await queryRunner.manager.findOne(Inventory, {
         where: { sku: dto.sku, tenantId },
+        lock: { mode: 'pessimistic_write' },
       });
 
       const beforeQty = inventory ? Number(inventory.quantity) : 0;
@@ -1622,15 +1694,19 @@ export class InventoryService {
               unitObj.symbol,
               dto.notifyUserIds!,
             );
+            // 仅盘亏（库存下降）后检查是否跌破安全库存并推送预警；盘盈不查
+            if (adjustType === TransactionType.ADJUSTMENT_OUT) {
+              await this.checkAndSendStockWarning(tenantId, dto.sku, dto.notifyUserIds!);
+            }
           } catch (error) {
-            console.error('发送库存变更通知失败:', error);
+            console.error('发送库存变更/预警通知失败:', error);
           }
         });
       }
 
       // 将 decimal 类型转换为数字类型（整数返回整数，小数返回小数）
-      const normalizedBeforeQty = Math.round(beforeQty * 100) / 100 === Math.floor(beforeQty) ? Math.floor(beforeQty) : Math.round(beforeQty * 100) / 100;
-      const normalizedAfterQty = Math.round(afterQty * 100) / 100 === Math.floor(afterQty) ? Math.floor(afterQty) : Math.round(afterQty * 100) / 100;
+      const normalizedBeforeQty = normalizeQuantity(beforeQty);
+      const normalizedAfterQty = normalizeQuantity(afterQty);
       const displayQuantity = adjustType === TransactionType.ADJUSTMENT_IN ? `+${formatNumber(absQuantity)}` : `-${formatNumber(absQuantity)}`;
 
       return {
@@ -1666,6 +1742,43 @@ export class InventoryService {
    * @param unitSymbol 单位符号
    * @param userIds 接收通知的用户ID列表（仓管员等）
    */
+  /**
+   * 计算库存预警级别（可用库存 vs 安全库存）。
+   * 预警列表（getAlerts）与预警推送共用，保证两处口径一致。
+   *
+   * - 可用库存 <= 0：严重（CRITICAL）
+   * - 未设置安全库存：中（MEDIUM）
+   * - 可用 < 安全库存 * 20%：高（HIGH）
+   * - 其余（已低于安全库存）：中（MEDIUM）
+   *
+   * @param availableQty 可用库存（quantity - locked）
+   * @param safetyStock 安全库存
+   */
+  private calculateAlertLevel(availableQty: number, safetyStock: number | null): AlertLevel {
+    const safetyStockNum = safetyStock ? Number(safetyStock) : 0;
+
+    if (availableQty <= 0) {
+      return AlertLevel.CRITICAL;
+    }
+    if (safetyStockNum === 0) {
+      return AlertLevel.MEDIUM;
+    }
+    if (availableQty < safetyStockNum * 0.2) {
+      return AlertLevel.HIGH;
+    }
+    if (availableQty < safetyStockNum * 0.5) {
+      return AlertLevel.MEDIUM;
+    }
+    return AlertLevel.MEDIUM;
+  }
+
+  /** 预警级别 -> 通知优先级映射（推送预警用） */
+  private alertLevelToPriority(level: AlertLevel): NotificationPriority {
+    if (level === AlertLevel.CRITICAL) return NotificationPriority.URGENT;
+    if (level === AlertLevel.HIGH) return NotificationPriority.HIGH;
+    return NotificationPriority.NORMAL;
+  }
+
   private async sendStockWarningNotification(
     tenantId: string,
     sku: string,
@@ -1680,20 +1793,9 @@ export class InventoryService {
       return;
     }
 
-    // 计算预警级别
-    let alertLevel: AlertLevel;
-    let priority: NotificationPriority;
-
-    if (currentQty <= 0) {
-      alertLevel = AlertLevel.CRITICAL;
-      priority = NotificationPriority.URGENT;
-    } else if (currentQty < safetyStock * 0.2) {
-      alertLevel = AlertLevel.HIGH;
-      priority = NotificationPriority.HIGH;
-    } else {
-      alertLevel = AlertLevel.MEDIUM;
-      priority = NotificationPriority.NORMAL;
-    }
+    // 预警级别与优先级统一走共享口径
+    const alertLevel = this.calculateAlertLevel(currentQty, safetyStock);
+    const priority = this.alertLevelToPriority(alertLevel);
 
     const alertInfo = AlertLevelInfo[alertLevel];
 
@@ -1779,19 +1881,23 @@ export class InventoryService {
   /**
    * 检查并发送库存预警通知
    *
-   * 在库存变更后检查是否需要发送预警通知
+   * 在库存下降（出库 / 盘亏）后调用：以「可用库存」(quantity - locked) 为口径，
+   * 与预警列表 getAlerts 保持一致，低于安全库存则推送预警。
    *
    * @param tenantId 租户ID
    * @param sku 产品SKU
-   * @param afterQty 变更后的库存数量
    * @param userIds 接收通知的用户ID列表
    */
   private async checkAndSendStockWarning(
     tenantId: string,
     sku: string,
-    afterQty: number,
     userIds: string[],
   ): Promise<void> {
+    // 无接收人直接跳过，避免无谓查询
+    if (!userIds || userIds.length === 0) {
+      return;
+    }
+
     // 查询产品信息获取安全库存
     const product = await this.productRepository.findOne({
       where: { code: sku, tenantId },
@@ -1813,15 +1919,16 @@ export class InventoryService {
     }
 
     const safetyStock = Number(product.safetyStock);
-    const currentQty = Number(afterQty);
+    // 口径与预警列表一致：用可用库存（总量 - 锁定）判断，而非总库存
+    const availableQty = Number(inventory.quantity) - Number(inventory.lockedQuantity || 0);
 
-    // 只有当前库存低于安全库存时才发送预警
-    if (currentQty < safetyStock) {
+    // 只有可用库存低于安全库存时才发送预警
+    if (availableQty < safetyStock) {
       await this.sendStockWarningNotification(
         tenantId,
         sku,
         inventory.productName,
-        currentQty,
+        availableQty,
         safetyStock,
         inventory.unit?.symbol || '',
         userIds,
