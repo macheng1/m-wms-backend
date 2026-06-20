@@ -43,7 +43,6 @@ export class JwtAuthGuard implements CanActivate {
       const payload = await this.jwtService.verifyAsync(token, {
         secret: this.configService.get('jwt.secret'),
       });
-      console.log('🚀 ~ JwtAuthGuard ~ canActivate ~ payload:', payload);
 
       if (payload.tokenType === 'miniapp') {
         const requestUrl = request.originalUrl || request.url || '';

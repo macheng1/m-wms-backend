@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Public } from '@/common/decorators/public.decorator';
+import { PlatformAdminGuard } from '@/common/guards/platform-admin.guard';
 import { RateLimit } from '@/common/decorators/rate-limit.decorator';
 import {
   QueryMiniappBannerDto,
@@ -123,6 +124,7 @@ export class MiniappApiController {
   }
 
   @Get('categories')
+  @UseGuards(PlatformAdminGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '小程序分类管理 - 分页列表' })
   findCategories(@Query() query: QueryMiniappCategoryDto) {
@@ -130,6 +132,7 @@ export class MiniappApiController {
   }
 
   @Post('categories/save')
+  @UseGuards(PlatformAdminGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '小程序分类管理 - 保存分类' })
   saveCategory(@Body() dto: SaveMiniappCategoryDto) {
@@ -137,6 +140,7 @@ export class MiniappApiController {
   }
 
   @Post('categories/:id/status')
+  @UseGuards(PlatformAdminGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '小程序分类管理 - 修改状态' })
   updateCategoryStatus(@Param('id') id: string, @Body() dto: UpdateMiniappCategoryStatusDto) {
@@ -144,6 +148,7 @@ export class MiniappApiController {
   }
 
   @Post('categories/:id/delete')
+  @UseGuards(PlatformAdminGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '小程序分类管理 - 删除分类' })
   removeCategory(@Param('id') id: string) {
@@ -158,6 +163,7 @@ export class MiniappApiController {
   }
 
   @Get('banners')
+  @UseGuards(PlatformAdminGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '小程序轮播图管理 - 分页列表' })
   findBanners(@Query() query: QueryMiniappBannerDto) {
@@ -165,6 +171,7 @@ export class MiniappApiController {
   }
 
   @Post('banners/save')
+  @UseGuards(PlatformAdminGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '小程序轮播图管理 - 保存轮播图' })
   saveBanner(@Body() dto: SaveMiniappBannerDto) {
@@ -172,6 +179,7 @@ export class MiniappApiController {
   }
 
   @Post('banners/:id/status')
+  @UseGuards(PlatformAdminGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '小程序轮播图管理 - 修改状态' })
   updateBannerStatus(@Param('id') id: string, @Body() dto: UpdateMiniappBannerStatusDto) {
@@ -179,6 +187,7 @@ export class MiniappApiController {
   }
 
   @Post('banners/:id/delete')
+  @UseGuards(PlatformAdminGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '小程序轮播图管理 - 删除轮播图' })
   removeBanner(@Param('id') id: string) {
@@ -286,6 +295,7 @@ export class MiniappApiController {
   }
 
   @Get('posts/admin/list')
+  @UseGuards(PlatformAdminGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '小程序信息管理 - 分页列表' })
   findPostsForAdmin(@Query() query: QueryMiniappPostDto) {
@@ -293,6 +303,7 @@ export class MiniappApiController {
   }
 
   @Post('posts/admin/list')
+  @UseGuards(PlatformAdminGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '小程序信息管理 - 分页列表' })
   findPostsForAdminByPost(@Body() query: QueryMiniappPostDto) {
@@ -300,6 +311,7 @@ export class MiniappApiController {
   }
 
   @Get('posts/admin/:id')
+  @UseGuards(PlatformAdminGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '小程序信息管理 - 详情' })
   getPostDetailForAdmin(@Param('id') id: string) {
@@ -307,6 +319,7 @@ export class MiniappApiController {
   }
 
   @Post('posts/:id/status')
+  @UseGuards(PlatformAdminGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '小程序信息管理 - 修改审核状态' })
   updatePostStatus(@Req() req, @Param('id') id: string, @Body() dto: UpdateMiniappPostStatusDto) {
@@ -400,6 +413,7 @@ export class MiniappApiController {
   }
 
   @Get('members')
+  @UseGuards(PlatformAdminGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '会员列表' })
   findMembers(@Query() query: QueryMiniappMemberDto) {
@@ -407,6 +421,7 @@ export class MiniappApiController {
   }
 
   @Get('members/:id')
+  @UseGuards(PlatformAdminGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '会员详情' })
   getMemberDetail(@Param('id') id: string) {
@@ -414,6 +429,7 @@ export class MiniappApiController {
   }
 
   @Post('members/:id/status')
+  @UseGuards(PlatformAdminGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '修改会员状态' })
   updateMemberStatus(@Param('id') id: string, @Body() dto: UpdateMiniappMemberStatusDto) {
@@ -422,12 +438,18 @@ export class MiniappApiController {
 
   @Post('members/updateAuthorization')
   @ApiBearerAuth()
-  @ApiOperation({ summary: '修改会员隐私协议授权状态' })
-  updateAuthorization(@Body() dto: UpdateMiniappMemberAuthorizationDto) {
-    return this.miniappService.updateMemberAuthorization(dto);
+  @ApiOperation({ summary: '修改当前会员隐私协议授权状态' })
+  updateAuthorization(@Req() req, @Body() dto: UpdateMiniappMemberAuthorizationDto) {
+    // 会员端接口：只允许修改“当前登录会员”自己的授权状态，memberId 取自 token，
+    // 不信任 body 里的 id，避免越权篡改他人授权。
+    return this.miniappService.updateMemberAuthorization(
+      req.user?.memberId || req.user?.sub,
+      dto,
+    );
   }
 
   @Post('members/:id/remark')
+  @UseGuards(PlatformAdminGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '保存会员备注' })
   updateMemberRemark(@Param('id') id: string, @Body() dto: UpdateMiniappMemberRemarkDto) {

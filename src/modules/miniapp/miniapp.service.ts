@@ -294,8 +294,8 @@ export class MiniappService {
     return this.toMemberView(await this.memberRepo.save(member));
   }
 
-  async updateMemberAuthorization(dto: UpdateMiniappMemberAuthorizationDto) {
-    const member = await this.memberRepo.findOne({ where: { id: dto.id } });
+  async updateMemberAuthorization(memberId: string, dto: UpdateMiniappMemberAuthorizationDto) {
+    const member = await this.memberRepo.findOne({ where: { id: memberId } });
     if (!member) throw new BusinessException('会员不存在');
     member.isAuthorization = dto.isAuthorization;
     return this.toMemberView(await this.memberRepo.save(member));
