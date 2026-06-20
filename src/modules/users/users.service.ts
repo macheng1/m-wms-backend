@@ -41,10 +41,17 @@ export class UsersService {
     if (!user) throw new NotFoundException('该用户不存在');
 
     // 权限扁平化：平台超级管理员/租户管理员返回通配符，其余用户按角色权限返回。
+    // 注意：只有“启用”的角色才参与权限判定，禁用的角色不应再放行任何菜单/按钮。
+    const activeRoles = (user.roles || []).filter((r) => r.isActive === 1);
     const isPlatformSuperAdmin =
-      user.isPlatformAdmin === 1 && user.roles.some((r) => r.code === 'PLATFORM_ADMIN');
-    const isTenantAdmin = user.roles.some((r) => r.code === 'ADMIN');
-    const menuAuth = await this.resolveUserMenuAuth(user, isPlatformSuperAdmin, isTenantAdmin);
+      user.isPlatformAdmin === 1 && activeRoles.some((r) => r.code === 'PLATFORM_ADMIN');
+    const isTenantAdmin = activeRoles.some((r) => r.code === 'ADMIN');
+    const menuAuth = await this.resolveUserMenuAuth(
+      user,
+      activeRoles,
+      isPlatformSuperAdmin,
+      isTenantAdmin,
+    );
 
     // 新增：角色名称数组
     const roleNames = user.roles?.map((r) => r.name) || [];
@@ -71,6 +78,7 @@ export class UsersService {
 
   private async resolveUserMenuAuth(
     user: User,
+    activeRoles: Role[],
     isPlatformSuperAdmin: boolean,
     isTenantAdmin: boolean,
   ) {
@@ -94,7 +102,7 @@ export class UsersService {
 
         if (isTenantAdmin) {
           grantedMenuCodes.forEach((code) => allowedCodes.add(code));
-          user.roles.forEach((role) => {
+          activeRoles.forEach((role) => {
             role.menus
               .filter(
                 (menu) =>
@@ -103,7 +111,7 @@ export class UsersService {
               .forEach((menu) => allowedCodes.add(menu.code));
           });
         } else {
-          user.roles.forEach((role) => {
+          activeRoles.forEach((role) => {
             role.menus
               .filter(
                 (menu) =>
@@ -113,7 +121,7 @@ export class UsersService {
           });
         }
       } else {
-        user.roles.forEach((role) => {
+        activeRoles.forEach((role) => {
           role.menus.forEach((menu) => allowedCodes.add(menu.code));
         });
       }

@@ -349,7 +349,8 @@ export class AdminApiController {
   @UseGuards(PlatformAdminGuard)
   @ApiOperation({ summary: '平台域 - 平台用户分页列表' })
   listPlatformUsers(
-    @Body() body: { page?: number; pageSize?: number; username?: string; isActive?: number },
+    @Body()
+    body: { page?: number; pageSize?: number; username?: string; isActive?: number; deptId?: string },
   ) {
     return this.adminPlatformService.findUsers(body || {});
   }
@@ -400,8 +401,27 @@ export class AdminApiController {
   @Post('platform/users/:id/status')
   @UseGuards(PlatformAdminGuard)
   @ApiOperation({ summary: '平台域 - 平台用户状态变更' })
-  updatePlatformUserStatus(@Param('id') id: string, @Body() body: { isActive: number }) {
-    return this.adminPlatformService.updateUserStatus(id, body.isActive);
+  updatePlatformUserStatus(
+    @Param('id') id: string,
+    @Body() body: { isActive: number },
+    @Req() req,
+  ) {
+    return this.adminPlatformService
+      .updateUserStatus(id, body.isActive, req.user?.id)
+      .then(async (result) => {
+        await this.adminPlatformService.recordAudit({
+          user: req.user,
+          scope: 'platform',
+          module: 'platform-user',
+          action: 'status',
+          targetType: 'user',
+          targetId: id,
+          description: `${body.isActive === 1 ? '启用' : '禁用'}平台用户`,
+          afterData: { id, isActive: body.isActive },
+          ip: req.ip,
+        });
+        return result;
+      });
   }
 
   @Post('platform/users/:id/delete')

@@ -369,6 +369,7 @@ export class AdminPlatformService {
     pageSize?: number;
     username?: string;
     isActive?: number;
+    deptId?: string;
   }) {
     const page = Number(query.page || 1);
     const pageSize = Number(query.pageSize || 20);
@@ -379,6 +380,9 @@ export class AdminPlatformService {
 
     if (query.username) {
       where.username = Like(`%${query.username}%`);
+    }
+    if (query.deptId) {
+      where.deptId = query.deptId;
     }
     const isActive = Number(query.isActive);
     if (isActive === 0 || isActive === 1) {
@@ -518,7 +522,7 @@ export class AdminPlatformService {
     return this.userRepo.save(user);
   }
 
-  async updateUserStatus(id: string, isActive: number) {
+  async updateUserStatus(id: string, isActive: number, currentUserId?: string) {
     const user = await this.userRepo.findOne({
       where: {
         id,
@@ -529,6 +533,23 @@ export class AdminPlatformService {
 
     if (!user) {
       throw new BusinessException('平台用户不存在');
+    }
+
+    // 禁用前置校验：不能禁用自己、且必须保留至少一个启用的平台用户
+    if (isActive === 0 && user.isActive === 1) {
+      if (currentUserId && String(currentUserId) === String(id)) {
+        throw new BusinessException('不能禁用当前登录账号');
+      }
+      const activeCount = await this.userRepo.count({
+        where: {
+          tenantId: IsNull(),
+          isPlatformAdmin: 1,
+          isActive: 1,
+        },
+      });
+      if (activeCount <= 1) {
+        throw new BusinessException('至少保留一个启用的平台用户');
+      }
     }
 
     user.isActive = isActive;
@@ -645,6 +666,23 @@ export class AdminPlatformService {
   ) {
     const tenant = await this.tenantRepo.findOne({ where: { id } });
     if (!tenant) throw new BusinessException('租户不存在');
+
+    // 生命周期状态机：只允许合理跃迁，拦截非法跳转（如 已驳回 直接到 已到期）
+    const ALLOWED_TRANSITIONS: Record<string, string[]> = {
+      pending: ['active', 'rejected'],
+      active: ['disabled', 'expired'],
+      rejected: ['active', 'pending'],
+      disabled: ['active', 'expired'],
+      expired: ['active'],
+    };
+    if (dto.lifecycleStatus && dto.lifecycleStatus !== tenant.lifecycleStatus) {
+      const from = tenant.lifecycleStatus || 'pending';
+      if (!(ALLOWED_TRANSITIONS[from] || []).includes(dto.lifecycleStatus)) {
+        throw new BusinessException(
+          `租户当前状态不支持变更为目标状态（${from} → ${dto.lifecycleStatus}）`,
+        );
+      }
+    }
 
     if (dto.lifecycleStatus) tenant.lifecycleStatus = dto.lifecycleStatus;
     if ('expiresAt' in dto) tenant.expiresAt = dto.expiresAt ? new Date(dto.expiresAt) : null;
