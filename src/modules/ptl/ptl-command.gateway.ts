@@ -42,6 +42,10 @@ export class PtlCommandGateway implements OnModuleInit, OnModuleDestroy {
   private eventHandler: PtlEventHandler | null = null;
   // 订阅所有租户、所有控制器的事件上报：mwms/ptl/{tenantId}/{deviceCode}/event
   private readonly eventTopic = 'mwms/ptl/+/+/event';
+  // 连续重连上限：超过就停止重连，避免无限重连刷日志（下次发指令时再重新尝试连接）
+  private readonly maxReconnects = 3;
+  private reconnectAttempts = 0;
+  private stableTimer: NodeJS.Timeout | null = null;
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -57,6 +61,10 @@ export class PtlCommandGateway implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy() {
+    if (this.stableTimer) {
+      clearTimeout(this.stableTimer);
+      this.stableTimer = null;
+    }
     if (this.client) {
       await this.client.endAsync(true);
       this.client = null;
@@ -110,10 +118,16 @@ export class PtlCommandGateway implements OnModuleInit, OnModuleDestroy {
       clean: true,
     });
     this.client = client;
+    this.reconnectAttempts = 0; // 新建客户端，重连计数清零
 
     // 初次连接 + 每次重连都重新订阅，避免重连后收不到事件
     client.on('connect', () => {
       this.logger.log('PTL MQTT 已连接');
+      // 连接稳定保持 30s 后才清零重连计数；若期间又断开（flapping），计数继续累计直到触顶
+      if (this.stableTimer) clearTimeout(this.stableTimer);
+      this.stableTimer = setTimeout(() => {
+        this.reconnectAttempts = 0;
+      }, 30000);
       client.subscribe(this.eventTopic, { qos: 1 }, (err) => {
         if (err) {
           this.logger.error(`PTL MQTT 订阅失败: ${err.message}`);
@@ -122,7 +136,22 @@ export class PtlCommandGateway implements OnModuleInit, OnModuleDestroy {
         }
       });
     });
-    client.on('reconnect', () => this.logger.warn('PTL MQTT 重连中...'));
+    client.on('reconnect', () => {
+      // 断开了，取消「稳定后清零」的计时，让计数如实累计
+      if (this.stableTimer) {
+        clearTimeout(this.stableTimer);
+        this.stableTimer = null;
+      }
+      this.reconnectAttempts += 1;
+      this.logger.warn(`PTL MQTT 重连中... (第 ${this.reconnectAttempts}/${this.maxReconnects} 次)`);
+      if (this.reconnectAttempts >= this.maxReconnects) {
+        this.logger.error(
+          `PTL MQTT 连续重连达上限(${this.maxReconnects} 次)，停止重连；下次发送指令时会重新尝试连接`,
+        );
+        client.end(true); // 强制断开，停止自动重连
+        this.client = null;
+      }
+    });
     client.on('error', (error) => this.logger.error(`PTL MQTT client error: ${error.message}`));
     client.on('message', (topic, payload) => this.onMessage(topic, payload));
 
