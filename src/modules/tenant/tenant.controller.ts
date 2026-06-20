@@ -9,6 +9,7 @@ import {
   Delete,
   Patch,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 
@@ -19,6 +20,7 @@ import { TenantsService } from './tenants.service';
 import { Public } from '@/common/decorators/public.decorator';
 import { PublicTenantDetailDto, PublicTenantListDto } from './dto/public-tenant.dto';
 import { AuditLogService } from '@/common/audit/audit-log.service';
+import { PlatformAdminGuard } from '@/common/guards/platform-admin.guard';
 
 @ApiTags('租户管理 (SaaS)') // 更加清晰的 Swagger 分类
 @Controller('tenants')
@@ -43,7 +45,8 @@ export class TenantController {
   }
 
   @Post('list')
-  @ApiOperation({ summary: '分页查询租户列表' })
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '分页查询租户列表（仅平台超管）' })
   async findAll(
     @Body()
     body: {
@@ -83,7 +86,8 @@ export class TenantController {
   }
 
   @Post('detail')
-  @ApiOperation({ summary: '获取租户详情' })
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '获取租户详情（仅平台超管）' })
   async findOne(@Body() body: DetailTenantDto) {
     return await this.tenantsService.findOne(body.id);
   }
@@ -106,16 +110,40 @@ export class TenantController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: '修改租户信息' })
-  async update(@Param('id') id: string, @Body() updateTenantDto: UpdateTenantDto) {
-    // 这里假设 tenantsService 有 update 方法，需自行实现
-    return await this.tenantsService.update(id, updateTenantDto);
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '修改租户信息（仅平台超管）' })
+  async update(
+    @Param('id') id: string,
+    @Body() updateTenantDto: UpdateTenantDto,
+    @Req() req,
+  ) {
+    const result = await this.tenantsService.update(id, updateTenantDto);
+    await this.auditLogService.record({
+      ...this.auditLogService.fromRequest(req),
+      scope: 'platform',
+      module: 'tenant',
+      action: 'tenant.update',
+      targetType: 'tenant',
+      targetId: id,
+      description: '平台超管修改租户信息',
+    });
+    return result;
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: '删除租户' })
-  async remove(@Param('id') id: string) {
-    // 这里假设 tenantsService 有 remove 方法，需自行实现
-    return await this.tenantsService.remove(id);
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '删除租户（仅平台超管，软删除）' })
+  async remove(@Param('id') id: string, @Req() req) {
+    const result = await this.tenantsService.remove(id);
+    await this.auditLogService.record({
+      ...this.auditLogService.fromRequest(req),
+      scope: 'platform',
+      module: 'tenant',
+      action: 'tenant.delete',
+      targetType: 'tenant',
+      targetId: id,
+      description: '平台超管删除租户（软删除）',
+    });
+    return result;
   }
 }

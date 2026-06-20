@@ -653,14 +653,25 @@ export class AdminPlatformService {
     if (dto.isActive === 0 || dto.isActive === 1) tenant.isActive = dto.isActive;
     if (dto.isApproved === 0 || dto.isApproved === 1) tenant.isApproved = dto.isApproved;
 
-    if (tenant.lifecycleStatus === 'active') {
-      tenant.isActive = 1;
-      tenant.isApproved = 1;
-      tenant.approvedAt = tenant.approvedAt || new Date();
-    }
-    if (tenant.lifecycleStatus === 'disabled' || tenant.lifecycleStatus === 'rejected') {
-      tenant.isActive = 0;
-      if (tenant.lifecycleStatus === 'rejected') tenant.isApproved = 0;
+    // lifecycleStatus 为单一真相，统一反推 isActive/isApproved，保证三字段永不脱节
+    switch (tenant.lifecycleStatus) {
+      case 'active':
+        tenant.isActive = 1;
+        tenant.isApproved = 1;
+        tenant.approvedAt = tenant.approvedAt || new Date();
+        break;
+      case 'disabled':
+      case 'expired':
+        tenant.isActive = 0;
+        break;
+      case 'rejected':
+        tenant.isActive = 0;
+        tenant.isApproved = 0;
+        break;
+      case 'pending':
+        tenant.isActive = 0;
+        tenant.isApproved = 0;
+        break;
     }
 
     const savedTenant = await this.tenantRepo.save(tenant);

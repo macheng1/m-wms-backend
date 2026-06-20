@@ -121,6 +121,9 @@ export class TenantsService {
     pageSize = 20,
     code,
     name,
+    contactPerson,
+    contactPhone,
+    email,
     tenantSource,
     lifecycleStatus,
     isActive,
@@ -129,6 +132,9 @@ export class TenantsService {
     pageSize: number;
     code?: string;
     name?: string;
+    contactPerson?: string;
+    contactPhone?: string;
+    email?: string;
     tenantSource?: 'platform' | 'miniapp' | 'import' | 'api' | 'all';
     lifecycleStatus?: 'pending' | 'active' | 'rejected' | 'disabled' | 'expired';
     isActive?: number | string;
@@ -136,8 +142,12 @@ export class TenantsService {
     const repo = this.dataSource.getRepository(Tenant);
     const where: any = {};
 
+    // 文本类查询统一走模糊匹配（LIKE %x%）
     if (code) where.code = Like(`%${code}%`);
     if (name) where.name = Like(`%${name}%`);
+    if (contactPerson) where.contactPerson = Like(`%${contactPerson}%`);
+    if (contactPhone) where.contactPhone = Like(`%${contactPhone}%`);
+    if (email) where.email = Like(`%${email}%`);
     if (tenantSource && tenantSource !== 'all') where.tenantSource = tenantSource;
     if (lifecycleStatus) where.lifecycleStatus = lifecycleStatus;
 
@@ -410,8 +420,9 @@ export class TenantsService {
         'staffCount',
         'mainProducts',
         'annualCapacity',
-        'isActive',
-        'isApproved',
+        // 注意：isActive / isApproved / lifecycleStatus 不在白名单内。
+        // 租户启停/审批是单一真相 lifecycleStatus，必须走 /admin/platform/tenants/:id/lifecycle，
+        // 由 updateTenantLifecycle 同步三字段，避免"改了 isActive 却和 lifecycleStatus 脱节"。
       ];
       for (const key of allowFields) {
         if (key in updateTenantDto) {
@@ -527,7 +538,17 @@ export class TenantsService {
     const repo = this.dataSource.getRepository(Tenant);
     const tenant = await repo.findOne({ where: { id } });
     if (!tenant) throw new ConflictException('租户不存在');
-    await repo.remove(tenant);
+
+    // 必须先停用再删除：避免在职客户被误删、名下数据(用户/库存/订单…)成孤儿
+    if (tenant.isActive === 1 && tenant.lifecycleStatus === 'active') {
+      throw new BadRequestException('请先停用该租户，再执行删除');
+    }
+
+    // 软删除：标记 deletedAt（基类 @DeleteDateColumn），数据保留可追溯/可恢复，不物理清除
+    tenant.lifecycleStatus = 'disabled';
+    tenant.isActive = 0;
+    await repo.save(tenant);
+    await repo.softDelete(id);
     return { success: true };
   }
   /**
