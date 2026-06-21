@@ -1,14 +1,4 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Delete,
-  Body,
-  Param,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { LocationService } from './location.service';
 import { CreateLocationDto } from './dto/create-location.dto';
@@ -27,10 +17,7 @@ export class LocationController {
    */
   @Post()
   @ApiOperation({ summary: '创建库位' })
-  create(
-    @Body() createLocationDto: CreateLocationDto,
-    @TenantId() tenantId: string,
-  ) {
+  create(@Body() createLocationDto: CreateLocationDto, @TenantId() tenantId: string) {
     return this.locationService.create(createLocationDto, tenantId);
   }
 
@@ -98,12 +85,30 @@ export class LocationController {
   }
 
   /**
-   * 查询库位详情
+   * 获取仓库可视化地图
    */
-  @Get(':id')
-  @ApiOperation({ summary: '查询库位详情' })
-  findOne(@Param('id') id: string, @TenantId() tenantId: string) {
-    return this.locationService.findOne(id, tenantId);
+  @Get('visual-map')
+  @ApiOperation({ summary: '获取仓库可视化地图' })
+  getVisualMap(
+    @TenantId() tenantId: string,
+    @Query('warehouse') warehouse?: string,
+    @Query('area') area?: string,
+    @Query('keyword') keyword?: string,
+  ) {
+    return this.locationService.getVisualMap(tenantId, {
+      warehouse,
+      area,
+      keyword,
+    });
+  }
+
+  /**
+   * 获取指定 SKU 有库存的库位
+   */
+  @Get('stock-options')
+  @ApiOperation({ summary: '获取指定 SKU 有库存的库位' })
+  getStockLocations(@TenantId() tenantId: string, @Query('sku') sku: string) {
+    return this.locationService.getStockLocations(tenantId, sku);
   }
 
   /**
@@ -113,6 +118,15 @@ export class LocationController {
   @ApiOperation({ summary: '根据编码查询库位' })
   findByCode(@Param('code') code: string, @TenantId() tenantId: string) {
     return this.locationService.findByCode(code, tenantId);
+  }
+
+  /**
+   * 查询库位详情
+   */
+  @Get(':id')
+  @ApiOperation({ summary: '查询库位详情' })
+  findOne(@Param('id') id: string, @TenantId() tenantId: string) {
+    return this.locationService.findOne(id, tenantId);
   }
 
   /**
@@ -170,11 +184,7 @@ export class LocationController {
    */
   @Post(':id/realtime')
   @ApiOperation({ summary: '更新库位实时数据（预留）' })
-  updateRealtimeData(
-    @Param('id') id: string,
-    @Body() data: any,
-    @TenantId() tenantId: string,
-  ) {
+  updateRealtimeData(@Param('id') id: string, @Body() data: any, @TenantId() tenantId: string) {
     return this.locationService.updateRealtimeData(id, data, tenantId);
   }
 }

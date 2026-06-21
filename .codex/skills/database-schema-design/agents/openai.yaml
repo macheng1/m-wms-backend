@@ -1,0 +1,7 @@
+interface:
+  display_name: "数据库表设计"
+  short_description: "从需求设计表结构和实体"
+  default_prompt: "使用 $database-schema-design 根据需求设计数据库表结构和 TypeORM 实体。"
+
+policy:
+  allow_implicit_invocation: true

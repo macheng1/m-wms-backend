@@ -7,7 +7,8 @@ export default registerAs('database', () => ({
   username: process.env.DB_USERNAME || 'root',
   password: process.env.DB_PASSWORD || 'password',
   database: process.env.DB_DATABASE || 'wms',
-  synchronize: process.env.DB_SYNCHRONIZE === 'true' || false,
+  // 禁止通过环境变量自动同步表结构；数据库变更统一走 dbsql/ 或 migration。
+  synchronize: false,
   logging: process.env.DB_LOGGING === 'true' || false,
   entities: ['dist/**/*.entity{.ts,.js}'],
   migrations: ['dist/database/migrations/*{.ts,.js}'],

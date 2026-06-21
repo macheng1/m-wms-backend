@@ -1,6 +1,7 @@
 import { TenantBaseEntity } from '@/database/base.entity';
 import { Entity, Column, ManyToOne, JoinColumn, Unique } from 'typeorm';
 import { Category } from './entities/category.entity';
+import { Unit } from '../unit/entities/unit.entity';
 
 // src/modules/product/entities/product.entity.ts
 @Entity('products')
@@ -12,8 +13,14 @@ export class Product extends TenantBaseEntity {
   @Column({ comment: '产品编码/SKU' })
   code: string;
 
+  @Column({ length: 120, nullable: true, comment: '产品条形码，默认与产品编码/SKU一致' })
+  barcode: string | null;
+
   @Column({ type: 'char', length: 36, comment: '类目ID' })
   categoryId: string;
+
+  @Column({ type: 'char', length: 36, comment: '库存主单位ID' })
+  unitId: string;
 
   /**
    * 产品图列表 (JSON 数组)
@@ -29,6 +36,9 @@ export class Product extends TenantBaseEntity {
 
   @Column({ nullable: true, comment: '单位，如：支、kg' })
   unit: string;
+
+  @Column({ type: 'text', nullable: true, comment: '产品描述' })
+  description: string | null;
 
   /**
    * 存储结构：{ "ATTR_CZ_7A2B": "304", "ATTR_ZJ_91E0": "1.5" }
@@ -50,4 +60,8 @@ export class Product extends TenantBaseEntity {
   @ManyToOne(() => Category)
   @JoinColumn({ name: 'categoryId' })
   category: Category;
+
+  @ManyToOne(() => Unit)
+  @JoinColumn({ name: 'unitId' })
+  inventoryUnit: Unit;
 }

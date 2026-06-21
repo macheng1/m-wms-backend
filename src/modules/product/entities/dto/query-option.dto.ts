@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsOptional, IsString } from 'class-validator';
+import { IsIn, IsOptional, IsString } from 'class-validator';
 
 // src/modules/attributes/dto/query-option.dto.ts
 export class QueryOptionDto {
@@ -21,4 +21,10 @@ export class QueryOptionDto {
   @IsOptional()
   @IsString()
   value?: string; // 比如搜 "304"
+
+  @ApiProperty({ description: '模板来源筛选：standard-标准模板，custom-租户自建', required: false })
+  @IsOptional()
+  @IsString()
+  @IsIn(['standard', 'custom'])
+  templateScope?: 'standard' | 'custom';
 }

@@ -1,0 +1,7 @@
+interface:
+  display_name: "后端架构治理"
+  short_description: "统一后端架构和公共规范"
+  default_prompt: "使用 $backend-architecture-governance 统一或调整这个后端项目的架构。"
+
+policy:
+  allow_implicit_invocation: true

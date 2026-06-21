@@ -1,7 +1,7 @@
 // src/modules/product/service/attributes.service.ts
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like, DataSource, In } from 'typeorm';
+import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
 
 import { Attribute } from '../entities/attribute.entity';
 import { AttributeOption } from '../entities/attribute-option.entity';
@@ -23,6 +23,28 @@ export class AttributesService {
     private readonly dataSource: DataSource, // 引入 API 事务管理
   ) {}
 
+  private scopeWhere(tenantId: string | null) {
+    return tenantId === null ? { tenantId: IsNull() } : { tenantId };
+  }
+
+  private readableScopeWhere(tenantId: string | null) {
+    return tenantId === null ? [{ tenantId: IsNull() }] : [{ tenantId }, { tenantId: IsNull() }];
+  }
+
+  private applyReadableScope(
+    queryBuilder: ReturnType<Repository<Attribute>['createQueryBuilder']>,
+    tenantId: string | null,
+    alias = 'attr',
+  ) {
+    if (tenantId === null) {
+      queryBuilder.andWhere(`${alias}.tenantId IS NULL`);
+    } else {
+      queryBuilder.andWhere(`(${alias}.tenantId = :tenantId OR ${alias}.tenantId IS NULL)`, {
+        tenantId,
+      });
+    }
+  }
+
   /**
    * 内部工具：生成业务编码
    * 规则：ATTR_简拼_4位大写随机码
@@ -41,14 +63,16 @@ export class AttributesService {
    * 保存/更新属性 (统一入口)
    * 采用“先清空再重建”策略处理规格项，彻底杜绝外键置空报错
    */
-  async save(dto: SaveAttributeDto, tenantId: string) {
+  async save(dto: SaveAttributeDto, tenantId: string | null) {
     // 新增时禁止传 id
     if (dto.id) throw new BusinessException('新增时不能传属性ID');
     if (!dto.code) {
       dto.code = this.generateCode(dto.name);
     }
     // 编码唯一性校验
-    const exists = await this.attributeRepo.findOne({ where: { code: dto.code, tenantId } });
+    const exists = await this.attributeRepo.findOne({
+      where: this.readableScopeWhere(tenantId).map((scope) => ({ code: dto.code, ...scope })),
+    });
     if (exists) throw new BusinessException('属性编码已存在');
     return await this.dataSource.transaction(async (manager) => {
       const entity = manager.create(Attribute, {
@@ -77,7 +101,7 @@ export class AttributesService {
     });
   }
 
-  async update(dto: SaveAttributeDto, tenantId: string) {
+  async update(dto: SaveAttributeDto, tenantId: string | null) {
     if (!dto.id) throw new BusinessException('更新时必须传属性ID');
 
     if (dto.type === 'select') {
@@ -89,18 +113,31 @@ export class AttributesService {
     return await this.dataSource.transaction(async (manager) => {
       // 1. 获取现有属性（不需要查 relations，避免内存污染）
       const entity = await manager.findOne(Attribute, {
-        where: { id: dto.id, tenantId },
+        where: { id: dto.id, ...this.scopeWhere(tenantId) },
       });
       if (!entity) throw new BusinessException(`属性不存在或无权操作`);
 
+      const nextCode = dto.code || this.generateCode(dto.name);
+      const exists = await manager.findOne(Attribute, {
+        where: this.readableScopeWhere(tenantId).map((scope) => ({
+          code: nextCode,
+          ...scope,
+          id: Not(dto.id),
+        })),
+      });
+      if (exists) throw new BusinessException('属性编码已存在');
+
       // 2. 执行硬删除旧规格
       // 建议直接用 manager.delete 替代原生 SQL，更安全
-      await manager.delete(AttributeOption, { attributeId: entity.id, tenantId });
+      await manager.delete(AttributeOption, {
+        attributeId: entity.id,
+        ...this.scopeWhere(tenantId),
+      });
 
       // 3. 更新基础信息
       Object.assign(entity, {
         name: dto.name,
-        code: dto.code || this.generateCode(dto.name),
+        code: nextCode,
         type: dto.type,
         unit: dto.unit,
         isActive: dto.isActive,
@@ -127,21 +164,26 @@ export class AttributesService {
   /**
    * 分页查询：按创建时间正序 (ASC)
    */
-  async findPage(query: QueryAttributeDto, tenantId: string) {
-    const { page = 1, pageSize = 20, name, code, isActive } = query;
-    const where: any = { tenantId };
+  async findPage(query: QueryAttributeDto, tenantId: string | null) {
+    const { page = 1, pageSize = 20, name, code, isActive, templateScope } = query;
+    const queryBuilder = this.attributeRepo
+      .createQueryBuilder('attr')
+      .leftJoinAndSelect('attr.options', 'options');
 
-    if (name) where.name = Like(`%${name}%`);
-    if (code) where.code = Like(`%${code}%`);
-    if (isActive !== undefined) where.isActive = isActive;
+    this.applyReadableScope(queryBuilder, tenantId);
+    if (templateScope === 'standard') queryBuilder.andWhere('attr.tenantId IS NULL');
+    if (templateScope === 'custom')
+      queryBuilder.andWhere('attr.tenantId = :tenantId', { tenantId });
+    if (name) queryBuilder.andWhere('attr.name LIKE :name', { name: `%${name}%` });
+    if (code) queryBuilder.andWhere('attr.code LIKE :code', { code: `%${code}%` });
+    if (isActive !== undefined) queryBuilder.andWhere('attr.isActive = :isActive', { isActive });
 
-    const [list, total] = await this.attributeRepo.findAndCount({
-      where,
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-      order: { createdAt: 'ASC' }, // 满足排序需求
-      relations: ['options'],
-    });
+    const [list, total] = await queryBuilder
+      .orderBy('attr.tenantId', 'ASC')
+      .addOrderBy('attr.createdAt', 'ASC')
+      .skip((page - 1) * pageSize)
+      .take(pageSize)
+      .getManyAndCount();
 
     return { list, total, page, pageSize };
   }
@@ -149,11 +191,10 @@ export class AttributesService {
   /**
    * 获取详情：完全匹配 SaveAttributeDto 结构
    */
-  async getDetail(id: string, tenantId: string) {
+  async getDetail(id: string, tenantId: string | null) {
     const attr = await this.attributeRepo.findOne({
-      where: { id, tenantId },
+      where: this.readableScopeWhere(tenantId).map((scope) => ({ id, ...scope })),
       relations: ['options'],
-      order: { options: { sort: 'ASC' } },
     });
 
     if (!attr) throw new BusinessException('属性不存在或无权操作');
@@ -178,9 +219,9 @@ export class AttributesService {
   /**
    * 删除单个属性
    */
-  async delete(id: string, tenantId: string) {
+  async delete(id: string, tenantId: string | null) {
     const attr = await this.attributeRepo.findOne({
-      where: { id, tenantId },
+      where: { id, ...this.scopeWhere(tenantId) },
     });
     if (!attr) throw new BusinessException('数据不存在');
 
@@ -188,7 +229,9 @@ export class AttributesService {
     const categories = await this.categoryRepo
       .createQueryBuilder('category')
       .leftJoinAndSelect('category.attributes', 'attribute')
-      .where('category.tenantId = :tenantId', { tenantId })
+      .where(tenantId === null ? 'category.tenantId IS NULL' : 'category.tenantId = :tenantId', {
+        tenantId,
+      })
       .andWhere('attribute.id = :id', { id })
       .getMany();
 
@@ -200,7 +243,7 @@ export class AttributesService {
     // 使用事务确保删除的原子性
     return await this.dataSource.transaction(async (manager) => {
       // 先删除关联的 AttributeOption
-      await manager.delete(AttributeOption, { attributeId: id, tenantId });
+      await manager.delete(AttributeOption, { attributeId: id, ...this.scopeWhere(tenantId) });
       // 再删除属性本身
       await manager.remove(Attribute, attr);
       return { message: '删除成功' };
@@ -210,14 +253,14 @@ export class AttributesService {
   /**
    * 批量删除属性
    */
-  async batchDelete(ids: string[], tenantId: string) {
+  async batchDelete(ids: string[], tenantId: string | null) {
     if (!ids || ids.length === 0) {
       throw new BusinessException('请选择要删除的属性');
     }
 
     // 查询所有要删除的属性
     const attrs = await this.attributeRepo.find({
-      where: ids.map((id) => ({ id, tenantId })),
+      where: ids.map((id) => ({ id, ...this.scopeWhere(tenantId) })),
     });
 
     if (attrs.length === 0) {
@@ -228,7 +271,9 @@ export class AttributesService {
     const categories = await this.categoryRepo
       .createQueryBuilder('category')
       .leftJoinAndSelect('category.attributes', 'attribute')
-      .where('category.tenantId = :tenantId', { tenantId })
+      .where(tenantId === null ? 'category.tenantId IS NULL' : 'category.tenantId = :tenantId', {
+        tenantId,
+      })
       .andWhere('attribute.id IN (:...ids)', { ids })
       .getMany();
 
@@ -241,7 +286,9 @@ export class AttributesService {
           }
         }
       }
-      throw new BusinessException(`以下属性已被类目使用，无法删除：\n${Array.from(usedAttrNames).join('、')}`);
+      throw new BusinessException(
+        `以下属性已被类目使用，无法删除：\n${Array.from(usedAttrNames).join('、')}`,
+      );
     }
 
     // 使用事务确保批量删除的原子性
@@ -249,7 +296,7 @@ export class AttributesService {
       // 先删除关联的 AttributeOption
       await manager.delete(AttributeOption, {
         attributeId: In(ids),
-        tenantId,
+        ...this.scopeWhere(tenantId),
       });
       // 再批量删除属性
       await manager.remove(Attribute, attrs);
@@ -260,8 +307,8 @@ export class AttributesService {
   /**
    * 状态变更
    */
-  async updateStatus(id: string, isActive: number, tenantId: string) {
-    const res = await this.attributeRepo.update({ id, tenantId }, { isActive });
+  async updateStatus(id: string, isActive: number, tenantId: string | null) {
+    const res = await this.attributeRepo.update({ id, ...this.scopeWhere(tenantId) }, { isActive });
     if (res.affected === 0) throw new BusinessException('属性不存在或无权操作');
     return { message: isActive ? '已启用' : '已禁用' };
   }

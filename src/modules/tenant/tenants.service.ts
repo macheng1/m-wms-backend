@@ -5,24 +5,23 @@ import {
   InternalServerErrorException,
   Logger,
   BadRequestException,
+  HttpException,
 } from '@nestjs/common';
-import { DataSource, EntityManager, In } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, Like } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { ConfigService } from '@nestjs/config';
 
 import { ROLE_TEMPLATES } from '@/common/constants/role-templates.constant';
-import { flattenPermissions } from '@/common/constants/permissions.constant';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { Tenant } from './entities/tenant.entity';
 import { Role } from '../roles/entities/role.entity';
-import { Permission } from '../auth/entities/permission.entity';
+import { Menu } from '../auth/entities/menu.entity';
 import { User } from '../users/entities/user.entity';
 import pinyin from 'pinyin';
-import { DictionariesService } from '../system/service/dictionaries.service';
 import { PortalConfig } from '../portal/entities/portal-config.entity';
 import { SmsService } from '../aliyun/sms/sms.service';
 import { BusinessException } from '@/common/filters/business.exception';
-import { SystemSeedService } from '../auth/entities/system-init.service';
+import { Dictionary } from '../system/entities/dictionary.entity';
 
 @Injectable()
 export class TenantsService {
@@ -30,69 +29,142 @@ export class TenantsService {
 
   constructor(
     private readonly dataSource: DataSource,
-    private readonly dictionariesService: DictionariesService,
     private readonly smsService: SmsService,
     private readonly configService: ConfigService,
-    private readonly systemSeedService: SystemSeedService,
   ) {}
 
   /**
    * 核心业务：租户入驻全自动化流程
    */
   async onboard(dto: CreateTenantDto) {
-    // 1. 预检查：在进入事务前拦截明显错误，节省数据库连接资源
-    await this.validateBeforeOnboard(dto);
+    const normalizedDto = this.normalizeOnboardDto(dto);
+    this.validateRequiredOnboardFields(normalizedDto);
 
     try {
       const result = await this.dataSource.transaction(async (manager) => {
-        // Step A: 创建租户主体
-        const tenant = await this.createTenant(manager, dto);
+        await this.validateBeforeOnboard(manager, normalizedDto);
+        const tenant = await this.createTenant(manager, normalizedDto);
+        const menuGrantCount = await this.initTenantMenuPermissions(manager, tenant.id);
+        const { adminRole, roleCount } = await this.initTenantRoles(manager, tenant.id);
+        const adminUser = await this.createAdminUser(manager, tenant.id, normalizedDto, adminRole);
+        await this.initPortalConfig(manager, tenant);
 
-        // Step B: 并行初始化角色与权限（优化性能）
-        const { adminRole } = await this.initTenantRoles(manager, tenant.id);
-
-        // Step C: 创建租户超级管理员
-        const adminUser = await this.createAdminUser(manager, tenant.id, dto, adminRole);
-
-        // Step D: 初始化基础单位、产品类目和属性
-        await this.systemSeedService.initBaseUnits(tenant.id);
-        await this.systemSeedService.initProductCategories(tenant.id);
-        await this.systemSeedService.initProductAttributes(tenant.id);
-
-        // 返回给拦截器的数据负载
         return {
           tenantId: tenant.id,
           tenantCode: tenant.code,
           tenantName: tenant.name,
           adminId: adminUser.id,
           username: adminUser.username,
+          menuGrantCount,
+          roleCount,
         };
       });
 
       // 2. 入驻成功后删除验证码（防止重复使用）
-      await this.smsService.deleteCode(dto.contactPhone);
+      await this.smsService.deleteCode(normalizedDto.contactPhone);
 
       return result;
     } catch (error) {
       this.logger.error(`租户入驻失败: ${error.message}`, error.stack);
       // 如果是已知的业务异常则直接抛出，否则封装为 500
-      if (error instanceof ConflictException) throw error;
+      if (error instanceof HttpException) throw error;
       throw new InternalServerErrorException('系统在处理租户入驻时发生未知错误');
+    }
+  }
+
+  async onboardFromMiniapp(dto: CreateTenantDto) {
+    const normalizedDto = this.normalizeOnboardDto({
+      ...dto,
+      tenantSource: 'miniapp',
+      smsCode: dto.smsCode || 'MINIAPP_AUTHORIZED_PHONE',
+      adminUser: dto.adminUser || dto.contactPhone,
+      adminPass: dto.adminPass || this.generateInitialPassword(),
+      email: dto.email || `${dto.contactPhone || Date.now()}@miniapp.local`,
+    });
+
+    if (!normalizedDto.name) throw new BadRequestException('企业名称不能为空');
+    if (!normalizedDto.contactPhone) throw new BadRequestException('联系电话不能为空');
+    if (!normalizedDto.adminUser) throw new BadRequestException('管理员账号不能为空');
+    if (!normalizedDto.adminPass) throw new BadRequestException('管理员密码不能为空');
+
+    try {
+      return await this.dataSource.transaction(async (manager) => {
+        await this.validateTenantUniqueBeforeOnboard(manager, normalizedDto);
+        const tenant = await this.createTenant(manager, normalizedDto);
+        const menuGrantCount = await this.initTenantMenuPermissions(manager, tenant.id);
+        const { adminRole, roleCount } = await this.initTenantRoles(manager, tenant.id);
+        const adminUser = await this.createAdminUser(manager, tenant.id, normalizedDto, adminRole);
+        await this.initPortalConfig(manager, tenant);
+
+        return {
+          tenantId: tenant.id,
+          tenantCode: tenant.code,
+          tenantName: tenant.name,
+          adminId: adminUser.id,
+          username: adminUser.username,
+          menuGrantCount,
+          roleCount,
+        };
+      });
+    } catch (error) {
+      this.logger.error(`小程序租户入驻失败: ${error.message}`, error.stack);
+      if (error instanceof HttpException) throw error;
+      throw new InternalServerErrorException('系统在处理小程序企业认证时发生未知错误');
     }
   }
 
   /**
    * 分页查询租户列表
    */
-  async findAll({ page = 1, pageSize = 20 }: { page: number; pageSize: number }) {
+  async findAll({
+    page = 1,
+    pageSize = 20,
+    code,
+    name,
+    contactPerson,
+    contactPhone,
+    email,
+    tenantSource,
+    lifecycleStatus,
+    isActive,
+  }: {
+    page: number;
+    pageSize: number;
+    code?: string;
+    name?: string;
+    contactPerson?: string;
+    contactPhone?: string;
+    email?: string;
+    tenantSource?: 'platform' | 'miniapp' | 'import' | 'api' | 'all';
+    lifecycleStatus?: 'pending' | 'active' | 'rejected' | 'disabled' | 'expired';
+    isActive?: number | string;
+  }) {
     const repo = this.dataSource.getRepository(Tenant);
+    const where: any = {};
+
+    // 文本类查询统一走模糊匹配（LIKE %x%）
+    if (code) where.code = Like(`%${code}%`);
+    if (name) where.name = Like(`%${name}%`);
+    if (contactPerson) where.contactPerson = Like(`%${contactPerson}%`);
+    if (contactPhone) where.contactPhone = Like(`%${contactPhone}%`);
+    if (email) where.email = Like(`%${email}%`);
+    if (tenantSource && tenantSource !== 'all') where.tenantSource = tenantSource;
+    if (lifecycleStatus) where.lifecycleStatus = lifecycleStatus;
+
+    const activeValue = Number(isActive);
+    if (activeValue === 0 || activeValue === 1) {
+      where.isActive = activeValue;
+    }
+
     const [list, total] = await repo.findAndCount({
+      where,
       skip: (page - 1) * pageSize,
       take: pageSize,
       order: { createdAt: 'DESC' },
     });
+    const industryNameMap = await this.getIndustryNameMap();
     return {
-      list,
+      list: list.map((tenant) => this.serializeTenant(tenant, industryNameMap)),
       total,
       page,
       pageSize,
@@ -106,18 +178,14 @@ export class TenantsService {
     const repo = this.dataSource.getRepository(Tenant);
     const tenant = await repo.findOne({ where: { id } });
     if (!tenant) throw new ConflictException('租户不存在');
-    // 查行业名称
-    let industryName = '';
-    if (tenant.industryCode) {
-      const dict = await this.dictionariesService.getOptionsByType('INDUSTRY');
-      const found = dict.find((item) => item.value === tenant.industryCode);
-      industryName = found ? found.label : '';
-    }
+    const industryName = await this.resolveIndustryName(tenant.industryCode);
+
     // 返回所有业务字段，保证前端展示完整
     return {
       id: tenant.id,
       code: tenant.code,
       name: tenant.name,
+      tenantSource: tenant.tenantSource,
       industryCode: tenant.industryCode,
       industryName,
       contactPerson: tenant.contactPerson,
@@ -127,6 +195,7 @@ export class TenantsService {
       registerAddress: tenant.registerAddress,
       website: tenant.website,
       remark: tenant.remark,
+      businessLicenseImage: this.extractMiniappBusinessLicenseImage(tenant.remark),
       taxNo: tenant.taxNo,
       taxpayerType: tenant.taxpayerType,
       creditCode: tenant.creditCode,
@@ -146,8 +215,169 @@ export class TenantsService {
       mainProducts: tenant.mainProducts,
       annualCapacity: tenant.annualCapacity,
       isActive: tenant.isActive,
+      isApproved: tenant.isApproved,
+      lifecycleStatus: tenant.lifecycleStatus,
+      expiresAt: tenant.expiresAt,
+      approvedAt: tenant.approvedAt,
+      auditRemark: tenant.auditRemark,
+      disabledReason: tenant.disabledReason,
       createdAt: tenant.createdAt,
       updatedAt: tenant.updatedAt,
+    };
+  }
+
+  async findPublicAll(query: {
+    page: number;
+    pageSize: number;
+    tenantSource?: 'platform' | 'miniapp' | 'import' | 'api' | 'all';
+    name?: string;
+  }) {
+    const result = await this.findAll({
+      ...query,
+      lifecycleStatus: 'active',
+      isActive: 1,
+    });
+
+    return {
+      ...result,
+      list: result.list.map((tenant) => this.toPublicTenant(tenant)),
+    };
+  }
+
+  async findPublicOne(id: string) {
+    const tenant = await this.findOne(id);
+    if (tenant.isActive !== 1 || tenant.lifecycleStatus !== 'active') {
+      throw new BusinessException('企业暂未开放展示');
+    }
+    return this.toPublicTenant(tenant);
+  }
+
+  async approve(id: string) {
+    const repo = this.dataSource.getRepository(Tenant);
+    const tenant = await repo.findOne({ where: { id } });
+    if (!tenant) throw new ConflictException('租户不存在');
+
+    tenant.isApproved = 1;
+    tenant.isActive = 1;
+    tenant.lifecycleStatus = 'active';
+    tenant.approvedAt = tenant.approvedAt || new Date();
+    const savedTenant = await repo.save(tenant);
+    await this.syncMiniappTenantBindStatus(savedTenant.id, 'approved');
+
+    return {
+      id: savedTenant.id,
+      code: savedTenant.code,
+      name: savedTenant.name,
+      isApproved: savedTenant.isApproved,
+      isActive: savedTenant.isActive,
+      lifecycleStatus: savedTenant.lifecycleStatus,
+      message: '租户审核已通过',
+    };
+  }
+
+  private toPublicTenant(tenant: any) {
+    return {
+      id: tenant.id,
+      code: tenant.code,
+      name: tenant.name,
+      tenantSource: tenant.tenantSource,
+      industryCode: tenant.industryCode,
+      industryName: tenant.industryName || tenant.industryType || null,
+      contactPerson: tenant.contactPerson,
+      contactPhone: tenant.contactPhone,
+      address: tenant.address || tenant.factoryAddress || null,
+      website: tenant.website,
+      mainProducts: tenant.mainProducts,
+      annualCapacity: tenant.annualCapacity,
+      foundDate: tenant.foundDate,
+      staffCount: tenant.staffCount,
+      isActive: tenant.isActive,
+      lifecycleStatus: tenant.lifecycleStatus,
+      createdAt: tenant.createdAt,
+    };
+  }
+
+  async reject(id: string, auditRemark?: string) {
+    const repo = this.dataSource.getRepository(Tenant);
+    const tenant = await repo.findOne({ where: { id } });
+    if (!tenant) throw new ConflictException('租户不存在');
+
+    tenant.isApproved = 0;
+    tenant.isActive = 0;
+    tenant.lifecycleStatus = 'rejected';
+    tenant.auditRemark = auditRemark || tenant.auditRemark || '入驻申请未通过审核';
+    const savedTenant = await repo.save(tenant);
+    await this.syncMiniappTenantBindStatus(savedTenant.id, 'rejected', savedTenant.auditRemark);
+
+    return {
+      id: savedTenant.id,
+      code: savedTenant.code,
+      name: savedTenant.name,
+      isApproved: savedTenant.isApproved,
+      isActive: savedTenant.isActive,
+      lifecycleStatus: savedTenant.lifecycleStatus,
+      message: '租户已驳回并禁用',
+    };
+  }
+
+  async resubmitMiniappTenant(id: string, dto: CreateTenantDto) {
+    const repo = this.dataSource.getRepository(Tenant);
+    const tenant = await repo.findOne({ where: { id } });
+    if (!tenant) throw new ConflictException('租户不存在');
+    if (tenant.tenantSource !== 'miniapp')
+      throw new BusinessException('仅小程序认证企业支持重新提交');
+    if (!['active', 'rejected'].includes(tenant.lifecycleStatus)) {
+      throw new BusinessException('当前企业认证状态不支持重新提交');
+    }
+
+    const normalizedDto = this.normalizeOnboardDto({
+      ...dto,
+      tenantSource: 'miniapp',
+      code: tenant.code,
+      smsCode: dto.smsCode || 'MINIAPP_AUTHORIZED_PHONE',
+      adminUser: dto.adminUser || dto.contactPhone,
+      adminPass: dto.adminPass || this.generateInitialPassword(),
+      email: dto.email || tenant.email || `${dto.contactPhone || Date.now()}@miniapp.local`,
+    });
+
+    if (!normalizedDto.name) throw new BadRequestException('企业名称不能为空');
+    if (!normalizedDto.contactPhone) throw new BadRequestException('联系电话不能为空');
+
+    const existingTenant = await repo.findOne({ where: { name: normalizedDto.name } });
+    if (existingTenant && existingTenant.id !== id) {
+      throw new BusinessException(`企业 "${normalizedDto.name}" 已存在`);
+    }
+
+    Object.assign(tenant, {
+      name: normalizedDto.name,
+      contactPhone: normalizedDto.contactPhone,
+      contactPerson: normalizedDto.contactPerson,
+      address: normalizedDto.address || null,
+      factoryAddress: normalizedDto.factoryAddress || normalizedDto.address || null,
+      registerAddress: normalizedDto.registerAddress || normalizedDto.address || null,
+      creditCode: normalizedDto.creditCode || null,
+      taxNo: normalizedDto.taxNo || normalizedDto.creditCode || null,
+      businessLicenseNo: normalizedDto.businessLicenseNo || normalizedDto.creditCode || null,
+      legalPerson: normalizedDto.legalPerson || normalizedDto.contactPerson || null,
+      mainProducts: normalizedDto.mainProducts || null,
+      remark: normalizedDto.remark || tenant.remark || null,
+      auditRemark: null,
+      disabledReason: null,
+      isApproved: 0,
+      isActive: 0,
+      lifecycleStatus: 'pending',
+      tenantSource: 'miniapp',
+    });
+
+    const savedTenant = await repo.save(tenant);
+    await this.syncMiniappTenantBindStatus(savedTenant.id, 'pending');
+
+    return {
+      tenantId: savedTenant.id,
+      tenantCode: savedTenant.code,
+      tenantName: savedTenant.name,
+      username: normalizedDto.adminUser,
+      message: '企业认证已重新提交',
     };
   }
 
@@ -163,6 +393,7 @@ export class TenantsService {
       // 只允许更新白名单字段，防止脏数据
       const allowFields = [
         'name',
+        'tenantSource',
         'industryCode',
         'contactPerson',
         'contactPhone',
@@ -189,12 +420,18 @@ export class TenantsService {
         'staffCount',
         'mainProducts',
         'annualCapacity',
-        'isActive',
+        // 注意：isActive / isApproved / lifecycleStatus 不在白名单内。
+        // 租户启停/审批是单一真相 lifecycleStatus，必须走 /admin/platform/tenants/:id/lifecycle，
+        // 由 updateTenantLifecycle 同步三字段，避免"改了 isActive 却和 lifecycleStatus 脱节"。
       ];
       for (const key of allowFields) {
         if (key in updateTenantDto) {
           // 特殊处理 Date 类型字段
-          if (key === 'foundDate' || key === 'businessLicenseExpire' || key === 'qualificationExpire') {
+          if (
+            key === 'foundDate' ||
+            key === 'businessLicenseExpire' ||
+            key === 'qualificationExpire'
+          ) {
             const value: any = updateTenantDto[key];
 
             // 1. 处理 null、undefined 或空字符串
@@ -233,6 +470,10 @@ export class TenantsService {
           }
         }
       }
+      if ('industryCode' in updateTenantDto && !('industryType' in updateTenantDto)) {
+        const industryName = await this.resolveIndustryName(updateTenantDto.industryCode, manager);
+        tenant.industryType = industryName || null;
+      }
       const savedTenant = await repo.save(tenant);
 
       // 删除原 PortalConfig
@@ -261,6 +502,35 @@ export class TenantsService {
     // 3. 组合返回
     return `ENT_${initials}_${random}`;
   }
+
+  private generateInitialPassword(): string {
+    return `Mws${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  private normalizeOnboardDto(dto: CreateTenantDto): CreateTenantDto {
+    return {
+      ...dto,
+      code: dto.code?.trim(),
+      name: dto.name?.trim(),
+      tenantSource: dto.tenantSource || 'platform',
+      contactPhone: dto.contactPhone?.trim(),
+      contactPerson: dto.contactPerson?.trim(),
+      email: dto.email?.trim(),
+      adminUser: dto.adminUser?.trim(),
+      industryCode: dto.industryCode?.trim(),
+      industryName: dto.industryName?.trim(),
+      industryType: dto.industryType?.trim(),
+    };
+  }
+
+  private validateRequiredOnboardFields(dto: CreateTenantDto) {
+    if (!dto.name) throw new BadRequestException('企业名称不能为空');
+    if (!dto.contactPhone) throw new BadRequestException('联系电话不能为空');
+    if (!dto.email) throw new BadRequestException('联系邮箱不能为空');
+    if (!dto.smsCode) throw new BadRequestException('验证码不能为空');
+    if (!dto.adminUser) throw new BadRequestException('管理员账号不能为空');
+    if (!dto.adminPass) throw new BadRequestException('管理员密码不能为空');
+  }
   /**
    * 删除租户
    */
@@ -268,13 +538,23 @@ export class TenantsService {
     const repo = this.dataSource.getRepository(Tenant);
     const tenant = await repo.findOne({ where: { id } });
     if (!tenant) throw new ConflictException('租户不存在');
-    await repo.remove(tenant);
+
+    // 必须先停用再删除：避免在职客户被误删、名下数据(用户/库存/订单…)成孤儿
+    if (tenant.isActive === 1 && tenant.lifecycleStatus === 'active') {
+      throw new BadRequestException('请先停用该租户，再执行删除');
+    }
+
+    // 软删除：标记 deletedAt（基类 @DeleteDateColumn），数据保留可追溯/可恢复，不物理清除
+    tenant.lifecycleStatus = 'disabled';
+    tenant.isActive = 0;
+    await repo.save(tenant);
+    await repo.softDelete(id);
     return { success: true };
   }
   /**
    * 优化后的逻辑拆分 1：预校验（手机验证码、企业全称）
    */
-  private async validateBeforeOnboard(dto: CreateTenantDto) {
+  private async validateBeforeOnboard(manager: EntityManager, dto: CreateTenantDto) {
     // 1. 验证手机验证码
     const isValidCode = await this.smsService.verifyCode(dto.contactPhone, dto.smsCode);
     if (!isValidCode) {
@@ -282,17 +562,65 @@ export class TenantsService {
     }
 
     // 2. 检查企业全称是否已存在
-    const existingTenant = await this.dataSource.getRepository(Tenant).findOne({
+    const tenantRepo = manager.getRepository(Tenant);
+    const existingTenant = await tenantRepo.findOne({
       where: { name: dto.name },
     });
     if (existingTenant) {
       throw new BusinessException(`企业 "${dto.name}" 已存在`);
     }
+
+    if (dto.code) {
+      const existingCode = await tenantRepo.findOne({
+        where: { code: dto.code },
+      });
+      if (existingCode) {
+        throw new BusinessException(`企业编码 "${dto.code}" 已存在`);
+      }
+    }
+  }
+
+  private async validateTenantUniqueBeforeOnboard(manager: EntityManager, dto: CreateTenantDto) {
+    const tenantRepo = manager.getRepository(Tenant);
+    const existingTenant = await tenantRepo.findOne({
+      where: { name: dto.name },
+    });
+    if (existingTenant) {
+      throw new BusinessException(`企业 "${dto.name}" 已存在`);
+    }
+
+    if (dto.code) {
+      const existingCode = await tenantRepo.findOne({
+        where: { code: dto.code },
+      });
+      if (existingCode) {
+        throw new BusinessException(`企业编码 "${dto.code}" 已存在`);
+      }
+    }
+  }
+
+  private async syncMiniappTenantBindStatus(
+    tenantId: string,
+    status: 'pending' | 'approved' | 'rejected',
+    remark?: string,
+  ) {
+    await this.dataSource.query(
+      `UPDATE miniapp_members
+       SET tenantBindStatus = ?, tenantBindRemark = ?
+       WHERE tenantId = ?`,
+      [status, remark || null, tenantId],
+    );
+  }
+
+  private extractMiniappBusinessLicenseImage(remark?: string | null) {
+    const prefix = '小程序营业执照：';
+    if (!remark?.startsWith(prefix)) return '';
+    return remark.slice(prefix.length).trim();
   }
 
   private async createTenant(manager: EntityManager, dto: CreateTenantDto): Promise<Tenant> {
     // 1. 生成企业编码和官网链接
-    const code = dto.code || this.generateEnterpriseCode(dto.name);
+    const code = dto.code || (await this.generateUniqueEnterpriseCode(manager, dto.name));
 
     // 2. 统一生成官网地址（不再区分环境）
     const baseDomain =
@@ -302,20 +630,55 @@ export class TenantsService {
       .toLowerCase()
       .replace(/[^a-z0-9]/g, '-');
     const website = `${baseDomain}/portal/${urlSlug}/zh`;
+    const industryName = await this.resolveIndustryName(dto.industryCode, manager);
 
     // 3. 创建并保存租户
     const tenant = manager.create(Tenant, {
       ...dto,
       code: code.trim(),
       website,
-      industryType: dto.industryType || '未分类',
+      industryType: dto.industryType || dto.industryName || industryName || '未分类',
+      tenantSource: dto.tenantSource || 'platform',
+      isApproved: 0,
+      isActive: 0,
+      lifecycleStatus: 'pending',
     });
-    const savedTenant = await manager.save(tenant);
+    return await manager.save(tenant);
+  }
 
-    // 💡 4. 自动初始化网站通用配置
-    await this.initPortalConfig(manager, savedTenant);
+  private serializeTenant(tenant: Tenant, industryNameMap: Map<string, string>) {
+    const industryName = tenant.industryCode ? industryNameMap.get(tenant.industryCode) || '' : '';
+    return {
+      ...tenant,
+      industryName,
+      industryType: tenant.industryType || industryName || '未分类',
+    };
+  }
 
-    return savedTenant;
+  private async getIndustryNameMap(manager?: EntityManager) {
+    const repo = manager
+      ? manager.getRepository(Dictionary)
+      : this.dataSource.getRepository(Dictionary);
+    const list = await repo.find({
+      where: { type: 'INDUSTRY', isActive: 1, scope: 'platform', tenantId: IsNull() },
+      order: { sort: 'ASC', createdAt: 'ASC' },
+    });
+    return new Map(list.map((item) => [item.value, item.label]));
+  }
+
+  private async resolveIndustryName(industryCode?: string | null, manager?: EntityManager) {
+    if (!industryCode) return '';
+    const industryNameMap = await this.getIndustryNameMap(manager);
+    return industryNameMap.get(industryCode) || '';
+  }
+
+  private async generateUniqueEnterpriseCode(manager: EntityManager, enterpriseName: string) {
+    for (let i = 0; i < 10; i += 1) {
+      const code = this.generateEnterpriseCode(enterpriseName);
+      const exists = await manager.exists(Tenant, { where: { code } });
+      if (!exists) return code;
+    }
+    throw new InternalServerErrorException('企业编码生成失败，请稍后重试');
   }
 
   /**
@@ -349,42 +712,58 @@ export class TenantsService {
     return await manager.save(defaultConfig);
   }
 
-  // ...existing code...
+  private async initTenantMenuPermissions(manager: EntityManager, tenantId: string) {
+    const tenantMenus = await manager.find(Menu, {
+      where: { scope: 'tenant', type: In(['DIRECTORY', 'MENU', 'BUTTON']) },
+    });
+
+    for (const menu of tenantMenus) {
+      await manager.query(
+        'INSERT IGNORE INTO tenant_menu_permissions (tenantId, menuId) VALUES (?, ?)',
+        [tenantId, menu.id],
+      );
+    }
+
+    return tenantMenus.length;
+  }
+
   /**
    * 优化后的逻辑拆分 3：初始化角色（极致性能版）
    */
   private async initTenantRoles(manager: EntityManager, tenantId: string) {
     let adminRole: Role;
 
-    // 1. 获取所有权限（直接用常量，保证和菜单一致）
-    const allPermissions = flattenPermissions();
+    // 1. 角色直接关联 menus 表。管理员默认拥有当前租户域全部菜单和按钮。
+    const allTenantMenus = await manager.find(Menu, {
+      where: { scope: 'tenant' },
+    });
 
     // 2. 循环创建角色
     for (const tpl of Object.values(ROLE_TEMPLATES)) {
       const isSuperAdmin = tpl.code === 'ADMIN';
       // admin 角色分配所有权限，其他角色按模板分配
-      const perms = isSuperAdmin
-        ? allPermissions
-        : allPermissions.filter((p) => (tpl.permissionCodes as any).includes(p.code));
-      console.log('🚀 ~ TenantsService ~ initTenantRoles ~ perms:', perms);
-      // 注意：这里只是用常量生成权限对象，实际入库时仍需用 Permission 实体
-      // 你可以根据 code 查询 Permission 实体，或直接用 code 关联
-      // 这里假设 Permission 实体已初始化，且 code 唯一
-      const permissionEntities = await manager.find(Permission, {
-        where: { code: In(perms.map((p) => p.code)) },
-      });
+      const menuEntities = isSuperAdmin
+        ? allTenantMenus
+        : allTenantMenus.filter((menu) => (tpl.menuCodes as readonly string[]).includes(menu.code));
       const role = manager.create(Role, {
         tenantId,
         name: tpl.name,
         code: tpl.code,
+        scope: 'tenant',
         isSystem: true,
-        permissions: permissionEntities,
+        menus: menuEntities,
       });
       const savedRole = await manager.save(role);
       if (isSuperAdmin) adminRole = savedRole;
     }
-    return { adminRole };
+
+    if (!adminRole) {
+      throw new InternalServerErrorException('租户管理员角色初始化失败');
+    }
+
+    return { adminRole, roleCount: Object.keys(ROLE_TEMPLATES).length };
   }
+
   /**
    * 逻辑拆分 4：创建管理员
    */
@@ -399,7 +778,11 @@ export class TenantsService {
       tenantId,
       username: dto.adminUser,
       password: hashedPassword,
-      nickname: '系统管理员',
+      realName: '系统管理员',
+      phone: dto.contactPhone,
+      email: dto.email,
+      isActive: 1,
+      isPlatformAdmin: 0,
       roles: [role],
     });
     return await manager.save(user);

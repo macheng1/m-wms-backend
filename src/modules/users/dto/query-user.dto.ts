@@ -7,6 +7,21 @@ export class QueryUserDto {
   @IsString()
   username?: string;
 
+  @ApiProperty({ description: '真实姓名模糊搜索', required: false })
+  @IsOptional()
+  @IsString()
+  realName?: string;
+
+  @ApiProperty({ description: '手机号模糊搜索', required: false })
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @ApiProperty({ description: '部门ID', required: false })
+  @IsOptional()
+  @IsString()
+  deptId?: string;
+
   @ApiProperty({ description: '页码', example: 1, required: false })
   @IsOptional()
   @IsInt()

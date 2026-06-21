@@ -22,6 +22,7 @@ export enum DeviceType {
   GATE = 'GATE', // 道闸/门禁
   CAMERA = 'CAMERA', // 摄像头
   PDA = 'PDA', // 手持终端
+  PTL_CONTROLLER = 'PTL_CONTROLLER', // 货位灯控制器
 }
 
 /**
@@ -61,6 +62,13 @@ export class Device {
   name: string;
 
   /**
+   * 设备唯一标识
+   * 例如 ESP32 MAC、厂商序列号等。可空以兼容历史设备。
+   */
+  @Column({ length: 100, nullable: true, unique: true })
+  deviceUid: string;
+
+  /**
    * 设备类型
    */
   @Column({
@@ -96,6 +104,7 @@ export class Device {
     ip?: string;
     port?: number;
     protocol?: string; // HTTP, MQTT, TCP, Serial, WebSocket等
+    mqttTopicPrefix?: string; // MQTT topic 前缀，如 mwms/ptl
 
     // 认证信息
     apiKey?: string;
@@ -106,6 +115,10 @@ export class Device {
     rfidFrequency?: string; // RFID频率
     scannerType?: string; // 扫码类型
     agvSpeed?: number; // AGV速度
+    mac?: string; // 设备 MAC
+    firmwareVersion?: string; // 固件版本
+    ledCount?: number; // 灯珠数量
+    heartbeatInterval?: number; // 心跳间隔秒数
 
     // 回调配置
     webhookUrl?: string;

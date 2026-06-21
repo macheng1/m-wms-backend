@@ -35,6 +35,11 @@ export class UpdatePortalConfigDto {
   @IsObject()
   seoConfig?: Record<string, any>;
 
+  @ApiProperty({ required: false, description: '首页模块配置 JSON' })
+  @IsOptional()
+  @IsObject()
+  homeConfig?: Record<string, any>;
+
   @ApiProperty({ required: false, example: 1, description: '1启用，0禁用' })
   @IsOptional()
   @IsNumber()

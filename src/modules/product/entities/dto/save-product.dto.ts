@@ -31,15 +31,30 @@ export class SaveProductDto {
   @IsString()
   code?: string;
 
+  @ApiProperty({ description: '产品条形码（不传则默认等于SKU编码）', required: false })
+  @IsOptional()
+  @IsString()
+  barcode?: string;
+
   @ApiProperty({ description: '所属类目ID' })
   @IsNotEmpty({ message: '必须选择一个类目' })
   @IsString()
   categoryId: string;
 
+  @ApiProperty({ description: '库存主单位ID' })
+  @IsNotEmpty({ message: '必须选择库存主单位' })
+  @IsString()
+  unitId: string;
+
   @ApiProperty({ description: '单位', example: '支', required: false })
   @IsOptional()
   @IsString()
   unit?: string;
+
+  @ApiProperty({ description: '产品描述', required: false })
+  @IsOptional()
+  @IsString()
+  description?: string;
 
   /**
    * 核心：动态规格存储 (对应 MySQL JSON 列)
