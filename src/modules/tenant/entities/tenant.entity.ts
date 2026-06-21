@@ -15,6 +15,14 @@ export class Tenant extends BaseEntity {
   @Column({ unique: true, comment: '工厂/租户全称' })
   name: string;
 
+  @Column({
+    type: 'enum',
+    enum: ['platform', 'miniapp', 'import', 'api'],
+    default: 'platform',
+    comment: '租户来源：platform平台后台/miniapp小程序/import导入/api开放接口',
+  })
+  tenantSource: 'platform' | 'miniapp' | 'import' | 'api';
+
   /**
    * 逻辑关联：存储字典表中 type='INDUSTRY' 的 value
    * 对应你入驻页面上的“所属行业”选择
@@ -116,4 +124,31 @@ export class Tenant extends BaseEntity {
     comment: '租户状态：是否激活 (1启用/0禁用)',
   })
   isActive: number;
+
+  @Column({
+    type: 'tinyint',
+    default: 0,
+    comment: '审核状态：1通过，0待审核',
+  })
+  isApproved: number;
+
+  @Column({
+    type: 'enum',
+    enum: ['pending', 'active', 'rejected', 'disabled', 'expired'],
+    default: 'pending',
+    comment: '租户生命周期状态',
+  })
+  lifecycleStatus: 'pending' | 'active' | 'rejected' | 'disabled' | 'expired';
+
+  @Column({ nullable: true, type: 'datetime', comment: '到期时间' })
+  expiresAt: Date | null;
+
+  @Column({ nullable: true, type: 'datetime', comment: '审核通过时间' })
+  approvedAt: Date | null;
+
+  @Column({ nullable: true, type: 'text', comment: '审核备注' })
+  auditRemark: string | null;
+
+  @Column({ nullable: true, type: 'text', comment: '禁用原因' })
+  disabledReason: string | null;
 }

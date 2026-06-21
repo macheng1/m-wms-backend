@@ -14,14 +14,9 @@ export class Unit extends TenantBaseEntity {
   @Column({
     type: 'enum',
     enum: UnitCategory,
+    default: UnitCategory.COUNT,
   })
   category: UnitCategory;
-
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 1 })
-  baseRatio: number;
-
-  @Column({ length: 20 })
-  baseUnitCode: string;
 
   @Column({ length: 20, nullable: true })
   symbol: string;

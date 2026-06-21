@@ -1,16 +1,23 @@
 // src/modules/portal/portal.service.ts
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Like, Repository } from 'typeorm';
 
 import { Category } from '../product/entities/category.entity';
 
 import { PortalConfig } from './entities/portal-config.entity';
 import { Inquiry } from './entities/inquiry.entity';
+import { PortalJob } from './entities/portal-job.entity';
 import { Product } from '../product/product.entity';
 import { Tenant } from '../tenant/entities/tenant.entity';
+import { QueryPortalJobDto, SavePortalJobDto } from './dto/portal-job.dto';
+import { BusinessException } from '@/common/filters/business.exception';
 import { NotificationsService } from '../notifications/services/notifications.service';
-import { NotificationType, NotificationCategory, NotificationPriority } from '../notifications/interfaces/notification-type.enum';
+import {
+  NotificationType,
+  NotificationCategory,
+  NotificationPriority,
+} from '../notifications/interfaces/notification-type.enum';
 
 @Injectable()
 export class PortalService {
@@ -18,6 +25,7 @@ export class PortalService {
     @InjectRepository(Tenant) private tenantRepo: Repository<Tenant>,
     @InjectRepository(PortalConfig) private configRepo: Repository<PortalConfig>,
     @InjectRepository(Inquiry) private inquiryRepo: Repository<Inquiry>,
+    @InjectRepository(PortalJob) private jobRepo: Repository<PortalJob>,
     @InjectRepository(Category) private categoryRepo: Repository<Category>,
     @InjectRepository(Product) private productRepo: Repository<Product>,
     private readonly notificationsService: NotificationsService,
@@ -47,61 +55,98 @@ export class PortalService {
     }
 
     // 2. 并行查询配置信息和带产品的类目信息
-    const [config, categories] = await Promise.all([
+    const [config, categories, jobs] = await Promise.all([
       this.configRepo.findOne({ where: { tenantId: tenant.id, isActive: 1 } }),
       this.categoryRepo.find({
+        where: [
+          { tenantId: tenant.id, isActive: 1 },
+          { tenantId: IsNull(), isActive: 1 },
+        ],
+        relations: ['products', 'attributes'],
+        order: { tenantId: 'ASC', createdAt: 'ASC' },
+      }),
+      this.jobRepo.find({
         where: { tenantId: tenant.id, isActive: 1 },
-        relations: ['products'],
-        order: { id: 'ASC' },
+        order: { sortOrder: 'ASC', createdAt: 'ASC' },
       }),
     ]);
 
     // 3. 准备快捷变量
     const footerInfo = config?.footerInfo || {};
-    console.log('🚀 ~ PortalService ~ getPortalInitData ~ footerInfo:', footerInfo);
     const seoConfig = config?.seoConfig || {};
+    const homeConfig = config?.homeConfig || {};
+    const displayContactPerson = footerInfo.contactPerson || tenant.contactPerson || '业务部';
+    const displayPhone = footerInfo.phone || tenant.contactPhone || '请完善联系电话';
+    const displayAddress =
+      footerInfo.address || tenant.factoryAddress || tenant.address || '请完善工厂地址';
 
     // 4. 核心：转换动态规格的产品列表
-    const formattedProducts = categories.map((cat) => ({
-      categoryName: cat.name,
-      categoryEn: cat.code, // 使用类目编码作为英文名/标识
-      items: (cat.products || [])
-        .filter((p) => p.isActive === 1)
-        .map((p) => {
-          const rawSpecs = p.specs || {};
-          const specEntries = Object.entries(rawSpecs);
+    const formattedProducts = categories
+      .map((cat) => {
+        const attributes = cat.attributes || [];
+        const formatSpecEntries = (rawSpecs: Record<string, any>) =>
+          Object.entries(rawSpecs || {}).map(([key, value]) => {
+            const attr = attributes.find((item) => item.code === key || item.name === key);
+            return {
+              label: attr?.name || key,
+              code: key,
+              value: String(value),
+            };
+          });
 
-          // 转换为前端易读的 [{ label, value }] 数组
-          const formattedSpecs = specEntries.map(([label, value]) => ({
-            label,
-            value: String(value),
-          }));
+        return {
+          categoryName: cat.name,
+          categoryEn: cat.code, // 使用类目编码作为英文名/标识
+          items: (cat.products || [])
+            .filter((p) => p.tenantId === tenant.id && p.isActive === 1)
+            .map((p) => {
+              const rawSpecs = p.specs || {};
+              const formattedSpecs = formatSpecEntries(rawSpecs);
+              const materialSpec =
+                formattedSpecs.find((item) => item.label.includes('材质')) || formattedSpecs[0];
+              const mainSpec =
+                formattedSpecs.find((item) => item.label.includes('规格')) ||
+                formattedSpecs.find((item) => item.label.includes('长度')) ||
+                formattedSpecs[1];
 
-          return {
-            id: p.id,
-            name: p.name,
-            code: p.code,
-            // 兼容性字段：取前两个规格作为主展示，若无则显示短横线
-            material: specEntries[0]?.[1] || '-',
-            diameter: specEntries[1]?.[1] || '-',
-            // 全量动态规格
-            allSpecs: formattedSpecs,
-            image: p.images?.[0] || '', // 取首图
-            isPublic: true,
-          };
-        }),
-    }));
+              return {
+                id: p.id,
+                name: p.name,
+                code: p.code,
+                // 兼容性字段：卡片主展示
+                material: materialSpec?.value || '-',
+                diameter: mainSpec ? `${mainSpec.label}: ${mainSpec.value}` : '-',
+                // 全量动态规格
+                allSpecs: formattedSpecs,
+                image: p.images?.[0] || '', // 取首图
+                isPublic: true,
+              };
+            }),
+        };
+      })
+      .filter((cat) => cat.items.length > 0);
 
     // 5. 按照要求的格式组装全量数据
     return {
       // --- 1. 基础全局信息 ---
-      name: tenant.name,
+      name: config?.title || tenant.name,
+      tenantName: tenant.name,
       code: tenant.code,
-      contactPerson: tenant.contactPerson || footerInfo.contactPerson || '业务部',
-      phone: footerInfo.phone || '请完善联系电话',
-      address: footerInfo.address || tenant.factoryAddress || tenant.address || '请完善工厂地址',
+      contactPerson: displayContactPerson,
+      phone: displayPhone,
+      address: displayAddress,
       intro: config?.description || '深耕制造业，提供高品质工业解决方案。',
       slogan: config?.slogan || '赋能制造律动，链接工业未来',
+      website: tenant.website || '',
+      businessInfo: {
+        foundDate: tenant.foundDate,
+        staffCount: tenant.staffCount,
+        mainProducts: tenant.mainProducts,
+        annualCapacity: tenant.annualCapacity,
+        industryType: tenant.industryType,
+      },
+      seo: seoConfig,
+      homeConfig,
 
       // --- 2. 导航栏配置 ---
       navbar: {
@@ -111,6 +156,7 @@ export class PortalService {
         menuItems: [
           { label: '首页', href: `/portal/${domain}/zh` },
           { label: '产品中心', href: `/portal/${domain}/zh/products` },
+          { label: '招聘', href: `/portal/${domain}/zh/jobs` },
           { label: '联系我们', href: `/portal/${domain}/zh/contact` },
         ],
         className: 'portal-header-custom',
@@ -120,7 +166,7 @@ export class PortalService {
       products: formattedProducts,
 
       // --- 4. 业务扩展模块 (暂给默认值) ---
-      jobs: [],
+      jobs,
       posts: [],
 
       // --- 5. 页脚配置 ---
@@ -131,14 +177,15 @@ export class PortalService {
             title: '快捷导航',
             list: [
               { label: '产品中心', link: `/portal/${domain}/zh/products` },
+              { label: '招聘', link: `/portal/${domain}/zh/jobs` },
               { label: '官方首页', link: `/portal/${domain}/zh` },
             ],
           },
           {
             title: '联系我们',
             list: [
-              { label: `电话：${footerInfo.phone}`, link: `tel:${footerInfo.phone}` },
-              { label: `地址：${footerInfo.address}` },
+              { label: `电话：${displayPhone}`, link: `tel:${displayPhone}` },
+              { label: `地址：${displayAddress}` },
             ],
           },
         ],
@@ -147,7 +194,7 @@ export class PortalService {
           text: '微信扫码联系工厂',
         },
         copyRight: footerInfo.copyright || `© ${new Date().getFullYear()} ${tenant.name} 版权所有`,
-        siteNumber: footerInfo.icp || '备案号申请中',
+        siteNumber: footerInfo.icp || '苏ICP备2024067044号',
         publicNumber: footerInfo.publicNumber || '',
       },
     };
@@ -160,17 +207,29 @@ export class PortalService {
     const tenant = await this.getTenantByDomain(domain);
     const product = await this.productRepo.findOne({
       where: { id: productId, tenantId: tenant.id, isActive: 1 },
-      relations: ['category'],
+      relations: ['category', 'category.attributes'],
     });
     if (!product) throw new NotFoundException('产品信息不存在');
-    return product;
+    const attributes = product.category?.attributes || [];
+    const specs = Object.entries(product.specs || {}).reduce(
+      (result, [key, value]) => {
+        const attr = attributes.find((item) => item.code === key || item.name === key);
+        result[attr?.name || key] = value;
+        return result;
+      },
+      {} as Record<string, any>,
+    );
+
+    return {
+      ...product,
+      specs,
+    };
   }
 
   /**
    * 提交询盘
    */
   async submitInquiry(domain: string, data: any) {
-    console.log('🚀 ~ PortalService ~ submitInquiry ~ data:', data);
     const tenant = await this.getTenantByDomain(domain);
 
     // 保存询价记录
@@ -226,6 +285,23 @@ export class PortalService {
     return await this.configRepo.save(config);
   }
 
+  async getConfig(tenantId: string): Promise<Partial<PortalConfig>> {
+    const config = await this.configRepo.findOne({ where: { tenantId } });
+    if (config) return config;
+
+    return {
+      tenantId,
+      title: '',
+      logo: '',
+      slogan: '',
+      description: '',
+      footerInfo: {},
+      seoConfig: {},
+      homeConfig: {},
+      isActive: 1,
+    };
+  }
+
   /**
    * 获取询盘列表（分页+条件）
    * @param tenantId 租户ID
@@ -239,6 +315,7 @@ export class PortalService {
     pageSize = 20,
     filters?: {
       name?: string;
+      status?: string;
     },
   ) {
     const qb = this.inquiryRepo
@@ -247,6 +324,9 @@ export class PortalService {
 
     if (filters?.name) {
       qb.andWhere('inquiry.name LIKE :name', { name: `%${filters.name}%` });
+    }
+    if (filters?.status && filters.status !== 'all') {
+      qb.andWhere('inquiry.status = :status', { status: filters.status });
     }
 
     qb.orderBy('inquiry.createdAt', 'DESC')
@@ -261,5 +341,72 @@ export class PortalService {
       pageSize,
       totalPages: Math.ceil(total / pageSize),
     };
+  }
+
+  async getInquiryDetail(tenantId: string, id: string) {
+    const inquiry = await this.inquiryRepo.findOne({ where: { id, tenantId } });
+    if (!inquiry) throw new BusinessException('询盘不存在');
+    return inquiry;
+  }
+
+  async updateInquiryStatus(tenantId: string, id: string, status: 'unread' | 'read' | 'replied') {
+    const inquiry = await this.getInquiryDetail(tenantId, id);
+    inquiry.status = status;
+    return this.inquiryRepo.save(inquiry);
+  }
+
+  async updateInquiryRemark(tenantId: string, id: string, adminRemark: string) {
+    const inquiry = await this.getInquiryDetail(tenantId, id);
+    inquiry.adminRemark = adminRemark;
+    return this.inquiryRepo.save(inquiry);
+  }
+
+  async getJobs(tenantId: string, query: QueryPortalJobDto = {}) {
+    const page = Number(query.page || 1);
+    const pageSize = Number(query.pageSize || 10);
+    const where: any = { tenantId };
+    if (query.position) where.position = Like(`%${query.position}%`);
+    if (query.isActive !== undefined && Number(query.isActive) !== -1) {
+      where.isActive = Number(query.isActive);
+    }
+
+    const [list, total] = await this.jobRepo.findAndCount({
+      where,
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      order: { sortOrder: 'ASC', createdAt: 'ASC' },
+    });
+
+    return { list, total, page, pageSize };
+  }
+
+  async getJobDetail(tenantId: string, id: string) {
+    const job = await this.jobRepo.findOne({ where: { id, tenantId } });
+    if (!job) throw new BusinessException('招聘职位不存在');
+    return job;
+  }
+
+  async saveJob(tenantId: string, dto: SavePortalJobDto) {
+    const payload = {
+      ...dto,
+      tenantId,
+      count: Number(dto.count || 1),
+      sortOrder: Number(dto.sortOrder || 0),
+      isActive: Number(dto.isActive ?? 1),
+    };
+
+    if (dto.id) {
+      const job = await this.getJobDetail(tenantId, dto.id);
+      Object.assign(job, payload);
+      return this.jobRepo.save(job);
+    }
+
+    return this.jobRepo.save(this.jobRepo.create(payload));
+  }
+
+  async deleteJob(tenantId: string, id: string) {
+    await this.getJobDetail(tenantId, id);
+    await this.jobRepo.delete({ id, tenantId });
+    return { message: '删除成功' };
   }
 }

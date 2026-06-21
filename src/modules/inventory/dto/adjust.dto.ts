@@ -12,10 +12,10 @@ export class AdjustInventoryDto {
   @IsNotEmpty()
   quantity: number;
 
-  @ApiProperty({ description: '单位编码' })
+  @ApiPropertyOptional({ description: '单位编码（可选；必须与产品库存单位一致）' })
   @IsString()
-  @IsNotEmpty()
-  unitCode: string;
+  @IsOptional()
+  unitCode?: string;
 
   @ApiProperty({ description: '调整原因', example: '盘点调整' })
   @IsString()

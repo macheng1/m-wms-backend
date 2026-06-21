@@ -1,5 +1,16 @@
 // src/modules/tenants/tenants.controller.ts
-import { Controller, Post, Body, HttpCode, HttpStatus, Param, Delete, Patch } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Delete,
+  Patch,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 
 import { CreateTenantDto } from './dto/create-tenant.dto';
@@ -7,11 +18,17 @@ import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { DetailTenantDto } from './dto/detail-tenant.dto';
 import { TenantsService } from './tenants.service';
 import { Public } from '@/common/decorators/public.decorator';
+import { PublicTenantDetailDto, PublicTenantListDto } from './dto/public-tenant.dto';
+import { AuditLogService } from '@/common/audit/audit-log.service';
+import { PlatformAdminGuard } from '@/common/guards/platform-admin.guard';
 
 @ApiTags('租户管理 (SaaS)') // 更加清晰的 Swagger 分类
 @Controller('tenants')
 export class TenantController {
-  constructor(private readonly tenantsService: TenantsService) {}
+  constructor(
+    private readonly tenantsService: TenantsService,
+    private readonly auditLogService: AuditLogService,
+  ) {}
 
   /**
    * 工厂入驻 (Onboard)
@@ -28,44 +45,105 @@ export class TenantController {
   }
 
   @Post('list')
-  @ApiOperation({ summary: '分页查询租户列表' })
-  async findAll(@Body() body: { page?: number; pageSize?: number }) {
-    const { page = 1, pageSize = 20 } = body || {};
-    return await this.tenantsService.findAll({ page: Number(page), pageSize: Number(pageSize) });
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '分页查询租户列表（仅平台超管）' })
+  async findAll(
+    @Body()
+    body: {
+      page?: number;
+      pageSize?: number;
+      tenantSource?: 'platform' | 'miniapp' | 'import' | 'api' | 'all';
+    },
+  ) {
+    const { page = 1, pageSize = 20, tenantSource } = body || {};
+    return await this.tenantsService.findAll({
+      page: Number(page),
+      pageSize: Number(pageSize),
+      tenantSource,
+    });
   }
 
   @Post('public/list')
-  @ApiOperation({ summary: '第三方调用 - 分页查询租户列表' })
+  @ApiOperation({ summary: '公开分页查询租户列表' })
   @Public()
-  async publicFindAll(@Body() body: { page?: number; pageSize?: number }) {
-    const { page = 1, pageSize = 20 } = body || {};
-    return await this.tenantsService.findAll({ page: Number(page), pageSize: Number(pageSize) });
+  async publicFindAll(@Body() body: PublicTenantListDto, @Req() req) {
+    const { page = 1, pageSize = 20, tenantSource, name } = body || {};
+    const result = await this.tenantsService.findPublicAll({
+      page: Number(page),
+      pageSize: Number(pageSize),
+      tenantSource,
+      name,
+    });
+    await this.auditLogService.record({
+      scope: 'platform',
+      module: 'open-api',
+      action: 'tenant.public.list',
+      targetType: 'tenant',
+      description: '第三方调用租户公开列表',
+      ip: this.auditLogService.fromRequest(req).ip,
+    });
+    return result;
   }
 
   @Post('detail')
-  @ApiOperation({ summary: '获取租户详情' })
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '获取租户详情（仅平台超管）' })
   async findOne(@Body() body: DetailTenantDto) {
     return await this.tenantsService.findOne(body.id);
   }
 
   @Post('public/detail')
-  @ApiOperation({ summary: '第三方调用 - 获取租户详情' })
+  @ApiOperation({ summary: '公开获取租户详情' })
   @Public()
-  async publicFindOne(@Body() body: { id: string }) {
-    return await this.tenantsService.findOne(body.id);
+  async publicFindOne(@Body() body: PublicTenantDetailDto, @Req() req) {
+    const result = await this.tenantsService.findPublicOne(body.id);
+    await this.auditLogService.record({
+      scope: 'platform',
+      module: 'open-api',
+      action: 'tenant.public.detail',
+      targetType: 'tenant',
+      targetId: body.id,
+      description: '第三方调用租户公开详情',
+      ip: this.auditLogService.fromRequest(req).ip,
+    });
+    return result;
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: '修改租户信息' })
-  async update(@Param('id') id: string, @Body() updateTenantDto: UpdateTenantDto) {
-    // 这里假设 tenantsService 有 update 方法，需自行实现
-    return await this.tenantsService.update(id, updateTenantDto);
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '修改租户信息（仅平台超管）' })
+  async update(
+    @Param('id') id: string,
+    @Body() updateTenantDto: UpdateTenantDto,
+    @Req() req,
+  ) {
+    const result = await this.tenantsService.update(id, updateTenantDto);
+    await this.auditLogService.record({
+      ...this.auditLogService.fromRequest(req),
+      scope: 'platform',
+      module: 'tenant',
+      action: 'tenant.update',
+      targetType: 'tenant',
+      targetId: id,
+      description: '平台超管修改租户信息',
+    });
+    return result;
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: '删除租户' })
-  async remove(@Param('id') id: string) {
-    // 这里假设 tenantsService 有 remove 方法，需自行实现
-    return await this.tenantsService.remove(id);
+  @UseGuards(PlatformAdminGuard)
+  @ApiOperation({ summary: '删除租户（仅平台超管，软删除）' })
+  async remove(@Param('id') id: string, @Req() req) {
+    const result = await this.tenantsService.remove(id);
+    await this.auditLogService.record({
+      ...this.auditLogService.fromRequest(req),
+      scope: 'platform',
+      module: 'tenant',
+      action: 'tenant.delete',
+      targetType: 'tenant',
+      targetId: id,
+      description: '平台超管删除租户（软删除）',
+    });
+    return result;
   }
 }

@@ -1,13 +1,16 @@
 // src/modules/product/service/product-import.service.ts
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import * as ExcelJS from 'exceljs';
+import * as JSZip from 'jszip';
+import * as path from 'path';
 import { Product } from '../product.entity';
 import { Category } from '../entities/category.entity';
-import { Attribute } from '../entities/attribute.entity';
 import { ImportProductResultDto } from '../entities/dto/import-product.dto';
 import { BaseImportService } from '@/common/services/base-import.service';
+import { OssService } from '@/modules/aliyun/oss/oss.service';
+import { Unit } from '@/modules/unit/entities/unit.entity';
 
 /**
  * 产品导入导出服务
@@ -20,46 +23,46 @@ export class ProductImportService extends BaseImportService {
     private readonly productRepo: Repository<Product>,
     @InjectRepository(Category)
     private readonly categoryRepo: Repository<Category>,
+    @InjectRepository(Unit)
+    private readonly unitRepo: Repository<Unit>,
+    private readonly ossService: OssService,
   ) {
     super();
   }
 
   /**
    * 生成导入模板 Excel 文件
-   * @param categoryCode 类目编码，如果提供则生成该类目的专属模板（属性展开为独立列）
+   * @param categoryCode 类目编码，如果提供则生成仅包含该类目的通用模板
    * @param tenantId 租户ID
    * @returns Excel 文件 Buffer
    */
   async generateTemplate(categoryCode?: string, tenantId?: string): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook();
 
-    if (categoryCode) {
-      return await this.generateCategoryTemplate(workbook, categoryCode, tenantId);
-    }
-
-    return await this.generateGenericTemplate(workbook, tenantId);
+    return await this.generateGenericTemplate(workbook, tenantId, categoryCode);
   }
 
   /**
    * 生成通用导入模板（支持所有类目，属性列为通用列）
    * @param workbook Excel 工作簿
    * @param tenantId 租户ID
+   * @param categoryCode 类目编码，如果提供则模板中的类目数据只包含该类目
    * @returns Excel 文件 Buffer
    */
   private async generateGenericTemplate(
     workbook: ExcelJS.Workbook,
     tenantId?: string,
+    categoryCode?: string,
   ): Promise<Buffer> {
-    const categoryWhere: any = {};
-    if (tenantId) {
-      categoryWhere.tenantId = tenantId;
-    }
-
     const categories = await this.categoryRepo.find({
-      where: categoryWhere,
+      where: this.buildReadableCategoryWhere(tenantId, categoryCode),
       relations: ['attributes', 'attributes.options'],
       order: { name: 'ASC' },
     });
+
+    if (categoryCode && categories.length === 0) {
+      throw new BadRequestException(`类目编码 ${categoryCode} 不存在`);
+    }
 
     // 创建工作表（先创建主工作表，再创建数据工作表）
     const worksheet = workbook.addWorksheet('产品导入');
@@ -98,9 +101,12 @@ export class ProductImportService extends BaseImportService {
     worksheet.columns = [
       { header: '产品名称*', key: 'name', width: 20 },
       { header: '类目*', key: 'categoryCode', width: 15 },
-      { header: '产品编码', key: 'code', width: 18 },
-      { header: '产品图片', key: 'images', width: 50 },
-      { header: '单位', key: 'unit', width: 10 },
+      { header: '产品图片1', key: 'image1', width: 24 },
+      { header: '产品图片2', key: 'image2', width: 24 },
+      { header: '产品图片3', key: 'image3', width: 24 },
+      { header: '产品图片4', key: 'image4', width: 24 },
+      { header: '产品图片5', key: 'image5', width: 24 },
+      { header: '库存主单位*', key: 'unit', width: 14 },
       { header: '安全库存', key: 'safetyStock', width: 12 },
       { header: '状态', key: 'isActive', width: 8 },
       { header: '属性1', key: 'attr1', width: 15 },
@@ -130,12 +136,20 @@ export class ProductImportService extends BaseImportService {
 
     // 为属性列添加不同颜色的背景
     const attrColors = [
-      'FFF2F2F2', 'FFE6F2FF', 'FFF2FFF2', 'FFFFF2F2', 'FFF0F0F0',
-      'FFE6E6FA', 'FFF0E68C', 'FFDDA0DD', 'FF98FB98', 'FFAFEEEE'
+      'FFF2F2F2',
+      'FFE6F2FF',
+      'FFF2FFF2',
+      'FFFFF2F2',
+      'FFF0F0F0',
+      'FFE6E6FA',
+      'FFF0E68C',
+      'FFDDA0DD',
+      'FF98FB98',
+      'FFAFEEEE',
     ];
     for (let i = 0; i < 10; i++) {
-      const attrColIndex = 8 + i * 2;
-      const valColIndex = 9 + i * 2;
+      const attrColIndex = 11 + i * 2;
+      const valColIndex = 12 + i * 2;
       worksheet.eachRow((row, rowNumber) => {
         if (rowNumber === 1) return;
         row.getCell(attrColIndex).fill = {
@@ -159,12 +173,20 @@ export class ProductImportService extends BaseImportService {
     worksheet.addRow(['2. 属性列：选择类目后，查看下方的【类目属性对照表】，选择对应的属性']);
     worksheet.addRow(['3. 属性值列：填写对应属性的值（下拉选择类型只能填写对照表中列出的可选值）']);
     worksheet.addRow(['4. 可以填写多个属性（最多10个），不用的属性列可以留空']);
-    worksheet.addRow(['5. 产品编码、图片可以留空']);
-    worksheet.addRow(['6. 状态：1启用/0禁用']);
+    worksheet.addRow(['5. 产品图片可以留空，最多5张；每张图片请填写或插入到一个独立的产品图片单元格']);
+    worksheet.addRow(['6. 产品编码由系统自动生成']);
+    worksheet.addRow(['7. 库存主单位：填写单位编码、名称或符号，如 PCS、个、箱']);
+    worksheet.addRow(['8. 状态：是启用/否禁用，不填默认为是']);
 
     const infoEndRow = worksheet.rowCount;
-    const endColLetter = 'AA';
-    this.setInstructionAreaStyle(worksheet, infoStartRow, infoEndRow, endColLetter, infoStartRow + 1);
+    const endColLetter = 'AD';
+    this.setInstructionAreaStyle(
+      worksheet,
+      infoStartRow,
+      infoEndRow,
+      endColLetter,
+      infoStartRow + 1,
+    );
 
     // 添加类目属性对照表
     const refStartRow = worksheet.rowCount + 1;
@@ -243,9 +265,36 @@ export class ProductImportService extends BaseImportService {
     // 添加示例数据
     worksheet.addRow(['示例：']);
     worksheet.addRow([
-      '产品名称*', '类目*', '产品编码', '产品图片', '单位', '安全库存', '状态',
-      '属性1', '属性1值', '属性2', '属性2值', '属性3', '属性3值', '属性4', '属性4值', '属性5', '属性5值',
-      '属性6', '属性6值', '属性7', '属性7值', '属性8', '属性8值', '属性9', '属性9值', '属性10', '属性10值',
+      '产品名称*',
+      '类目*',
+      '产品图片1',
+      '产品图片2',
+      '产品图片3',
+      '产品图片4',
+      '产品图片5',
+      '库存主单位*',
+      '安全库存',
+      '状态',
+      '属性1',
+      '属性1值',
+      '属性2',
+      '属性2值',
+      '属性3',
+      '属性3值',
+      '属性4',
+      '属性4值',
+      '属性5',
+      '属性5值',
+      '属性6',
+      '属性6值',
+      '属性7',
+      '属性7值',
+      '属性8',
+      '属性8值',
+      '属性9',
+      '属性9值',
+      '属性10',
+      '属性10值',
     ]);
 
     const sampleCategory = categories.find((c) => c.attributes && c.attributes.length > 0);
@@ -254,7 +303,14 @@ export class ProductImportService extends BaseImportService {
       const sampleValues: any[] = [
         `${sampleCategory.name}示例1`,
         `${sampleCategory.name}|${sampleCategory.code}`,
-        '', '', '个', '100', '1',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '个',
+        '100',
+        '是',
       ];
       for (let i = 0; i < 10; i++) {
         if (attrs[i]) {
@@ -294,20 +350,20 @@ export class ProductImportService extends BaseImportService {
       };
 
       // 状态下拉验证
-      const statusCell = worksheet.getCell(row, 7);
+      const statusCell = worksheet.getCell(row, 10);
       statusCell.dataValidation = {
         type: 'list',
         allowBlank: true,
-        formulae: ['"1,0"'],
+        formulae: ['"是,否"'],
         showErrorMessage: true,
         errorStyle: 'error',
         errorTitle: '输入错误',
-        error: '请选择 1 或 0',
+        error: '请选择 是 或 否',
       };
 
       // 属性名列下拉验证
       for (let i = 0; i < 10; i++) {
-        const attrCell = worksheet.getCell(row, 8 + i * 2);
+        const attrCell = worksheet.getCell(row, 11 + i * 2);
         attrCell.dataValidation = {
           type: 'list',
           allowBlank: true,
@@ -321,152 +377,13 @@ export class ProductImportService extends BaseImportService {
     return await this.generateBuffer(workbook);
   }
 
-  /**
-   * 生成类目专属导入模板
-   */
-  private async generateCategoryTemplate(
-    workbook: ExcelJS.Workbook,
-    categoryCode: string,
-    tenantId?: string,
-  ): Promise<Buffer> {
-    const category = await this.categoryRepo.findOne({
-      where: { code: categoryCode, ...(tenantId && { tenantId }) },
-      relations: ['attributes', 'attributes.options'],
-    });
-
-    if (!category) {
-      throw new BadRequestException(`类目编码 ${categoryCode} 不存在`);
+  private buildReadableCategoryWhere(tenantId?: string, categoryCode?: string) {
+    const baseWhere = categoryCode ? { code: categoryCode } : {};
+    if (!tenantId) {
+      return { ...baseWhere, tenantId: IsNull() };
     }
 
-    const worksheet = workbook.addWorksheet(`${category.name}-导入模板`);
-
-    const baseColumns = [
-      { header: '产品名称*', key: 'name', width: 25 },
-      { header: '产品编码', key: 'code', width: 20 },
-      { header: '产品图片', key: 'images', width: 60 },
-      { header: '单位', key: 'unit', width: 12 },
-      { header: '安全库存', key: 'safetyStock', width: 12 },
-      { header: '状态', key: 'isActive', width: 10 },
-    ];
-
-    const attributeColumns: Array<{ header: string; key: string; width: number; attribute: Attribute }> = [];
-    for (const attr of category.attributes || []) {
-      const header = attr.unit ? `${attr.name}(${attr.unit})` : attr.name;
-      attributeColumns.push({
-        header: `${header}${attr.type === 'select' ? '*' : ''}`,
-        key: attr.code,
-        width: 18,
-        attribute: attr,
-      });
-    }
-
-    worksheet.columns = [...baseColumns, ...attributeColumns];
-    this.setHeaderStyle(worksheet);
-
-    const endCol = String.fromCharCode(65 + baseColumns.length + attributeColumns.length - 1);
-
-    worksheet.addRow([]);
-    worksheet.addRow([`【${category.name}】产品导入模板`]);
-    worksheet.mergeCells(`A2:${endCol}2`);
-    const categoryRow = worksheet.getRow(2);
-    categoryRow.font = { bold: true, size: 14 };
-    categoryRow.alignment = { vertical: 'middle', horizontal: 'center' };
-
-    worksheet.addRow(['说明：']);
-    const descRowNum = worksheet.rowCount;
-    worksheet.addRow(['1. 带 * 号的属性列必须填写（下拉选择类型必填）']);
-    worksheet.addRow(['2. 产品编码不填则自动生成']);
-    worksheet.addRow(['3. 安全库存填写数字，不填默认为 0']);
-    worksheet.addRow(['4. 状态：1启用/0禁用，不填默认为 1']);
-    worksheet.addRow(['5. 下拉选择类型的属性只能填写已配置的选项值']);
-    worksheet.addRow(['6. 示例数据见下方']);
-    worksheet.addRow(['']);
-
-    for (let i = descRowNum; i <= worksheet.rowCount; i++) {
-      worksheet.mergeCells(`A${i}:${endCol}${i}`);
-    }
-
-    const exampleHeaderRow = worksheet.rowCount + 1;
-    const exampleHeaders = [
-      '示例产品名称', '产品编码(选填)', '产品图片(URL)', '单位', '安全库存', '状态',
-    ];
-    for (const attrCol of attributeColumns) {
-      exampleHeaders.push(`${attrCol.attribute.name}${attrCol.attribute.type === 'select' ? '(从下拉选择)' : ''}`);
-    }
-    worksheet.addRow(exampleHeaders);
-
-    for (let rowIdx = 0; rowIdx < 3; rowIdx++) {
-      const rowData: any[] = [
-        `${category.name}示例${rowIdx + 1}`, '',
-        rowIdx === 0 ? 'http://oss.example.com/product.jpg' : '',
-        '个', 100 * (rowIdx + 1), '1',
-      ];
-
-      for (const attrCol of attributeColumns) {
-        const attr = attrCol.attribute;
-        let exampleValue = '';
-        if (attr.type === 'select') {
-          exampleValue = attr.options && attr.options.length > 0 ? attr.options[0].value : '(请先配置选项)';
-        } else if (attr.type === 'number') {
-          exampleValue = String(10 * (rowIdx + 1));
-        } else {
-          exampleValue = attr.name === '备注' ? '可选填备注信息' : `示例${rowIdx + 1}`;
-        }
-        rowData.push(exampleValue);
-      }
-      worksheet.addRow(rowData);
-    }
-
-    worksheet.eachRow((row, rowNumber) => {
-      if (rowNumber === 1) {
-        row.eachCell((cell) => {
-          cell.border = {
-            top: { style: 'thin' },
-            left: { style: 'thin' },
-            bottom: { style: 'thin' },
-            right: { style: 'thin' },
-          };
-        });
-      }
-    });
-
-    const statusColIdx = baseColumns.length;
-    for (let i = exampleHeaderRow + 1; i <= 1000; i++) {
-      const cell = worksheet.getCell(i, statusColIdx);
-      cell.dataValidation = {
-        type: 'list',
-        allowBlank: true,
-        formulae: ['"1,0"'],
-        showErrorMessage: true,
-        errorStyle: 'error',
-        errorTitle: '输入错误',
-        error: '请选择 1 或 0',
-      };
-    }
-
-    for (let i = 0; i < attributeColumns.length; i++) {
-      const attrCol = attributeColumns[i];
-      if (attrCol.attribute.type === 'select' && attrCol.attribute.options) {
-        const options = attrCol.attribute.options.map((o) => o.value);
-        if (options.length > 0) {
-          const colIdx = baseColumns.length + i + 1;
-          for (let row = exampleHeaderRow + 1; row <= 1000; row++) {
-            const cell = worksheet.getCell(row, colIdx);
-            cell.dataValidation = {
-              type: 'list',
-              allowBlank: false,
-              formulae: [`"${options.join(',')}"`],
-              showErrorMessage: true,
-              errorStyle: 'error',
-              errorTitle: '输入错误',
-              error: `请选择：${options.join('、')}`,
-            };
-          }
-        }
-      }
-    }
-
-    return await this.generateBuffer(workbook);
+    return [{ ...baseWhere, tenantId }, { ...baseWhere, tenantId: IsNull() }];
   }
 
   /**
@@ -489,14 +406,14 @@ export class ProductImportService extends BaseImportService {
 
     // 检查模板格式
     const headerRow = worksheet.getRow(1);
-    const cell8 = headerRow.getCell(8).text?.trim();
-    console.log('第8列标题:', cell8);
+    const attrStartColumn = this.findColumnIndex(worksheet, ['属性1'], 0, 20);
+    console.log('属性1列:', attrStartColumn);
 
-    if (cell8 !== '属性1') {
+    if (!attrStartColumn) {
       throw new BadRequestException('模板格式不正确，请下载最新模板');
     }
 
-    return await this.importProducts(worksheet, tenantId);
+    return await this.importProducts(worksheet, tenantId, file.buffer);
   }
 
   /**
@@ -505,6 +422,7 @@ export class ProductImportService extends BaseImportService {
   private async importProducts(
     worksheet: ExcelJS.Worksheet,
     tenantId: string,
+    fileBuffer: Buffer,
   ): Promise<ImportProductResultDto> {
     console.log('=== 开始解析导入数据 ===');
     const result: ImportProductResultDto = {
@@ -518,59 +436,83 @@ export class ProductImportService extends BaseImportService {
       name: string;
       categoryCode: string;
       code: string;
-      images: string;
+      images: string[];
+      embeddedImageUrls: string[];
       unit: string;
       safetyStock: string;
       isActive: string;
       attributes: Array<{ name: string; value: string }>;
     }> = [];
 
-    // 动态确定数据开始行（跳过表头、使用说明、类目属性对照表、示例数据）
-    const dataStartRow = this.findDataStartRow(worksheet);
-    console.log('数据开始行:', dataStartRow);
+    try {
+      // 动态确定数据开始行（跳过表头、使用说明、类目属性对照表、示例数据）
+      const dataStartRow = this.findDataStartRow(worksheet);
+      console.log('数据开始行:', dataStartRow);
+      const imageColumns = this.findImageColumns(worksheet, dataStartRow);
+      const codeColumn = this.findColumnIndex(worksheet, ['产品编码'], 0, dataStartRow);
+      const unitColumn = this.findColumnIndex(
+        worksheet,
+        ['库存主单位*', '库存主单位'],
+        8,
+        dataStartRow,
+      );
+      const safetyStockColumn = this.findColumnIndex(worksheet, ['安全库存'], 9, dataStartRow);
+      const statusColumn = this.findColumnIndex(worksheet, ['状态'], 10, dataStartRow);
+      const attrStartColumn = this.findColumnIndex(worksheet, ['属性1'], 11, dataStartRow);
+      console.log('产品图片列:', imageColumns);
+      const embeddedImageMap = await this.uploadEmbeddedImages(worksheet, imageColumns, dataStartRow);
+      const wpsImageMap = await this.uploadWpsCellImages(fileBuffer);
 
-    worksheet.eachRow((row, rowNumber) => {
-      if (rowNumber < dataStartRow) return;
+      worksheet.eachRow((row, rowNumber) => {
+        if (rowNumber < dataStartRow) return;
 
-      const firstCell = row.getCell(1).text?.trim();
-      if (!firstCell) return;
+        const firstCell = row.getCell(1).text?.trim();
+        if (!firstCell) return;
 
-      const name = row.getCell(1).text?.trim();
-      const categoryValue = row.getCell(2).text?.trim();
-      const code = row.getCell(3).text?.trim();
-      const images = row.getCell(4).text?.trim();
-      const unit = row.getCell(5).text?.trim();
-      const safetyStock = row.getCell(6).text?.trim();
-      const isActive = row.getCell(7).text?.trim();
+        const name = row.getCell(1).text?.trim();
+        const categoryValue = row.getCell(2).text?.trim();
+        const code = codeColumn > 0 ? row.getCell(codeColumn).text?.trim() : '';
+        const images = imageColumns.map((column) => row.getCell(column).text?.trim()).filter(Boolean);
+        const unit = row.getCell(unitColumn).text?.trim();
+        const safetyStock = row.getCell(safetyStockColumn).text?.trim();
+        const isActive = row.getCell(statusColumn).text?.trim();
 
-      if (!name && !categoryValue) return;
+        if (!name && !categoryValue) return;
 
-      const attributes: Array<{ name: string; value: string }> = [];
-      for (let i = 0; i < 10; i++) {
-        const attrName = row.getCell(8 + i * 2).text?.trim();
-        const attrValue = row.getCell(9 + i * 2).text?.trim();
-        if (attrName && attrValue) {
-          attributes.push({ name: attrName, value: attrValue });
+        const attributes: Array<{ name: string; value: string }> = [];
+        for (let i = 0; i < 10; i++) {
+          const attrName = row.getCell(attrStartColumn + i * 2).text?.trim();
+          const attrValue = row.getCell(attrStartColumn + 1 + i * 2).text?.trim();
+          if (attrName && attrValue) {
+            attributes.push({ name: attrName, value: attrValue });
+          }
         }
-      }
 
-      let categoryCode = categoryValue;
-      if (categoryValue.includes('|')) {
-        categoryCode = categoryValue.split('|')[1]?.trim() || categoryValue;
-      }
+        let categoryCode = categoryValue;
+        if (categoryValue.includes('|')) {
+          categoryCode = categoryValue.split('|')[1]?.trim() || categoryValue;
+        }
 
-      dataRows.push({
-        rowNumber,
-        name,
-        categoryCode,
-        code,
-        images,
-        unit,
-        safetyStock,
-        isActive,
-        attributes,
+        dataRows.push({
+          rowNumber,
+          name,
+          categoryCode,
+          code,
+          images,
+          embeddedImageUrls: [
+            ...(embeddedImageMap.get(rowNumber) || []),
+            ...this.getWpsImageUrls(images, wpsImageMap),
+          ],
+          unit,
+          safetyStock,
+          isActive,
+          attributes,
+        });
       });
-    });
+    } catch (error) {
+      console.error('产品导入解析阶段异常:', error instanceof Error ? error.stack : error);
+      throw error;
+    }
 
     console.log('解析到的数据行数:', dataRows.length);
 
@@ -620,6 +562,55 @@ export class ProductImportService extends BaseImportService {
   }
 
   /**
+   * 查找模板中的列号，兼容通用模板和类目专属模板。
+   */
+  private findColumnIndex(
+    worksheet: ExcelJS.Worksheet,
+    headerNames: string[],
+    fallback: number,
+    maxRow?: number,
+  ): number {
+    let columnIndex = fallback;
+    const endRow = Math.max(1, maxRow ? maxRow - 1 : worksheet.rowCount);
+
+    for (let rowNumber = 1; rowNumber <= endRow; rowNumber++) {
+      const row = worksheet.getRow(rowNumber);
+      row.eachCell((cell, colNumber) => {
+        const text = String(cell.value ?? '').trim();
+        if (text && headerNames.includes(text)) {
+          columnIndex = colNumber;
+        }
+      });
+    }
+
+    return columnIndex;
+  }
+
+  private findImageColumns(worksheet: ExcelJS.Worksheet, dataStartRow: number): number[] {
+    const imageColumns: number[] = [];
+    for (let i = 1; i <= 5; i++) {
+      const column = this.findColumnIndex(worksheet, [`产品图片${i}`], 0, dataStartRow);
+      if (column > 0) imageColumns.push(column);
+    }
+
+    if (imageColumns.length > 0) {
+      return imageColumns;
+    }
+
+    const legacyColumn = this.findColumnIndex(
+      worksheet,
+      ['产品图片', '产品图片(URL)', '产品图片(最多5张)'],
+      3,
+      dataStartRow,
+    );
+    return [legacyColumn];
+  }
+
+  private isInImageColumns(startCol: number, endCol: number, imageColumns: number[]): boolean {
+    return imageColumns.some((column) => startCol <= column && endCol >= column);
+  }
+
+  /**
    * 验证并保存单条产品数据
    */
   private async validateAndSaveProduct(
@@ -627,7 +618,8 @@ export class ProductImportService extends BaseImportService {
       name: string;
       categoryCode: string;
       code: string;
-      images: string;
+      images: string[];
+      embeddedImageUrls?: string[];
       unit: string;
       safetyStock: string;
       isActive: string;
@@ -635,7 +627,17 @@ export class ProductImportService extends BaseImportService {
     },
     tenantId: string,
   ): Promise<void> {
-    const { name, categoryCode, code, images, unit, safetyStock, isActive, attributes } = dataRow;
+    const {
+      name,
+      categoryCode,
+      code,
+      images,
+      embeddedImageUrls = [],
+      unit,
+      safetyStock,
+      isActive,
+      attributes,
+    } = dataRow;
 
     if (!name) {
       throw new Error('产品名称不能为空');
@@ -643,9 +645,12 @@ export class ProductImportService extends BaseImportService {
     if (!categoryCode) {
       throw new Error('类目不能为空');
     }
+    if (!unit) {
+      throw new Error('库存主单位不能为空');
+    }
 
     const category = await this.categoryRepo.findOne({
-      where: { code: categoryCode, tenantId },
+      where: this.buildReadableCategoryWhere(tenantId, categoryCode),
       relations: ['attributes', 'attributes.options'],
     });
     if (!category) {
@@ -689,10 +694,17 @@ export class ProductImportService extends BaseImportService {
       throw new Error(`产品编码 ${productCode} 已存在`);
     }
 
-    let status = 1;
-    if (isActive && isActive !== '') {
-      status = isActive === '1' ? 1 : 0;
+    const barcodeExists = await this.productRepo.findOne({ where: { barcode: productCode, tenantId } });
+    if (barcodeExists) {
+      throw new Error(`产品条形码 ${productCode} 已存在`);
     }
+
+    const inventoryUnit = await this.findUnitByText(unit, tenantId);
+    if (!inventoryUnit) {
+      throw new Error(`库存主单位 ${unit} 不存在或未启用`);
+    }
+
+    const status = this.parseImportStatus(isActive);
 
     let stock = 0;
     if (safetyStock && safetyStock !== '') {
@@ -702,19 +714,19 @@ export class ProductImportService extends BaseImportService {
       }
     }
 
-    let imagesList: string[] = [];
-    if (images) {
-      imagesList = images
-        .split(',')
-        .map((url) => url.trim())
-        .filter((url) => url !== '');
+    let imagesList = this.parseImageUrls(images);
+    imagesList = [...imagesList, ...embeddedImageUrls];
+    if (imagesList.length > 5) {
+      throw new Error('产品图片最多只能上传5张');
     }
 
     const product = this.productRepo.create({
       name,
       code: productCode,
+      barcode: productCode,
       categoryId: category.id,
-      unit: unit || null,
+      unitId: inventoryUnit.id,
+      unit: inventoryUnit.symbol || inventoryUnit.name || inventoryUnit.code,
       safetyStock: stock,
       isActive: status,
       specs: Object.keys(specsObj).length > 0 ? specsObj : null,
@@ -723,5 +735,225 @@ export class ProductImportService extends BaseImportService {
     });
 
     await this.productRepo.save(product);
+  }
+
+  private async findUnitByText(value: string, tenantId: string) {
+    const keyword = value.trim();
+    if (!keyword) return null;
+
+    const units = await this.unitRepo.find({
+      where: [
+        { id: keyword, tenantId, isActive: 1 },
+        { id: keyword, tenantId: IsNull(), isActive: 1 },
+        { code: keyword, tenantId, isActive: 1 },
+        { code: keyword, tenantId: IsNull(), isActive: 1 },
+        { name: keyword, tenantId, isActive: 1 },
+        { name: keyword, tenantId: IsNull(), isActive: 1 },
+        { symbol: keyword, tenantId, isActive: 1 },
+        { symbol: keyword, tenantId: IsNull(), isActive: 1 },
+      ],
+      order: { tenantId: 'DESC', sortOrder: 'ASC', createdAt: 'ASC' },
+    });
+
+    return units[0] || null;
+  }
+
+  private parseImportStatus(value?: string): number {
+    const status = value?.trim();
+    if (!status) return 1;
+
+    if (['是', '启用', '1', 'true', 'TRUE'].includes(status)) {
+      return 1;
+    }
+    if (['否', '禁用', '0', 'false', 'FALSE'].includes(status)) {
+      return 0;
+    }
+
+    throw new Error('状态只能选择 是 或 否');
+  }
+
+  private async uploadEmbeddedImages(
+    worksheet: ExcelJS.Worksheet,
+    imageColumns = [3],
+    dataStartRow = 2,
+  ): Promise<Map<number, string[]>> {
+    const result = new Map<number, string[]>();
+    const images = worksheet.getImages?.() || [];
+    const workbook = (worksheet as any).workbook;
+    console.log('Excel内嵌图片数量:', images.length);
+
+    for (const image of images as any[]) {
+      const range = image.range || {};
+      const start = range.tl || range.ext?.tl || {};
+      const end = range.br || range.ext?.br || start;
+      const startRow = Math.floor((start.nativeRow ?? start.row ?? 0) + 1);
+      const startCol = Math.floor((start.nativeCol ?? start.col ?? 0) + 1);
+      const endCol = Math.floor((end.nativeCol ?? end.col ?? startCol - 1) + 1);
+
+      // 只处理锚定在“产品图片”列且位于数据区的图片，避免把说明区图片误导入。
+      if (!this.isInImageColumns(startCol, endCol, imageColumns) || startRow < dataStartRow)
+        continue;
+
+      const media = workbook?.getImage?.(image.imageId);
+      if (!media?.buffer) continue;
+
+      const extension = media.extension || 'png';
+      const fileName = `product-import-${Date.now()}-${image.imageId}.${extension}`;
+      let ossUrl: string;
+      try {
+        ossUrl = await this.ossService.putOssFile(`/product/import/${fileName}`, media.buffer);
+      } catch (error) {
+        console.error(
+          `第${startRow}行产品图片上传失败:`,
+          error instanceof Error ? error.message : error,
+        );
+        continue;
+      }
+
+      if (!ossUrl) {
+        console.error(`第${startRow}行产品图片上传失败: OSS未返回图片地址`);
+        continue;
+      }
+
+      if (!result.has(startRow)) result.set(startRow, []);
+      result.get(startRow).push(ossUrl);
+    }
+
+    return result;
+  }
+
+  private parseImageUrls(images: string[] = []): string[] {
+    return images.flatMap((image) => {
+      if (!image || this.extractWpsDispImgIds(image).length > 0) {
+        return [];
+      }
+
+      return image
+        .split(',')
+        .map((url) => url.trim())
+        .filter((url) => url !== '');
+    });
+  }
+
+  private getWpsImageUrls(images: string[] = [], wpsImageMap: Map<string, string>): string[] {
+    const ids = images.flatMap((image) => this.extractWpsDispImgIds(image));
+    if (ids.length === 0) return [];
+
+    return ids.map((id) => wpsImageMap.get(id)).filter((url): url is string => Boolean(url));
+  }
+
+  private extractWpsDispImgIds(value?: string): string[] {
+    if (!value || !value.includes('DISPIMG')) return [];
+
+    const ids = new Set<string>();
+    const matches = value.matchAll(/ID_[A-Za-z0-9]+/g);
+    for (const match of matches) {
+      ids.add(match[0]);
+    }
+    return Array.from(ids);
+  }
+
+  private async uploadWpsCellImages(fileBuffer: Buffer): Promise<Map<string, string>> {
+    const result = new Map<string, string>();
+
+    try {
+      const zip = await JSZip.loadAsync(fileBuffer);
+      const files = Object.keys(zip.files);
+      const xmlFileNames = files.filter((name) => name.endsWith('.xml'));
+      const relFileNames = files.filter((name) => name.endsWith('.rels'));
+
+      const relTargetMap = await this.parseXlsxRelTargets(zip, relFileNames);
+      const wpsImageTargetMap = await this.parseWpsImageTargets(zip, xmlFileNames, relTargetMap);
+
+      console.log('WPS单元格图片数量:', wpsImageTargetMap.size);
+
+      for (const [imageId, imagePath] of wpsImageTargetMap.entries()) {
+        const file = zip.file(imagePath);
+        if (!file) continue;
+
+        const buffer = await file.async('nodebuffer');
+        const extension = path.extname(imagePath).replace('.', '') || 'png';
+        const fileName = `product-import-wps-${Date.now()}-${imageId}.${extension}`;
+
+        try {
+          const ossUrl = await this.ossService.putOssFile(`/product/import/${fileName}`, buffer);
+          if (ossUrl) result.set(imageId, ossUrl);
+        } catch (error) {
+          console.error(
+            `WPS单元格图片 ${imageId} 上传失败:`,
+            error instanceof Error ? error.message : error,
+          );
+        }
+      }
+    } catch (error) {
+      console.error('WPS单元格图片解析失败:', error instanceof Error ? error.message : error);
+    }
+
+    return result;
+  }
+
+  private async parseXlsxRelTargets(
+    zip: JSZip,
+    relFileNames: string[],
+  ): Promise<Map<string, Map<string, string>>> {
+    const result = new Map<string, Map<string, string>>();
+
+    for (const relFileName of relFileNames) {
+      const file = zip.file(relFileName);
+      if (!file) continue;
+
+      const xml = await file.async('string');
+      const sourceXmlPath = this.getRelSourceXmlPath(relFileName);
+      const sourceDir = path.posix.dirname(sourceXmlPath);
+      const targetMap = new Map<string, string>();
+      const relMatches = xml.matchAll(
+        /<Relationship\b[^>]*\bId="([^"]+)"[^>]*\bTarget="([^"]+)"[^>]*>/g,
+      );
+
+      for (const match of relMatches) {
+        const [, relId, target] = match;
+        targetMap.set(relId, path.posix.normalize(path.posix.join(sourceDir, target)));
+      }
+
+      result.set(sourceXmlPath, targetMap);
+    }
+
+    return result;
+  }
+
+  private async parseWpsImageTargets(
+    zip: JSZip,
+    xmlFileNames: string[],
+    relTargetMap: Map<string, Map<string, string>>,
+  ): Promise<Map<string, string>> {
+    const result = new Map<string, string>();
+
+    for (const xmlFileName of xmlFileNames) {
+      const file = zip.file(xmlFileName);
+      if (!file) continue;
+
+      const xml = await file.async('string');
+      if (!xml.includes('ID_') || !xml.includes('embed')) continue;
+
+      const relationships = relTargetMap.get(xmlFileName);
+      if (!relationships) continue;
+
+      const picBlocks = xml.match(/<[^>]*pic\b[\s\S]*?<\/[^>]*pic>/g) || [xml];
+      for (const block of picBlocks) {
+        const imageId = block.match(/ID_[A-Za-z0-9]+/)?.[0];
+        const relId = block.match(/\b(?:r:)?embed="([^"]+)"/)?.[1];
+        const imagePath = relId ? relationships.get(relId) : undefined;
+
+        if (imageId && imagePath && imagePath.startsWith('xl/media/')) {
+          result.set(imageId, imagePath);
+        }
+      }
+    }
+
+    return result;
+  }
+
+  private getRelSourceXmlPath(relFileName: string): string {
+    return relFileName.replace('/_rels/', '/').replace(/\.rels$/, '');
   }
 }

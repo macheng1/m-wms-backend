@@ -159,8 +159,12 @@ export class NotificationsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '发送广播通知（租户内所有用户）' })
   @ApiResponse({ status: 200, description: '通知已发送' })
-  async sendBroadcast(@Body() dto: SendNotificationDto): Promise<any> {
-    const notification = await this.notificationsService.send(dto);
+  async sendBroadcast(@Body() dto: SendNotificationDto, @Req() req: Request): Promise<any> {
+    const tenantId = (req as any).user?.tenantId;
+    const notification = await this.notificationsService.send({
+      ...dto,
+      tenantId,
+    });
     return {
       message: '广播通知已发送',
       notification,
@@ -176,8 +180,12 @@ export class NotificationsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '发送通知给指定用户' })
   @ApiResponse({ status: 200, description: '通知已发送' })
-  async sendToUsers(@Body() dto: SendToUsersDto): Promise<any> {
-    const notifications = await this.notificationsService.sendToUsers(dto);
+  async sendToUsers(@Body() dto: SendToUsersDto, @Req() req: Request): Promise<any> {
+    const tenantId = (req as any).user?.tenantId;
+    const notifications = await this.notificationsService.sendToUsers({
+      ...dto,
+      tenantId,
+    });
 
     return {
       message: `已发送给 ${dto.userIds.length} 个用户`,
@@ -195,16 +203,20 @@ export class NotificationsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '发送通知给指定角色的所有用户' })
   @ApiResponse({ status: 200, description: '通知已发送' })
-  async sendToRole(@Body() dto: SendToRoleDto): Promise<any> {
+  async sendToRole(@Body() dto: SendToRoleDto, @Req() req: Request): Promise<any> {
+    const tenantId = (req as any).user?.tenantId;
     // TODO: 查询拥有该角色的用户列表
     // 这里需要注入 RolesService 来获取用户列表
     // 暂时返回空数组，实际使用时需要实现
     const roleUserIds: string[] = [];
 
     const notifications = await this.notificationsService.sendToRole(
-      dto.tenantId,
+      tenantId,
       dto.roleCode,
-      dto,
+      {
+        ...dto,
+        tenantId,
+      },
       roleUserIds,
     );
 
