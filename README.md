@@ -90,10 +90,9 @@ DB_DATABASE=wms_dev
 ```bash
 # 运行迁移
 npm run migration:run
-
-# 或者使用同步模式（仅开发环境）
-# 设置 DB_SYNCHRONIZE=true
 ```
+
+数据库结构不要通过 `DB_SYNCHRONIZE=true` 自动同步；建表、字段变更、索引、初始化数据和维护数据统一沉淀到 `dbsql/`，必要时再配套 TypeORM migration。
 
 ### 启动开发服务器
 
@@ -162,8 +161,8 @@ npm run seed               # 运行种子数据
 - `DELETE /api/tenants/:id` - 删除租户
 
 ### 认证授权
-- `POST /api/auth/register` - 用户注册
-- `POST /api/auth/login` - 用户登录
+- `POST /api/user/register` - 用户注册
+- `POST /api/user/login` - 用户登录
 
 ### 库存管理
 - `POST /api/inventory` - 创建库存

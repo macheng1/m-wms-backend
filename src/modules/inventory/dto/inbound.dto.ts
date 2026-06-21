@@ -26,10 +26,18 @@ export class InboundItemDto {
   @IsNotEmpty()
   quantity: number;
 
-  @ApiProperty({ description: '单位编码', example: 'PIECE' })
+  @ApiPropertyOptional({ description: '单位编码（可选；必须与产品库存单位一致）', example: 'PIECE' })
   @IsString()
-  @IsNotEmpty()
-  unitCode: string;
+  @IsOptional()
+  unitCode?: string;
+
+  @ApiPropertyOptional({
+    description: '库位ID（行内库位优先于批量单头库位）',
+    example: 'location-uuid-001',
+  })
+  @IsString()
+  @IsOptional()
+  locationId?: string;
 }
 
 export class InboundDto {
@@ -46,10 +54,10 @@ export class InboundDto {
   @IsNotEmpty()
   quantity: number;
 
-  @ApiProperty({ description: '单位编码', example: 'PIECE' })
+  @ApiPropertyOptional({ description: '单位编码（可选；必须与产品库存单位一致）', example: 'PIECE' })
   @IsString()
-  @IsNotEmpty()
-  unitCode: string;
+  @IsOptional()
+  unitCode?: string;
 
   @ApiPropertyOptional({ description: '订单号', example: 'PO-20240101-001' })
   @IsString()

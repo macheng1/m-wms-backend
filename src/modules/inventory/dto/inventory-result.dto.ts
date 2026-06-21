@@ -1,11 +1,17 @@
-import { Unit } from '../../../common/utils/unit-converter.util';
+export interface InventoryUnitResult {
+  id: string;
+  code: string;
+  name: string;
+  category: string;
+  symbol: string;
+}
 
 export interface InventoryResult {
   sku: string;
   productName: string;
   beforeQty: number;
   afterQty: number;
-  unit: Unit;
+  unit: InventoryUnitResult;
   transactionId: string;
   // 格式化显示字段
   quantityDisplay?: string;   // 变动数量显示（带正负号）

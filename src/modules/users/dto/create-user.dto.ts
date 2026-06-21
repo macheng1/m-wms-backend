@@ -17,10 +17,31 @@ export class CreateUserDto {
   @IsString()
   realName?: string;
 
+  @ApiProperty({ description: '手机号', required: false })
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @ApiProperty({ description: '邮箱', required: false })
+  @IsOptional()
+  @IsString()
+  email?: string;
+
+  @ApiProperty({ description: '部门ID', required: false })
+  @IsOptional()
+  @IsString()
+  deptId?: string;
+
+  @ApiProperty({ description: '岗位ID', required: false })
+  @IsOptional()
+  @IsString()
+  postId?: string;
+
   @ApiProperty({ description: '关联角色ID数组' })
+  @IsOptional()
   @IsArray({ message: '角色ID必须是数组' })
   @IsString({ each: true })
-  roleIds: string[]; // 绑定你在 Role 模块创建的 ID
+  roleIds?: string[]; // 绑定你在 Role 模块创建的 ID
 
   @ApiProperty({ description: '是否启用 (1启用/0禁用)', default: 1 })
   @IsOptional()

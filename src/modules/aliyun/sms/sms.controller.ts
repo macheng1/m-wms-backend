@@ -2,6 +2,7 @@ import { Controller, Get, Query } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { SmsService } from './sms.service';
 import { Public } from '@/common/decorators/public.decorator';
+import { RateLimit } from '@/common/decorators/rate-limit.decorator';
 
 @ApiTags('短信模块')
 @Controller('send')
@@ -17,6 +18,7 @@ export class SmsController {
   @Get('sendSMS')
   @ApiOperation({ summary: '手机验证码' })
   @Public()
+  @RateLimit({ keyPrefix: 'sms-code', points: 3, durationSeconds: 60, keyFields: ['phone'] })
   async sendSms(@Query('phone') phone: string) {
     return this.smsService.sendPhone(phone);
   }

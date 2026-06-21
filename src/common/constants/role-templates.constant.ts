@@ -1,5 +1,5 @@
 // src/common/constants/role-templates.constant.ts
-import { PERMISSION_CONFIG } from './permissions.constant';
+import { flattenTenantPermissions } from './permissions.constant';
 
 export const ROLE_TEMPLATES = {
   // 租户超级管理员：拥有所有模块的所有权限
@@ -7,25 +7,42 @@ export const ROLE_TEMPLATES = {
     name: '系统管理员',
     code: 'ADMIN',
     description: '拥有工厂内所有操作权限',
-    // 自动提取所有权限 code
-    permissionCodes: Object.values(PERMISSION_CONFIG).flatMap((g) => g.actions.map((a) => a.code)),
+    scope: 'tenant',
+    // 自动提取所有租户域权限 code。平台域权限不下发给租户角色。
+    menuCodes: flattenTenantPermissions().map((permission) => permission.code),
   },
   WH_MANAGER: {
     name: '仓库主管',
     code: 'WH_MANAGER',
     description: '负责仓库管理',
-    permissionCodes: ['wms:warehouse', 'wms:warehouse:list', 'wms:warehouse:area'],
+    scope: 'tenant',
+    menuCodes: [
+      'tenant:warehouse',
+      'tenant:location:list',
+      'tenant:ptl',
+      'tenant:ptl:controller',
+      'tenant:ptl:binding',
+      'tenant:ptl:task',
+      'tenant:inventory',
+      'tenant:inventory:list',
+      'tenant:inventory:inbound',
+      'tenant:inventory:outbound',
+      'tenant:inventory:transaction:list',
+    ],
   },
   // 生产组长：仅库存模块
   PROD_LEADER: {
     name: '生产组长',
     code: 'PROD_LEADER',
     description: '负责库存管理',
-    permissionCodes: [
-      'wms:inventory',
-      'wms:inventory:list',
-      'wms:inventory:inbound',
-      'wms:inventory:outbound',
+    scope: 'tenant',
+    menuCodes: [
+      'tenant:inventory',
+      'tenant:inventory:list',
+      'tenant:inventory:inbound',
+      'tenant:inventory:outbound',
+      'tenant:inventory:adjust',
+      'tenant:inventory:transaction:list',
     ],
   },
 } as const;

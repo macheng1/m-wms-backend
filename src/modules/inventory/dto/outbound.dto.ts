@@ -16,6 +16,19 @@ export class OutboundItemDto {
   @IsNumber()
   @IsNotEmpty()
   quantity: number;
+
+  @ApiPropertyOptional({ description: '单位编码（不传则使用库存默认单位）', example: 'PIECE' })
+  @IsString()
+  @IsOptional()
+  unitCode?: string;
+
+  @ApiPropertyOptional({
+    description: '库位ID（行内库位优先于批量单头库位）',
+    example: 'location-uuid-001',
+  })
+  @IsString()
+  @IsOptional()
+  locationId?: string;
 }
 
 export class OutboundDto {

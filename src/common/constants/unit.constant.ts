@@ -38,6 +38,10 @@ export enum TransactionType {
   OUTBOUND_TRANSFER = 'OUTBOUND_TRANSFER', // 调拨出库
   OUTBOUND_SCRAP = 'OUTBOUND_SCRAP', // 报废出库
 
+  // 订购库存占用
+  STOCK_LOCK = 'STOCK_LOCK', // 订购锁库
+  STOCK_RELEASE = 'STOCK_RELEASE', // 订购释放
+
   // 调整类型
   ADJUSTMENT_IN = 'ADJUSTMENT_IN', // 盘盈
   ADJUSTMENT_OUT = 'ADJUSTMENT_OUT', // 盘亏
@@ -55,6 +59,8 @@ export const TransactionTypeNames: Record<TransactionType, string> = {
   [TransactionType.OUTBOUND_MATERIAL]: '领料出库',
   [TransactionType.OUTBOUND_TRANSFER]: '调拨出库',
   [TransactionType.OUTBOUND_SCRAP]: '报废出库',
+  [TransactionType.STOCK_LOCK]: '订购锁库',
+  [TransactionType.STOCK_RELEASE]: '订购释放',
   [TransactionType.ADJUSTMENT_IN]: '盘盈',
   [TransactionType.ADJUSTMENT_OUT]: '盘亏',
 };

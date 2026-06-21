@@ -30,6 +30,9 @@ export class PortalConfig extends TenantBaseEntity {
   @Column({ type: 'json', nullable: true, comment: 'SEO 优化配置' })
   seoConfig: Record<string, any>;
 
+  @Column({ type: 'json', nullable: true, comment: '首页模块配置' })
+  homeConfig: Record<string, any>;
+
   @Column({ default: 1, comment: '站点状态：1开启，0关闭' })
   isActive: number;
 }

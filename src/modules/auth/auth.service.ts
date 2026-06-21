@@ -70,28 +70,34 @@ export class AuthService {
 
   // src/modules/auth/auth.service.ts
   async login(loginDto: LoginDto) {
-    const { username, password, code } = loginDto;
+    const { username, password } = loginDto;
+    const code = loginDto.code?.trim();
 
     // 1. 查找用户逻辑（根据 tenantCode 区分平台管理员或工厂员工）
     const user = await this.findUserForLogin(username, code);
-    console.log('🚀 ~ AuthService ~ login ~ user:', user);
     if (!user) throw new BadRequestException('账号或企业编码错误');
 
     // 2. 校验密码
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) throw new BadRequestException('密码错误');
+    if (user.isActive !== 1) throw new BusinessException('账号已禁用');
+
+    const userType = user.isPlatformAdmin === 1 ? 'platform' : 'tenant';
 
     // 3. 签发 JWT (载荷只包含核心 ID，不包含权限列表，防止 Token 过大)
     const payload = {
+      tokenType: 'admin',
+      userType,
       sub: user.id,
       userId: user.id,
       username: user.username,
       tenantId: user.tenantId,
-      isAdmin: user.isPlatformAdmin,
     };
 
     return {
       access_token: this.jwtService.sign(payload),
+      userType,
+      tenantId: user.tenantId,
     };
   }
   // src/modules/auth/auth.service.ts
@@ -102,12 +108,10 @@ export class AuthService {
    * @param code 企业编码（可选）
    */
   private async findUserForLogin(username: string, code?: string): Promise<User | null> {
-    console.log('🚀 ~ AuthService ~ findUserForLogin ~ tenantCode:', code);
     // 1. 创建基础查询器
     const query = this.userRepository
       .createQueryBuilder('user')
-      .addSelect('user.password') // 关键：手动抓取实体中 select: false 的密码字段
-      .leftJoinAndSelect('user.tenant', 'tenant'); // 关联查询租户信息，方便后续逻辑使用
+      .addSelect('user.password'); // 关键：手动抓取实体中 select: false 的密码字段
 
     if (!code) {
       /**
@@ -117,7 +121,8 @@ export class AuthService {
        */
       query
         .where('user.username = :username', { username })
-        .andWhere('user.isPlatformAdmin = :isAdmin', { isAdmin: 1 });
+        .andWhere('user.isPlatformAdmin = :isAdmin', { isAdmin: 1 })
+        .andWhere('user.tenantId IS NULL');
     } else {
       /**
        * 场景 B：提供了企业编码
@@ -125,8 +130,13 @@ export class AuthService {
        */
       // 先根据 code 找到租户 ID
       const tenant = await this.tenantRepository.findOne({ where: { code: code } });
-      console.log('🚀 ~ AuthService ~ findUserForLogin ~ tenant:', tenant);
       if (!tenant) return null;
+      if (tenant.isApproved !== 1) {
+        throw new BusinessException('企业未审核通过，暂不可登录');
+      }
+      if (tenant.isActive !== 1) {
+        throw new BusinessException('企业已被禁用，暂不可登录');
+      }
 
       query
         .where('user.username = :username', { username })

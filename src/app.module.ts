@@ -1,7 +1,14 @@
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { appConfig, databaseConfig, jwtConfig, redisConfig } from '@config/index';
+import {
+  appConfig,
+  databaseConfig,
+  jwtConfig,
+  openApiConfig,
+  redisConfig,
+  ptlConfig,
+} from '@config/index';
 import { TenantModule } from '@modules/tenant/tenant.module';
 import { AuthModule } from '@modules/auth/auth.module';
 import { InventoryModule } from '@modules/inventory/inventory.module';
@@ -11,6 +18,7 @@ import { LocationModule } from '@modules/location/location.module';
 import { User } from './modules/users/entities/user.entity';
 import { Tenant } from './modules/tenant/entities/tenant.entity';
 import { Permission } from './modules/auth/entities/permission.entity';
+import { Menu } from './modules/auth/entities/menu.entity';
 import { Role } from './modules/roles/entities/role.entity';
 import { Inventory } from './modules/inventory/entities/inventory.entity';
 import { Order } from './modules/order/entities/order.entity';
@@ -24,10 +32,16 @@ import { SmsModule } from './modules/aliyun/sms/sms.module';
 import { UploadModule } from './modules/upload/upload.module';
 import { RolesModule } from './modules/roles/roles.module';
 import { ProductModule } from './modules/product/product.module';
-import { SystemModule } from './modules/system/system.module';
 import { PortalModule } from './modules/portal/portal.module';
 import { RedisModule } from './modules/redis/redis.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { AdminApiModule } from './modules/admin/admin-api.module';
+import { MiniappApiModule } from './modules/miniapp/miniapp-api.module';
+import { OpenApiModule } from './modules/open/open-api.module';
+import { SystemModule } from './modules/system/system.module';
+import { AuditModule } from './common/audit/audit.module';
+import { RateLimitGuard } from './common/guards/rate-limit.guard';
+import { PtlModule } from './modules/ptl/ptl.module';
 console.log('当前运行环境:', process.env.NODE_ENV);
 console.log('当前工作目录:', process.cwd());
 @Module({
@@ -36,7 +50,7 @@ console.log('当前工作目录:', process.cwd());
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: resolve(process.cwd(), 'envs', `.env.${process.env.NODE_ENV || 'development'}`),
-      load: [appConfig, databaseConfig, jwtConfig, redisConfig],
+      load: [appConfig, databaseConfig, jwtConfig, openApiConfig, redisConfig, ptlConfig],
     }),
 
     // Database configuration
@@ -50,13 +64,18 @@ console.log('当前工作目录:', process.cwd());
         username: configService.get('database.username'),
         password: configService.get('database.password'),
         database: configService.get('database.database'),
-        synchronize: configService.get('database.synchronize'),
+        // 禁止自动同步表结构；数据库变更统一走 dbsql/ 或 migration。
+        synchronize: false,
         logging: configService.get('database.logging'),
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
         autoLoadEntities: true,
         extra: {
           connectionLimit: 10, // 增加连接池大小
+          maxIdle: 5,
+          idleTimeout: 60000,
           connectTimeout: 20000, // 连接超时设置（毫秒）
+          enableKeepAlive: true,
+          keepAliveInitialDelay: 0,
           waitForConnections: true,
         },
       }),
@@ -71,9 +90,10 @@ console.log('当前工作目录:', process.cwd());
       }),
     }),
     // 全局注册所有实体的 repository
-    TypeOrmModule.forFeature([User, Tenant, Permission, Role, Inventory, Order]),
+    TypeOrmModule.forFeature([User, Tenant, Permission, Menu, Role, Inventory, Order]),
     // Infrastructure modules
     RedisModule,
+    AuditModule,
     // Business modules
     TenantModule,
     AuthModule,
@@ -87,9 +107,13 @@ console.log('当前工作目录:', process.cwd());
     RolesModule,
     HealthModule,
     ProductModule,
-    SystemModule,
     PortalModule,
+    AdminApiModule,
+    MiniappApiModule,
+    OpenApiModule,
     NotificationsModule,
+    SystemModule,
+    PtlModule,
   ],
   providers: [
     {
@@ -97,10 +121,15 @@ console.log('当前工作目录:', process.cwd());
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
     },
+    {
+      provide: APP_GUARD,
+      useClass: RateLimitGuard,
+    },
   ],
 })
 export class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer) {
+  configure(_consumer: MiddlewareConsumer) {
+    void _consumer;
     // consumer.apply(TenantMiddleware).forRoutes('*');
   }
 }

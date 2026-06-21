@@ -71,4 +71,10 @@ export class QueryCategoryDto {
   @IsNumber()
   @IsIn([0, 1])
   isActive?: number;
+
+  @ApiProperty({ description: '模板来源筛选：standard-标准模板，custom-租户自建', required: false })
+  @IsOptional()
+  @IsString()
+  @IsIn(['standard', 'custom'])
+  templateScope?: 'standard' | 'custom';
 }

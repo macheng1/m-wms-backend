@@ -1,0 +1,7 @@
+interface:
+  display_name: "API 契约设计"
+  short_description: "设计接口参数返回和权限"
+  default_prompt: "使用 $api-contract-design 为这个需求设计后端 API 契约。"
+
+policy:
+  allow_implicit_invocation: true

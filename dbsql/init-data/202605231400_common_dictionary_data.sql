@@ -1,0 +1,178 @@
+-- 用途：初始化平台通用标准字典
+-- 来源需求：系统需要基础字典支撑注册、租户资料、库存、仓库、设备、单据等通用选择项
+-- 影响范围：dictionaries
+-- 执行环境：MySQL 5.7+/8+ 或兼容 MariaDB
+-- 说明：以当前 dictionaries 表结构为准，不兼容历史旧字典；本脚本使用固定 ID 幂等写入。
+-- 前置条件：空库需先执行 dbsql/init/init-schema.sql；旧库需确认 dictionaries 表已存在。
+
+INSERT INTO `dictionaries` (
+  `id`,
+  `tenantId`,
+  `scope`,
+  `type`,
+  `label`,
+  `value`,
+  `sort`,
+  `isActive`,
+  `isSystem`,
+  `allowTenantExtend`,
+  `allowTenantOverride`,
+  `parentId`
+)
+VALUES
+  -- 行业分类
+  ('00000000-0000-0000-0100-000000000001', NULL, 'platform', 'INDUSTRY', '制造业', 'MANUFACTURING', 10, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0100-000000000002', NULL, 'platform', 'INDUSTRY', '仓储物流', 'WAREHOUSING_LOGISTICS', 20, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0100-000000000003', NULL, 'platform', 'INDUSTRY', '批发零售', 'WHOLESALE_RETAIL', 30, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0100-000000000004', NULL, 'platform', 'INDUSTRY', '食品饮料', 'FOOD_BEVERAGE', 40, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0100-000000000005', NULL, 'platform', 'INDUSTRY', '医药医疗', 'MEDICAL_HEALTH', 50, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0100-000000000006', NULL, 'platform', 'INDUSTRY', '电子电器', 'ELECTRONICS', 60, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0100-000000000007', NULL, 'platform', 'INDUSTRY', '五金建材', 'HARDWARE_BUILDING', 70, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0100-000000000008', NULL, 'platform', 'INDUSTRY', '其他', 'OTHER', 999, 1, 1, 1, 0, NULL),
+
+  -- 计量单位
+  ('00000000-0000-0000-0101-000000000001', NULL, 'platform', 'UNIT', '个', 'PCS', 10, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0101-000000000002', NULL, 'platform', 'UNIT', '件', 'PIECE', 20, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0101-000000000003', NULL, 'platform', 'UNIT', '箱', 'BOX', 30, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0101-000000000004', NULL, 'platform', 'UNIT', '托', 'PALLET', 40, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0101-000000000005', NULL, 'platform', 'UNIT', '千克', 'KG', 50, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0101-000000000006', NULL, 'platform', 'UNIT', '吨', 'TON', 60, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0101-000000000007', NULL, 'platform', 'UNIT', '米', 'M', 70, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0101-000000000008', NULL, 'platform', 'UNIT', '平方米', 'M2', 80, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0101-000000000009', NULL, 'platform', 'UNIT', '立方米', 'M3', 90, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0101-000000000010', NULL, 'platform', 'UNIT', '升', 'L', 100, 1, 1, 1, 0, NULL),
+
+  -- 材质类型
+  ('00000000-0000-0000-0102-000000000001', NULL, 'platform', 'MATERIAL', '不锈钢', 'STAINLESS_STEEL', 10, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0102-000000000002', NULL, 'platform', 'MATERIAL', '碳钢', 'CARBON_STEEL', 20, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0102-000000000003', NULL, 'platform', 'MATERIAL', '铝合金', 'ALUMINUM_ALLOY', 30, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0102-000000000004', NULL, 'platform', 'MATERIAL', '铜', 'COPPER', 40, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0102-000000000005', NULL, 'platform', 'MATERIAL', '塑料', 'PLASTIC', 50, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0102-000000000006', NULL, 'platform', 'MATERIAL', '橡胶', 'RUBBER', 60, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0102-000000000007', NULL, 'platform', 'MATERIAL', '木材', 'WOOD', 70, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0102-000000000008', NULL, 'platform', 'MATERIAL', '纸质', 'PAPER', 80, 1, 1, 1, 0, NULL),
+
+  -- 通用状态
+  ('00000000-0000-0000-0103-000000000001', NULL, 'platform', 'COMMON_STATUS', '启用', 'ACTIVE', 10, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0103-000000000002', NULL, 'platform', 'COMMON_STATUS', '禁用', 'DISABLED', 20, 1, 1, 0, 0, NULL),
+
+  -- 是否
+  ('00000000-0000-0000-0111-000000000001', NULL, 'platform', 'YES_NO', '是', 'YES', 10, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0111-000000000002', NULL, 'platform', 'YES_NO', '否', 'NO', 20, 1, 1, 0, 0, NULL),
+
+  -- 数字型是否
+  ('00000000-0000-0000-0112-000000000001', NULL, 'platform', 'YES_NO_NUM', '是', '1', 10, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0112-000000000002', NULL, 'platform', 'YES_NO_NUM', '否', '0', 20, 1, 1, 0, 0, NULL),
+
+  -- 启停状态
+  ('00000000-0000-0000-0113-000000000001', NULL, 'platform', 'ENABLE_STATUS', '启用', '1', 10, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0113-000000000002', NULL, 'platform', 'ENABLE_STATUS', '停用', '0', 20, 1, 1, 0, 0, NULL),
+
+  -- 显示状态
+  ('00000000-0000-0000-0114-000000000001', NULL, 'platform', 'VISIBLE_STATUS', '显示', '0', 10, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0114-000000000002', NULL, 'platform', 'VISIBLE_STATUS', '隐藏', '1', 20, 1, 1, 0, 0, NULL),
+
+  -- 权限归属域
+  ('00000000-0000-0000-0115-000000000001', NULL, 'platform', 'PERMISSION_SCOPE', '平台端', 'platform', 10, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0115-000000000002', NULL, 'platform', 'PERMISSION_SCOPE', '租户端', 'tenant', 20, 1, 1, 0, 0, NULL),
+
+  -- 菜单/权限类型
+  ('00000000-0000-0000-0116-000000000001', NULL, 'platform', 'MENU_TYPE', '目录', 'DIRECTORY', 10, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0116-000000000002', NULL, 'platform', 'MENU_TYPE', '菜单', 'MENU', 20, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0116-000000000003', NULL, 'platform', 'MENU_TYPE', '按钮', 'BUTTON', 30, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0116-000000000004', NULL, 'platform', 'MENU_TYPE', '接口', 'API', 40, 1, 1, 0, 0, NULL),
+
+  -- 用户类型
+  ('00000000-0000-0000-0117-000000000001', NULL, 'platform', 'USER_TYPE', '平台用户', 'platform', 10, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0117-000000000002', NULL, 'platform', 'USER_TYPE', '租户用户', 'tenant', 20, 1, 1, 0, 0, NULL),
+
+  -- 性别
+  ('00000000-0000-0000-0118-000000000001', NULL, 'platform', 'GENDER', '男', 'MALE', 10, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0118-000000000002', NULL, 'platform', 'GENDER', '女', 'FEMALE', 20, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0118-000000000003', NULL, 'platform', 'GENDER', '未知', 'UNKNOWN', 30, 1, 1, 0, 0, NULL),
+
+  -- 审核结果
+  ('00000000-0000-0000-0119-000000000001', NULL, 'platform', 'AUDIT_RESULT', '通过', 'APPROVED', 10, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0119-000000000002', NULL, 'platform', 'AUDIT_RESULT', '驳回', 'REJECTED', 20, 1, 1, 0, 0, NULL),
+
+  -- 优先级
+  ('00000000-0000-0000-0120-000000000001', NULL, 'platform', 'PRIORITY', '低', 'LOW', 10, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0120-000000000002', NULL, 'platform', 'PRIORITY', '普通', 'NORMAL', 20, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0120-000000000003', NULL, 'platform', 'PRIORITY', '高', 'HIGH', 30, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0120-000000000004', NULL, 'platform', 'PRIORITY', '紧急', 'URGENT', 40, 1, 1, 0, 0, NULL),
+
+  -- 纳税人类型
+  ('00000000-0000-0000-0121-000000000001', NULL, 'platform', 'TAXPAYER_TYPE', '一般纳税人', 'GENERAL', 10, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0121-000000000002', NULL, 'platform', 'TAXPAYER_TYPE', '小规模纳税人', 'SMALL_SCALE', 20, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0121-000000000003', NULL, 'platform', 'TAXPAYER_TYPE', '其他', 'OTHER', 30, 1, 1, 1, 0, NULL),
+
+  -- 租户生命周期
+  ('00000000-0000-0000-0104-000000000001', NULL, 'platform', 'TENANT_LIFECYCLE_STATUS', '待审核', 'pending', 10, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0104-000000000002', NULL, 'platform', 'TENANT_LIFECYCLE_STATUS', '已启用', 'active', 20, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0104-000000000003', NULL, 'platform', 'TENANT_LIFECYCLE_STATUS', '已驳回', 'rejected', 30, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0104-000000000004', NULL, 'platform', 'TENANT_LIFECYCLE_STATUS', '已禁用', 'disabled', 40, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0104-000000000005', NULL, 'platform', 'TENANT_LIFECYCLE_STATUS', '已过期', 'expired', 50, 1, 1, 0, 0, NULL),
+
+  -- 库位类型
+  ('00000000-0000-0000-0105-000000000001', NULL, 'platform', 'LOCATION_TYPE', '存储区', 'STORAGE', 10, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0105-000000000002', NULL, 'platform', 'LOCATION_TYPE', '拣货区', 'PICKING', 20, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0105-000000000003', NULL, 'platform', 'LOCATION_TYPE', '暂存区', 'TEMP', 30, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0105-000000000004', NULL, 'platform', 'LOCATION_TYPE', '收货区', 'RECEIVING', 40, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0105-000000000005', NULL, 'platform', 'LOCATION_TYPE', '发货区', 'SHIPPING', 50, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0105-000000000006', NULL, 'platform', 'LOCATION_TYPE', '不良品区', 'DEFECT', 60, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0105-000000000007', NULL, 'platform', 'LOCATION_TYPE', '退货区', 'RETURN', 70, 1, 1, 1, 0, NULL),
+
+  -- 库位状态
+  ('00000000-0000-0000-0106-000000000001', NULL, 'platform', 'LOCATION_STATUS', '可用', 'AVAILABLE', 10, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0106-000000000002', NULL, 'platform', 'LOCATION_STATUS', '已占用', 'OCCUPIED', 20, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0106-000000000003', NULL, 'platform', 'LOCATION_STATUS', '锁定', 'LOCKED', 30, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0106-000000000004', NULL, 'platform', 'LOCATION_STATUS', '预留', 'RESERVED', 40, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0106-000000000005', NULL, 'platform', 'LOCATION_STATUS', '停用', 'DISABLED', 50, 1, 1, 0, 0, NULL),
+
+  -- 设备类型
+  ('00000000-0000-0000-0107-000000000001', NULL, 'platform', 'DEVICE_TYPE', '扫码枪', 'SCANNER', 10, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0107-000000000002', NULL, 'platform', 'DEVICE_TYPE', 'RFID读写器', 'RFID_READER', 20, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0107-000000000003', NULL, 'platform', 'DEVICE_TYPE', 'RFID标签', 'RFID_TAG', 30, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0107-000000000004', NULL, 'platform', 'DEVICE_TYPE', 'AGV', 'AGV', 40, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0107-000000000005', NULL, 'platform', 'DEVICE_TYPE', '电子标签', 'ESL', 50, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0107-000000000006', NULL, 'platform', 'DEVICE_TYPE', '传感器', 'SENSOR', 60, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0107-000000000007', NULL, 'platform', 'DEVICE_TYPE', '打印机', 'PRINTER', 70, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0107-000000000008', NULL, 'platform', 'DEVICE_TYPE', '闸机', 'GATE', 80, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0107-000000000009', NULL, 'platform', 'DEVICE_TYPE', '摄像头', 'CAMERA', 90, 1, 1, 1, 0, NULL),
+  ('00000000-0000-0000-0107-000000000010', NULL, 'platform', 'DEVICE_TYPE', 'PDA', 'PDA', 100, 1, 1, 1, 0, NULL),
+
+  -- 设备状态
+  ('00000000-0000-0000-0108-000000000001', NULL, 'platform', 'DEVICE_STATUS', '在线', 'ONLINE', 10, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0108-000000000002', NULL, 'platform', 'DEVICE_STATUS', '离线', 'OFFLINE', 20, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0108-000000000003', NULL, 'platform', 'DEVICE_STATUS', '异常', 'ERROR', 30, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0108-000000000004', NULL, 'platform', 'DEVICE_STATUS', '维护中', 'MAINTENANCE', 40, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0108-000000000005', NULL, 'platform', 'DEVICE_STATUS', '停用', 'DISABLED', 50, 1, 1, 0, 0, NULL),
+
+  -- 库存流水类型
+  ('00000000-0000-0000-0109-000000000001', NULL, 'platform', 'INVENTORY_TRANSACTION_TYPE', '采购入库', 'INBOUND_PURCHASE', 10, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0109-000000000002', NULL, 'platform', 'INVENTORY_TRANSACTION_TYPE', '退货入库', 'INBOUND_RETURN', 20, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0109-000000000003', NULL, 'platform', 'INVENTORY_TRANSACTION_TYPE', '调拨入库', 'INBOUND_TRANSFER', 30, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0109-000000000004', NULL, 'platform', 'INVENTORY_TRANSACTION_TYPE', '生产入库', 'INBOUND_PRODUCTION', 40, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0109-000000000005', NULL, 'platform', 'INVENTORY_TRANSACTION_TYPE', '销售出库', 'OUTBOUND_SALES', 50, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0109-000000000006', NULL, 'platform', 'INVENTORY_TRANSACTION_TYPE', '领料出库', 'OUTBOUND_MATERIAL', 60, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0109-000000000007', NULL, 'platform', 'INVENTORY_TRANSACTION_TYPE', '调拨出库', 'OUTBOUND_TRANSFER', 70, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0109-000000000008', NULL, 'platform', 'INVENTORY_TRANSACTION_TYPE', '报废出库', 'OUTBOUND_SCRAP', 80, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0109-000000000009', NULL, 'platform', 'INVENTORY_TRANSACTION_TYPE', '盘盈调整', 'ADJUSTMENT_IN', 90, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0109-000000000010', NULL, 'platform', 'INVENTORY_TRANSACTION_TYPE', '盘亏调整', 'ADJUSTMENT_OUT', 100, 1, 1, 0, 0, NULL),
+
+  -- 询盘状态
+  ('00000000-0000-0000-0110-000000000001', NULL, 'platform', 'INQUIRY_STATUS', '未读', 'unread', 10, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0110-000000000002', NULL, 'platform', 'INQUIRY_STATUS', '已读', 'read', 20, 1, 1, 0, 0, NULL),
+  ('00000000-0000-0000-0110-000000000003', NULL, 'platform', 'INQUIRY_STATUS', '已回复', 'replied', 30, 1, 1, 0, 0, NULL)
+ON DUPLICATE KEY UPDATE
+  `tenantId` = VALUES(`tenantId`),
+  `scope` = VALUES(`scope`),
+  `type` = VALUES(`type`),
+  `label` = VALUES(`label`),
+  `value` = VALUES(`value`),
+  `sort` = VALUES(`sort`),
+  `isActive` = VALUES(`isActive`),
+  `isSystem` = VALUES(`isSystem`),
+  `allowTenantExtend` = VALUES(`allowTenantExtend`),
+  `allowTenantOverride` = VALUES(`allowTenantOverride`),
+  `parentId` = VALUES(`parentId`);

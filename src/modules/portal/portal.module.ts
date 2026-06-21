@@ -10,6 +10,7 @@ import { Category } from '../product/entities/category.entity';
 
 import { PortalConfig } from './entities/portal-config.entity';
 import { Inquiry } from './entities/inquiry.entity';
+import { PortalJob } from './entities/portal-job.entity';
 import { Product } from '../product/product.entity';
 import { Tenant } from '../tenant/entities/tenant.entity';
 import { AdminPortalController } from './admin-portal.controller';
@@ -18,7 +19,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 @Module({
   imports: [
     // 💡 注册所有需要在 PortalService 中注入的 Repository
-    TypeOrmModule.forFeature([Tenant, PortalConfig, Inquiry, Category, Product]),
+    TypeOrmModule.forFeature([Tenant, PortalConfig, Inquiry, PortalJob, Category, Product]),
     // 导入通知模块
     NotificationsModule,
   ],
