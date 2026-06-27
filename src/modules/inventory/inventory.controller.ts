@@ -17,7 +17,6 @@ import { UpdateInventoryDto } from './dto/update-inventory.dto';
 import { InboundDto, BatchInboundDto } from './dto/inbound.dto';
 import { OutboundDto, BatchOutboundDto } from './dto/outbound.dto';
 import { AdjustInventoryDto } from './dto/adjust.dto';
-import { InventoryResult } from './dto/inventory-result.dto';
 import { TenantId, Actor, ActorContext } from '@common/decorators';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 
@@ -47,8 +46,17 @@ export class InventoryController {
     @Query('sku') sku?: string,
     @Query('keyword') keyword?: string,
     @Query('stockStatus') stockStatus?: string,
+    // 是否只查绑定过库位的产品，默认 true；显式传 'false'/'0' 可查全部
+    @Query('onlyLocationBound') onlyLocationBound?: string,
   ) {
-    return this.inventoryService.findPage(tenantId, { page, pageSize, sku, keyword, stockStatus });
+    return this.inventoryService.findPage(tenantId, {
+      page,
+      pageSize,
+      sku,
+      keyword,
+      stockStatus,
+      onlyLocationBound: !(onlyLocationBound === 'false' || onlyLocationBound === '0'),
+    });
   }
 
   @Get('alerts')
@@ -121,10 +129,7 @@ export class InventoryController {
 
   @Get('available-for-outbound')
   @ApiOperation({ summary: '获取可出库库存列表（下拉选择）' })
-  getAvailableForOutbound(
-    @TenantId() tenantId: string,
-    @Query('keyword') keyword?: string,
-  ) {
+  getAvailableForOutbound(@TenantId() tenantId: string, @Query('keyword') keyword?: string) {
     return this.inventoryService.getAvailableForOutbound(tenantId, { keyword });
   }
 
@@ -176,7 +181,11 @@ export class InventoryController {
 
   @Post('inbound/batch')
   @ApiOperation({ summary: '批量入库' })
-  batchInbound(@Body() dto: BatchInboundDto, @TenantId() tenantId: string, @Actor() actor: ActorContext) {
+  batchInbound(
+    @Body() dto: BatchInboundDto,
+    @TenantId() tenantId: string,
+    @Actor() actor: ActorContext,
+  ) {
     return this.inventoryService.batchInbound(dto, tenantId, actor);
   }
 
@@ -184,7 +193,11 @@ export class InventoryController {
 
   @Post('adjust')
   @ApiOperation({ summary: '库存调整' })
-  adjust(@Body() dto: AdjustInventoryDto, @TenantId() tenantId: string, @Actor() actor: ActorContext) {
+  adjust(
+    @Body() dto: AdjustInventoryDto,
+    @TenantId() tenantId: string,
+    @Actor() actor: ActorContext,
+  ) {
     return this.inventoryService.adjust(dto, tenantId, actor);
   }
 
@@ -223,8 +236,28 @@ export class InventoryController {
 
   @Post('outbound/batch')
   @ApiOperation({ summary: '批量出库' })
-  batchOutbound(@Body() dto: BatchOutboundDto, @TenantId() tenantId: string, @Actor() actor: ActorContext) {
+  batchOutbound(
+    @Body() dto: BatchOutboundDto,
+    @TenantId() tenantId: string,
+    @Actor() actor: ActorContext,
+  ) {
     return this.inventoryService.batchOutbound(dto, tenantId, actor);
+  }
+
+  // ============ 流水删除（纠错：回滚库存并软删流水）============
+
+  @Delete('transactions/:id')
+  @ApiOperation({
+    summary: '删除手工入库/出库流水',
+    description:
+      '用于数量录错等纠错场景：在事务内反向回滚库存（主表+库位）后软删该流水。仅支持手工 INBOUND_*/OUTBOUND_* 流水。',
+  })
+  removeTransaction(
+    @Param('id') id: string,
+    @TenantId() tenantId: string,
+    @Actor() actor: ActorContext,
+  ) {
+    return this.inventoryService.removeTransaction(id, tenantId, actor);
   }
 
   // ============ 动态路由（放在最后）=============

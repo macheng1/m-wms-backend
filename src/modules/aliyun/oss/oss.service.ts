@@ -11,7 +11,14 @@ export class OssService {
       endpoint: process.env.ALIYUN_OSS_ENDPOINT,
       bucket: process.env.ALIYUN_OSS_BUCKET,
       region: process.env.ALIYUN_OSS_REGION,
+      // 让 ali-oss 生成的所有地址（put 返回 url、签名 url）默认走 https
+      secure: true,
     });
+  }
+
+  /** 兜底：把 OSS 返回地址里的 http:// 统一强制为 https://，避免存量再次出现 http 图片 */
+  private toHttps(url: string): string {
+    return typeof url === 'string' ? url.replace(/^http:\/\//i, 'https://') : url;
   }
   // 创建存储空间。
   private async putBucket() {
@@ -42,7 +49,7 @@ export class OssService {
     } catch (error) {
       console.log(error);
     }
-    return res.url;
+    return this.toHttps(res?.url);
   }
   /**
    * 获取文件的url
@@ -59,7 +66,7 @@ export class OssService {
     } catch (err) {
       console.log(err);
     }
-    return result;
+    return this.toHttps(result);
   }
   /**
    * 上传文件大小校验

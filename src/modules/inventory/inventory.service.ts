@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, SelectQueryBuilder } from 'typeorm';
 import { Inventory } from './entities/inventory.entity';
@@ -26,7 +22,11 @@ import { Device } from '../location/entities/device.entity';
 import { PtlLocationBinding } from '../ptl/entities/ptl-location-binding.entity';
 import { AlertLevel, AlertLevelInfo } from '../../common/constants/alert-level.constant';
 import { NotificationsService } from '../notifications/services/notifications.service';
-import { NotificationType, NotificationCategory, NotificationPriority } from '../notifications/interfaces/notification-type.enum';
+import {
+  NotificationType,
+  NotificationCategory,
+  NotificationPriority,
+} from '../notifications/interfaces/notification-type.enum';
 import { PtlService } from '../ptl/ptl.service';
 import { ActorContext } from '../../common/decorators';
 import * as ExcelJS from 'exceljs';
@@ -106,7 +106,9 @@ export class InventoryService {
 
   private getProductInventoryUnit(product: Product) {
     if (!product.unitId || !(product as any).inventoryUnit) {
-      throw new BadRequestException(`产品 ${product.name} 未维护库存主单位，请先在产品资料中选择单位`);
+      throw new BadRequestException(
+        `产品 ${product.name} 未维护库存主单位，请先在产品资料中选择单位`,
+      );
     }
     return (product as any).inventoryUnit;
   }
@@ -142,7 +144,11 @@ export class InventoryService {
       throw new BadRequestException('单位未启用');
     }
 
-    const directConversion = await this.unitService.findConversion(unit.code, inventoryUnit.code, tenantId);
+    const directConversion = await this.unitService.findConversion(
+      unit.code,
+      inventoryUnit.code,
+      tenantId,
+    );
     if (directConversion) {
       return { unit, conversionRatio: Number(directConversion.ratio) };
     }
@@ -192,8 +198,7 @@ export class InventoryService {
       Location,
       { id: locationId, tenantId },
       {
-        status:
-          quantity > 0 ? LocationStatus.OCCUPIED : LocationStatus.AVAILABLE,
+        status: quantity > 0 ? LocationStatus.OCCUPIED : LocationStatus.AVAILABLE,
       },
     );
   }
@@ -209,8 +214,7 @@ export class InventoryService {
       quantityDelta: number;
     },
   ): Promise<void> {
-    const { tenantId, sku, productName, locationId, unitId, quantityDelta } =
-      options;
+    const { tenantId, sku, productName, locationId, unitId, quantityDelta } = options;
 
     if (!locationId || quantityDelta === 0) return;
 
@@ -258,9 +262,7 @@ export class InventoryService {
       );
     }
     if (nextQty < lockedQty) {
-      throw new BadRequestException(
-        `库位 ${location.code} 存在锁定库存，不能扣减到锁定数量以下`,
-      );
+      throw new BadRequestException(`库位 ${location.code} 存在锁定库存，不能扣减到锁定数量以下`);
     }
 
     await queryRunner.manager.update(
@@ -275,10 +277,7 @@ export class InventoryService {
     await this.updateLocationOccupancy(queryRunner, locationId, tenantId);
   }
 
-  async create(
-    createInventoryDto: CreateInventoryDto,
-    tenantId: string,
-  ): Promise<Inventory> {
+  async create(createInventoryDto: CreateInventoryDto, tenantId: string): Promise<Inventory> {
     const inventory = this.inventoryRepository.create({
       ...createInventoryDto,
       tenantId,
@@ -391,7 +390,8 @@ export class InventoryService {
           controllerCode: row.ptlControllerCode,
           controllerName: row.ptlControllerName,
           controllerStatus: row.ptlControllerStatus,
-          ledIndex: row.ledIndex === null || row.ledIndex === undefined ? null : Number(row.ledIndex),
+          ledIndex:
+            row.ledIndex === null || row.ledIndex === undefined ? null : Number(row.ledIndex),
           defaultColor: row.defaultColor,
         },
       };
@@ -434,6 +434,8 @@ export class InventoryService {
       sku?: string;
       keyword?: string;
       stockStatus?: string; // 库存状态筛选：OUT_OF_STOCK/LOW_STOCK/IN_STOCK
+      // 是否只查「绑定过库位」的产品（在 inventory_locations 中有库位记录），默认 true
+      onlyLocationBound?: boolean;
     } = {},
   ): Promise<{
     list: any[];
@@ -441,13 +443,28 @@ export class InventoryService {
     page: number;
     pageSize: number;
   }> {
-    const { page = 1, pageSize = 10, sku, keyword, stockStatus } = options;
+    const {
+      page = 1,
+      pageSize = 10,
+      sku,
+      keyword,
+      stockStatus,
+      onlyLocationBound = true,
+    } = options;
 
     const queryBuilder = this.inventoryRepository.createQueryBuilder('inventory');
     queryBuilder
       .leftJoin('inventory.unit', 'unit')
-      .leftJoin('locations', 'location', 'inventory.locationId = location.id AND location.tenantId = :tenantId')
-      .leftJoin('products', 'product', 'inventory.sku = product.code AND product.tenantId = :tenantId')
+      .leftJoin(
+        'locations',
+        'location',
+        'inventory.locationId = location.id AND location.tenantId = :tenantId',
+      )
+      .leftJoin(
+        'products',
+        'product',
+        'inventory.sku = product.code AND product.tenantId = :tenantId',
+      )
       .select([
         'inventory',
         'unit.name as unitName',
@@ -459,6 +476,13 @@ export class InventoryService {
         'product.safetyStock as safetyStock',
       ])
       .where('inventory.tenantId = :tenantId', { tenantId });
+
+    // 默认只显示绑定过库位的产品：在 inventory_locations 中存在该 SKU 的库位记录
+    if (onlyLocationBound) {
+      queryBuilder.andWhere(
+        'EXISTS (SELECT 1 FROM inventory_locations il WHERE il.tenantId = inventory.tenantId AND il.sku = inventory.sku)',
+      );
+    }
 
     if (sku) {
       queryBuilder.andWhere('inventory.sku LIKE :sku', { sku: `%${sku}%` });
@@ -475,9 +499,13 @@ export class InventoryService {
     if (stockStatus === 'OUT_OF_STOCK') {
       queryBuilder.andWhere('(inventory.quantity - COALESCE(inventory.lockedQuantity, 0)) = 0');
     } else if (stockStatus === 'LOW_STOCK') {
-      queryBuilder.andWhere('(inventory.quantity - COALESCE(inventory.lockedQuantity, 0)) > 0 AND (inventory.quantity - COALESCE(inventory.lockedQuantity, 0)) < COALESCE(product.safetyStock, 0)');
+      queryBuilder.andWhere(
+        '(inventory.quantity - COALESCE(inventory.lockedQuantity, 0)) > 0 AND (inventory.quantity - COALESCE(inventory.lockedQuantity, 0)) < COALESCE(product.safetyStock, 0)',
+      );
     } else if (stockStatus === 'IN_STOCK') {
-      queryBuilder.andWhere('(inventory.quantity - COALESCE(inventory.lockedQuantity, 0)) >= COALESCE(product.safetyStock, 0)');
+      queryBuilder.andWhere(
+        '(inventory.quantity - COALESCE(inventory.lockedQuantity, 0)) >= COALESCE(product.safetyStock, 0)',
+      );
       queryBuilder.andWhere('product.safetyStock IS NOT NULL');
     }
 
@@ -495,11 +523,11 @@ export class InventoryService {
     const calculateStockStatus = (quantity: number, safetyStock: number | null): string => {
       const safetyStockNum = safetyStock ? Number(safetyStock) : 0;
       if (quantity === 0) {
-        return 'OUT_OF_STOCK';  // 零库存
+        return 'OUT_OF_STOCK'; // 零库存
       } else if (quantity < safetyStockNum) {
-        return 'LOW_STOCK';     // 库存不足
+        return 'LOW_STOCK'; // 库存不足
       } else {
-        return 'IN_STOCK';      // 库存充足
+        return 'IN_STOCK'; // 库存充足
       }
     };
 
@@ -511,7 +539,7 @@ export class InventoryService {
     };
 
     // 格式化返回数据
-    let list = result.entities.map((entity: any, index) => {
+    const list = result.entities.map((entity: any, index) => {
       const raw = result.raw[index];
       const numQuantity = Number(entity.quantity);
       const lockedQuantity = Number(entity.lockedQuantity || 0);
@@ -544,7 +572,8 @@ export class InventoryService {
           : `${formatNumber(availableQuantity)}`,
         // 安全库存
         safetyStock: normalizeQuantity(safetyStock),
-        safetyStockDisplay: safetyStock > 0 ? `${formatNumber(safetyStock)} ${raw.unitSymbol || ''}` : '未设置',
+        safetyStockDisplay:
+          safetyStock > 0 ? `${formatNumber(safetyStock)} ${raw.unitSymbol || ''}` : '未设置',
         // 库存状态
         stockStatus: status,
         stockStatusInfo: stockStatusMap[status],
@@ -599,8 +628,8 @@ export class InventoryService {
     } = {},
   ): Promise<
     Array<{
-      value: string;    // SKU，用于下拉选择的值
-      label: string;    // 显示文本：产品名称 (SKU)
+      value: string; // SKU，用于下拉选择的值
+      label: string; // 显示文本：产品名称 (SKU)
       sku: string;
       productName: string;
       quantity: number;
@@ -616,7 +645,10 @@ export class InventoryService {
       .leftJoin('inventory.unit', 'unit')
       .select('inventory.sku', 'sku')
       .addSelect('MAX(inventory.productName)', 'productName')
-      .addSelect('SUM(inventory.quantity - COALESCE(inventory.lockedQuantity, 0))', 'availableQuantity')
+      .addSelect(
+        'SUM(inventory.quantity - COALESCE(inventory.lockedQuantity, 0))',
+        'availableQuantity',
+      )
       .addSelect('MAX(unit.code)', 'unitCode')
       .addSelect('MAX(unit.name)', 'unitName')
       .addSelect('MAX(unit.symbol)', 'unitSymbol')
@@ -631,9 +663,7 @@ export class InventoryService {
       );
     }
 
-    queryBuilder
-      .orderBy('inventory.sku', 'ASC')
-      .take(100); // 限制最多返回100条
+    queryBuilder.orderBy('inventory.sku', 'ASC').take(100); // 限制最多返回100条
 
     const result = await queryBuilder.getRawMany();
 
@@ -652,11 +682,7 @@ export class InventoryService {
   /**
    * 入库操作
    */
-  async inbound(
-    dto: InboundDto,
-    tenantId: string,
-    actor?: ActorContext,
-  ): Promise<InventoryResult> {
+  async inbound(dto: InboundDto, tenantId: string, actor?: ActorContext): Promise<InventoryResult> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -759,8 +785,7 @@ export class InventoryService {
         tenantId,
         ...this.actorFields(actor),
       });
-      const savedTransaction =
-        await queryRunner.manager.save(transaction);
+      const savedTransaction = await queryRunner.manager.save(transaction);
 
       await queryRunner.commitTransaction();
 
@@ -917,12 +942,12 @@ export class InventoryService {
       await queryRunner.manager.update(
         Inventory,
         { id: inventory.id },
-          {
-            quantity: afterQty,
-            unitId: inventoryUnit.id,
-            ...this.lastActorFields(actor),
-          },
-        );
+        {
+          quantity: afterQty,
+          unitId: inventoryUnit.id,
+          ...this.lastActorFields(actor),
+        },
+      );
 
       // 6. 创建交易记录（出库数量为负数）
       const transaction = queryRunner.manager.create(InventoryTransaction, {
@@ -939,8 +964,7 @@ export class InventoryService {
         tenantId,
         ...this.actorFields(actor),
       });
-      const savedTransaction =
-        await queryRunner.manager.save(transaction);
+      const savedTransaction = await queryRunner.manager.save(transaction);
 
       await queryRunner.commitTransaction();
 
@@ -1028,14 +1052,129 @@ export class InventoryService {
   /**
    * 获取库存流水
    */
-  async getTransactions(
-    sku: string,
-    tenantId: string,
-  ): Promise<InventoryTransaction[]> {
+  async getTransactions(sku: string, tenantId: string): Promise<InventoryTransaction[]> {
     return this.transactionRepository.find({
       where: { sku, tenantId },
       order: { createdAt: 'DESC' },
     });
+  }
+
+  /**
+   * 删除一条手工入库/出库流水（纠错用）。
+   *
+   * 场景：入库/出库时数量等录错了，需要撤销。删除不是简单移除记录，
+   * 而是在事务内把这条流水对库存的影响「反向回滚」，再软删该流水保留审计痕迹。
+   *
+   * 关键设计：
+   * - 仅允许 INBOUND_* / OUTBOUND_* 手工流水；订单锁库(STOCK_LOCK/RELEASE)、
+   *   盘点调整(ADJUSTMENT_*)等不允许直接删，避免破坏订单/盘点一致性。
+   * - 用 afterQty - beforeQty 作为「本次对库存主单位的真实变动」来回滚，
+   *   而不是 transaction.quantity（入库可换算单位，quantity 是操作单位、口径不同）。
+   * - 回滚后库存会变负、或低于锁定库存时直接拦截（如这批入库的货已被出库）。
+   * - 软删（deletedAt）后列表自动不再展示，数据库留痕可追溯。
+   *
+   * @param id 流水ID
+   * @param tenantId 租户ID
+   * @param actor 操作人上下文（用于回写库存「最后操作人」）
+   */
+  async removeTransaction(
+    id: string,
+    tenantId: string,
+    actor?: ActorContext,
+  ): Promise<{ sku: string; reversedQty: number; afterQty: number }> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const tx = await queryRunner.manager.findOne(InventoryTransaction, {
+        where: { id, tenantId },
+      });
+      if (!tx) {
+        throw new NotFoundException('流水记录不存在');
+      }
+
+      // 仅允许删手工出入库；其余类型（订单锁库/释放、盘点调整）禁止直接删
+      const type = tx.transactionType;
+      const isManual = type.startsWith('INBOUND_') || type.startsWith('OUTBOUND_');
+      if (!isManual) {
+        throw new BadRequestException(
+          '仅支持删除手工入库/出库流水，订单占用、库存调整等记录不可直接删除',
+        );
+      }
+
+      // 本次对库存主单位的真实变动（入库为正、出库为负），回滚即取其相反数
+      const beforeQty = Number(tx.beforeQty);
+      const afterQtyOrig = Number(tx.afterQty);
+      const originalDelta = afterQtyOrig - beforeQty;
+      const reverseDelta = -originalDelta;
+
+      // 锁定库存主记录
+      const inventory = await queryRunner.manager.findOne(Inventory, {
+        where: { sku: tx.sku, tenantId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!inventory) {
+        throw new BadRequestException('对应库存记录不存在，无法回滚该流水');
+      }
+
+      const currentQty = Number(inventory.quantity);
+      const lockedQty = Number(inventory.lockedQuantity || 0);
+      const nextQty = currentQty + reverseDelta;
+
+      // 存在锁定库存（有订单占用）时一律不允许删除，避免回滚破坏订单占用一致性
+      if (lockedQty > 0) {
+        throw new BadRequestException(
+          `该 SKU 存在锁定库存 ${formatNumber(lockedQty)}（已被订单占用），不能删除该出入库记录，请先释放占用`,
+        );
+      }
+      if (nextQty < 0) {
+        throw new BadRequestException(
+          `无法删除：回滚后库存将为负（当前 ${formatNumber(currentQty)}，需回滚 ${formatNumber(reverseDelta)}）。该批货物可能已被出库或消耗`,
+        );
+      }
+
+      // 1. 回滚库存主表数量
+      await queryRunner.manager.update(
+        Inventory,
+        { id: inventory.id },
+        {
+          quantity: nextQty,
+          ...this.lastActorFields(actor),
+        },
+      );
+
+      // 2. 回滚库位库存（changeLocationStock 内部已校验库位禁用/不足/锁定）
+      if (tx.locationId && reverseDelta !== 0) {
+        await this.changeLocationStock(queryRunner, {
+          tenantId,
+          sku: tx.sku,
+          productName: tx.productName,
+          locationId: tx.locationId,
+          unitId: inventory.unitId,
+          quantityDelta: reverseDelta,
+        });
+      }
+
+      // 3. 软删该流水（保留审计痕迹，列表默认不再展示）
+      await queryRunner.manager.softDelete(InventoryTransaction, { id: tx.id, tenantId });
+
+      await queryRunner.commitTransaction();
+
+      // 回滚后刷新该货位 PTL 底色
+      this.notifyPtlStockChange(tenantId, tx.sku, tx.locationId);
+
+      return {
+        sku: tx.sku,
+        reversedQty: normalizeQuantity(reverseDelta),
+        afterQty: normalizeQuantity(nextQty),
+      };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   private getTransactionDirection(transactionType: TransactionType) {
@@ -1058,14 +1197,20 @@ export class InventoryService {
    * @param tenantId 租户ID
    * @returns 已应用 join / select / 租户 where 的 QueryBuilder
    */
-  private buildTransactionListQuery(
-    tenantId: string,
-  ): SelectQueryBuilder<InventoryTransaction> {
+  private buildTransactionListQuery(tenantId: string): SelectQueryBuilder<InventoryTransaction> {
     return this.transactionRepository
       .createQueryBuilder('transaction')
       .leftJoin('units', 'unit', 'transaction.unitId = unit.id')
-      .leftJoin('locations', 'location', 'transaction.locationId = location.id AND location.tenantId = :tenantId')
-      .leftJoin('products', 'product', 'transaction.sku = product.code AND transaction.tenantId = product.tenantId')
+      .leftJoin(
+        'locations',
+        'location',
+        'transaction.locationId = location.id AND location.tenantId = :tenantId',
+      )
+      .leftJoin(
+        'products',
+        'product',
+        'transaction.sku = product.code AND transaction.tenantId = product.tenantId',
+      )
       .leftJoin('units', 'inventoryUnit', 'product.unitId = inventoryUnit.id')
       .select([
         'transaction',
@@ -1245,7 +1390,14 @@ export class InventoryService {
 
     // 与列表同一套查询基座 + 筛选，保证「导出的就是看到的」；不加分页，导出全部
     const queryBuilder = this.buildTransactionListQuery(tenantId);
-    this.applyTransactionListFilters(queryBuilder, { sku, type, orderNo, startDate, endDate, source });
+    this.applyTransactionListFilters(queryBuilder, {
+      sku,
+      type,
+      orderNo,
+      startDate,
+      endDate,
+      source,
+    });
     queryBuilder.orderBy('transaction.createdAt', 'DESC');
 
     const result = await queryBuilder.getRawAndEntities();
@@ -1324,7 +1476,14 @@ export class InventoryService {
 
     // 复用流水查询基座 + 通用流水筛选（与导出口径一致）
     const queryBuilder = this.buildTransactionListQuery(tenantId);
-    this.applyTransactionListFilters(queryBuilder, { sku, type, orderNo, startDate, endDate, source });
+    this.applyTransactionListFilters(queryBuilder, {
+      sku,
+      type,
+      orderNo,
+      startDate,
+      endDate,
+      source,
+    });
 
     // 流水按时间倒序：最新记录排在最前
     queryBuilder.orderBy('transaction.createdAt', 'DESC');
@@ -1366,7 +1525,16 @@ export class InventoryService {
     page: number;
     pageSize: number;
   }> {
-    const { page = 1, pageSize = 10, sku, transactionType, orderNo, startDate, endDate, source } = options;
+    const {
+      page = 1,
+      pageSize = 10,
+      sku,
+      transactionType,
+      orderNo,
+      startDate,
+      endDate,
+      source,
+    } = options;
 
     // 复用流水查询基座，再追加入库特有的过滤条件
     const queryBuilder = this.buildTransactionListQuery(tenantId);
@@ -1442,7 +1610,16 @@ export class InventoryService {
     page: number;
     pageSize: number;
   }> {
-    const { page = 1, pageSize = 10, sku, transactionType, orderNo, startDate, endDate, source } = options;
+    const {
+      page = 1,
+      pageSize = 10,
+      sku,
+      transactionType,
+      orderNo,
+      startDate,
+      endDate,
+      source,
+    } = options;
 
     // 复用流水查询基座，再追加出库特有的过滤条件
     const queryBuilder = this.buildTransactionListQuery(tenantId);
@@ -1519,15 +1696,24 @@ export class InventoryService {
     // 先分页查 ID，再查详情，避免 TypeORM 在 join + take 场景下生成 DISTINCT 外层查询时丢失排序别名。
     const baseQueryBuilder = this.inventoryRepository.createQueryBuilder('inventory');
     baseQueryBuilder
-      .leftJoin('products', 'product', 'inventory.sku = product.code AND product.tenantId = :tenantId')
+      .leftJoin(
+        'products',
+        'product',
+        'inventory.sku = product.code AND product.tenantId = :tenantId',
+      )
       .where('inventory.tenantId = :tenantId', { tenantId })
-      .andWhere('(inventory.quantity - COALESCE(inventory.lockedQuantity, 0)) < COALESCE(product.safetyStock, 0)');
+      .andWhere(
+        '(inventory.quantity - COALESCE(inventory.lockedQuantity, 0)) < COALESCE(product.safetyStock, 0)',
+      );
 
     const total = await baseQueryBuilder.clone().getCount();
     const idRows = await baseQueryBuilder
       .clone()
       .select('inventory.id', 'id')
-      .addSelect('(inventory.quantity - COALESCE(inventory.lockedQuantity, 0))', 'availableQuantitySort')
+      .addSelect(
+        '(inventory.quantity - COALESCE(inventory.lockedQuantity, 0))',
+        'availableQuantitySort',
+      )
       .orderBy('availableQuantitySort', 'ASC')
       .addOrderBy('inventory.createdAt', 'ASC')
       .offset((page - 1) * pageSize)
@@ -1540,7 +1726,11 @@ export class InventoryService {
         ? await this.inventoryRepository
             .createQueryBuilder('inventory')
             .leftJoin('inventory.unit', 'unit')
-            .leftJoin('products', 'product', 'inventory.sku = product.code AND product.tenantId = :tenantId')
+            .leftJoin(
+              'products',
+              'product',
+              'inventory.sku = product.code AND product.tenantId = :tenantId',
+            )
             .select([
               'inventory',
               'unit.name as unitName',
@@ -1554,9 +1744,7 @@ export class InventoryService {
         : { entities: [], raw: [] };
     const rawById = new Map(result.raw.map((raw: any) => [raw.inventory_id, raw]));
     const entityById = new Map(result.entities.map((entity: any) => [entity.id, entity]));
-    const orderedEntities = ids
-      .map((id) => entityById.get(id))
-      .filter(Boolean);
+    const orderedEntities = ids.map((id) => entityById.get(id)).filter(Boolean);
 
     // 预警级别统一用共享方法 calculateAlertLevel（与预警推送口径一致）
 
@@ -1578,15 +1766,22 @@ export class InventoryService {
         unitCode: raw.unitCode,
         unitSymbol: raw.unitSymbol,
         // quantity 带单位显示（整数不显示小数位）
-        quantityDisplay: raw.unitSymbol ? `${formatNumber(numQuantity)} ${raw.unitSymbol}` : formatNumber(numQuantity),
+        quantityDisplay: raw.unitSymbol
+          ? `${formatNumber(numQuantity)} ${raw.unitSymbol}`
+          : formatNumber(numQuantity),
         lockedQuantity: normalizeQuantity(lockedQuantity),
-        lockedQuantityDisplay: raw.unitSymbol ? `${formatNumber(lockedQuantity)} ${raw.unitSymbol}` : formatNumber(lockedQuantity),
+        lockedQuantityDisplay: raw.unitSymbol
+          ? `${formatNumber(lockedQuantity)} ${raw.unitSymbol}`
+          : formatNumber(lockedQuantity),
         availableQuantity: normalizeQuantity(availableQuantity),
-        availableQuantityDisplay: raw.unitSymbol ? `${formatNumber(availableQuantity)} ${raw.unitSymbol}` : formatNumber(availableQuantity),
+        availableQuantityDisplay: raw.unitSymbol
+          ? `${formatNumber(availableQuantity)} ${raw.unitSymbol}`
+          : formatNumber(availableQuantity),
         // 将 decimal 类型转换为数字类型（整数返回整数，小数返回小数）
         safetyStock: normalizeQuantity(safetyStock),
         // 格式化显示字段
-        safetyStockDisplay: safetyStock > 0 ? `${formatNumber(safetyStock)} ${raw.unitSymbol || ''}` : '未设置',
+        safetyStockDisplay:
+          safetyStock > 0 ? `${formatNumber(safetyStock)} ${raw.unitSymbol || ''}` : '未设置',
         // 预警级别
         alertLevel: alertLevel,
         alertLevelValue: alertInfo?.level,
@@ -1650,9 +1845,7 @@ export class InventoryService {
 
       // 3. 判断调整类型并计算调整后的数量
       const adjustType =
-        dto.quantity >= 0
-          ? TransactionType.ADJUSTMENT_IN
-          : TransactionType.ADJUSTMENT_OUT;
+        dto.quantity >= 0 ? TransactionType.ADJUSTMENT_IN : TransactionType.ADJUSTMENT_OUT;
       const absQuantity = Math.abs(dto.quantity);
       const adjustedQty = absQuantity;
 
@@ -1716,10 +1909,7 @@ export class InventoryService {
         productName: product.name,
         locationId: dto.locationId || inventory!.locationId,
         unitId: inventoryUnit.id,
-        quantityDelta:
-          adjustType === TransactionType.ADJUSTMENT_IN
-            ? adjustedQty
-            : -adjustedQty,
+        quantityDelta: adjustType === TransactionType.ADJUSTMENT_IN ? adjustedQty : -adjustedQty,
       });
 
       const afterQty = Number(inventory!.quantity);
@@ -1776,7 +1966,10 @@ export class InventoryService {
       // 将 decimal 类型转换为数字类型（整数返回整数，小数返回小数）
       const normalizedBeforeQty = normalizeQuantity(beforeQty);
       const normalizedAfterQty = normalizeQuantity(afterQty);
-      const displayQuantity = adjustType === TransactionType.ADJUSTMENT_IN ? `+${formatNumber(absQuantity)}` : `-${formatNumber(absQuantity)}`;
+      const displayQuantity =
+        adjustType === TransactionType.ADJUSTMENT_IN
+          ? `+${formatNumber(absQuantity)}`
+          : `-${formatNumber(absQuantity)}`;
 
       return {
         sku: dto.sku,
