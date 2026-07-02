@@ -254,6 +254,13 @@ export class MiniappApiController {
     return this.orderService.cancelMiniappOrder(req.user.memberId || req.user.sub, id);
   }
 
+  @Post('orders/my/:id/confirm-receipt')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '小程序确认收货' })
+  confirmMyOrderReceipt(@Req() req, @Param('id') id: string) {
+    return this.orderService.confirmMiniappReceipt(req.user.memberId || req.user.sub, id);
+  }
+
   @Get('yellow-pages/:id')
   @Public()
   @ApiOperation({ summary: '小程序企业黄页详情' })

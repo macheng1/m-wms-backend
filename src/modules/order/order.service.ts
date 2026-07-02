@@ -81,9 +81,7 @@ export class OrderService {
       [OrderStatus.PENDING_REVIEW]: [OrderStatus.CONFIRMED, OrderStatus.REJECTED, OrderStatus.CANCELLED],
       [OrderStatus.CONFIRMED]: [
         OrderStatus.PROCESSING,
-        OrderStatus.STOCK_LOCKED,
         OrderStatus.PENDING_SHIPMENT,
-        OrderStatus.OUT_OF_STOCK,
         OrderStatus.CANCELLED,
       ],
       [OrderStatus.PROCESSING]: [OrderStatus.COMPLETED, OrderStatus.CANCELLED],
@@ -795,6 +793,43 @@ export class OrderService {
     const { items, status, ...baseInfo } = updateOrderDto as any;
     await this.orderRepository.update({ id, tenantId }, baseInfo);
     return this.findOne(id, tenantId);
+  }
+
+  async confirmMiniappReceipt(memberId: string, id: string) {
+    const order = await this.orderRepository.findOne({
+      where: { id, miniappMemberId: memberId, source: OrderSource.MINIAPP },
+      relations: ['items'],
+      order: { items: { createdAt: 'ASC' } },
+    });
+    if (!order) throw new BusinessException('订单不存在');
+    if (order.status !== OrderStatus.SHIPPED) {
+      throw new BusinessException('只有已发货订单可以确认收货');
+    }
+
+    const fromStatus = order.status;
+    order.status = OrderStatus.COMPLETED;
+    order.completedAt = new Date();
+
+    return this.dataSource.transaction(async (manager) => {
+      const saved = await manager.save(order);
+      await manager.save(
+        manager.create(OrderFlowLog, {
+          tenantId: order.tenantId,
+          orderId: order.id,
+          fromStatus,
+          toStatus: OrderStatus.COMPLETED,
+          action: 'MINIAPP_CONFIRM_RECEIPT',
+          operatorId: memberId,
+          operatorName: order.customerName,
+          remark: '小程序用户确认收货',
+        }),
+      );
+      return manager.findOne(Order, {
+        where: { id: saved.id, miniappMemberId: memberId, source: OrderSource.MINIAPP },
+        relations: ['items'],
+        order: { items: { createdAt: 'ASC' } },
+      });
+    });
   }
 
   async updateStatus(id: string, dto: UpdateOrderStatusDto, tenantId: string) {

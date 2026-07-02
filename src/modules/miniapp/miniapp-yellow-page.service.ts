@@ -386,27 +386,37 @@ export class MiniappYellowPageService {
   private toProductSpecList(product: Product) {
     const specs = product.specs || {};
     const attributes = product.category?.attributes || [];
-    const attributeMap = new Map<string, (typeof attributes)[number]>();
+    const hasValue = (key: string) => specs[key] !== undefined && specs[key] !== null && specs[key] !== '';
+    const toSpecItem = (key: string, attribute?: (typeof attributes)[number]) => {
+      const value = specs[key];
+      const unit = attribute?.unit || '';
+      const label = attribute?.name || key;
 
-    attributes.forEach((attribute) => {
-      if (attribute.code) attributeMap.set(attribute.code, attribute);
-      if (attribute.name) attributeMap.set(attribute.name, attribute);
-    });
+      return {
+        key,
+        label,
+        value,
+        unit,
+        text: `${label}：${value}${unit}`,
+      };
+    };
 
-    return Object.keys(specs)
-      .filter((key) => specs[key] !== undefined && specs[key] !== null && specs[key] !== '')
-      .map((key) => {
-        const attribute = attributeMap.get(key);
-        const value = specs[key];
-        const unit = attribute?.unit || '';
-
-        return {
-          key,
-          label: attribute?.name || key,
-          value,
-          unit,
-          text: `${attribute?.name || key}：${value}${unit}`,
-        };
+    const matchedKeys = new Set<string>();
+    const orderedItems = attributes
+      .slice()
+      .sort((a, b) => (a.code || a.name || '').localeCompare(b.code || b.name || '', 'zh-Hans-CN', { numeric: true }))
+      .flatMap((attribute) => {
+        const key = [attribute.code, attribute.name].find((candidate) => candidate && hasValue(candidate));
+        if (!key) return [];
+        matchedKeys.add(key);
+        return [toSpecItem(key, attribute)];
       });
+
+    const extraItems = Object.keys(specs)
+      .filter((key) => !matchedKeys.has(key) && hasValue(key))
+      .sort((a, b) => a.localeCompare(b, 'zh-Hans-CN', { numeric: true }))
+      .map((key) => toSpecItem(key));
+
+    return [...orderedItems, ...extraItems];
   }
 }
